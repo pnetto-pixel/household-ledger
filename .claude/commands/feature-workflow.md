@@ -1,5 +1,5 @@
 ---
-description: Orquestra o pipeline de 4 agentes — planeja, coda, audita+abre PR, atualiza docs. Para antes do merge (revisão humana).
+description: Orquestra o pipeline de 4 agentes — planeja, coda, audita+abre PR+merge, atualiza docs.
 argument-hint: "[nome ou número do item do roadmap, opcional]"
 ---
 
@@ -19,14 +19,14 @@ Feature alvo (se especificada pelo usuário): **$ARGUMENTS**
 
 3. **Auditar + entregar** — invoque o subagent `feature-auditor` passando o relatório do coder.
    - Se REPROVAR, devolva os achados ao `feature-coder` para correção e re-audite. No máximo 2 rodadas; depois disso, pare e reporte ao usuário.
-   - Se APROVAR, ele cria branch, commita, dá push e abre o PR. **Ninguém faz merge** — esse é o portão humano.
+   - Se APROVAR, ele cria branch, commita, dá push, abre o PR e faz o merge (squash).
 
 4. **Documentar** — invoque o subagent `docs-updater` passando o resumo do coder + o PR do auditor. Ele atualiza `household-ledger.md` (seção Roadmap e, se preciso, modelo de dados / UI).
    - Garanta que as mudanças de docs entrem no mesmo PR da feature (commit + push na mesma branch). Se o PR já foi aberto, faça commit das docs na branch e o PR se atualiza sozinho.
 
 ## Regras
 
-- **Nunca faça merge nem habilite auto-merge.** O pipeline termina com o PR aberto, pronto para revisão no GitHub mobile.
+- **Sempre faça o merge** (squash) após o PR ser aberto e aprovado. O pipeline termina com a feature mergeada em `main`.
 - **Não altere o contrato da API nem o formato Redis** (`household:*:transactions`, GET/PUT em `/api/transactions`) sem necessidade explícita.
 - **Não altere o modelo de transação fixo** nem a regra de que `Transfer` é excluída de todos os totais e gráficos.
 - Modelo default Sonnet; só sugira Opus para algum passo se a feature for estruturalmente complexa.
