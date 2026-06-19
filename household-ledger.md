@@ -118,15 +118,29 @@ T-Mobile, United Explorer, Venmo, Venture X`.
 Mobile-first, tema escuro (`#0b0d10`). Tab bar inferior fixa com 5 abas:
 
 1. **Dashboard** — saldo líquido, receitas/despesas totais, resumo do mês
-   corrente e transações recentes.
+   corrente e transações recentes. Filtrável por mês/ano via `PeriodFilter`
+   (inicia no mês corrente).
 2. **Charts** — pizza de despesas por categoria e barras de receita vs
-   despesa por mês (recharts).
-3. **Transactions** — lista filtrável por categoria e conta, com exclusão.
+   despesa por mês (recharts). Filtrável por mês/ano via `PeriodFilter`
+   compartilhado (inicia em "All").
+3. **Transactions** — lista com busca textual livre, filtros por intervalo
+   de datas (from/to), categoria e conta, botão "Clear filters" e contador
+   de resultados. Suporta edição via `EditModal` (PUT) e exclusão.
 4. **Add** — formulário para adicionar uma transação.
-5. **Import** — importação de CSV (papaparse) com prévia antes de confirmar.
+5. **Import** — importação de CSV (papaparse) com mapeamento de colunas
+   configurável (`IMPORT_FIELDS`, `guessMapping`, selects por campo com
+   hints de fallback) e contador "Showing 50 of N rows" na prévia.
 
 **Toggle do olho** no cabeçalho esconde/mostra todos os valores
 monetários globalmente (persistido em `localStorage`).
+
+**SaveIndicator** no cabeçalho exibe o estado do save: `saving`, `saved HH:MM`,
+`unsaved` ou `error`. O save usa debounce de 800 ms (`scheduleSave`), com
+flush via `beforeunload`. Erros de save são rastreados em `saveError`
+separado do `error` geral.
+
+**EditModal** abre com todos os campos da transação, `role="dialog"`,
+`aria-modal` e `autoFocus`; persiste via PUT em `api/transactions.js`.
 
 O app inicia com array vazio quando não há dados salvos (sem SEED).
 
@@ -142,11 +156,11 @@ O app inicia com array vazio quando não há dados salvos (sem SEED).
 - [x] Documentação
 
 ### Fase 2 — Refino de UX
-- [ ] Edição de transações (não só add/delete)
-- [ ] Busca textual e filtros por intervalo de datas
-- [ ] Filtro por mês/ano no Dashboard e Charts
-- [ ] Save com debounce e indicador de estado mais rico
-- [ ] Mapeamento de colunas configurável no import
+- [x] Edição de transações (não só add/delete)
+- [x] Busca textual e filtros por intervalo de datas
+- [x] Filtro por mês/ano no Dashboard e Charts
+- [x] Save com debounce e indicador de estado mais rico
+- [x] Mapeamento de colunas configurável no import
 
 ### Fase 3 — Análise
 - [ ] Orçamentos por categoria e alertas
