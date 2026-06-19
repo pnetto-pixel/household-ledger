@@ -168,6 +168,9 @@ export default function App() {
   const [savedAt, setSavedAt] = useState(null);
 
   const loadedRef = useRef(false);
+  const debounceRef = useRef(null);
+  const [dirty, setDirty] = useState(false);
+  const [saveError, setSaveError] = useState(null);
 
   // Format a money value, respecting the global eye toggle.
   const money = useCallback(
@@ -211,8 +214,8 @@ export default function App() {
 
   // ---- Save (debounced after mutations) ------------------------------------
   const save = useCallback(async (next) => {
+    setDirty(false);
     setSaving(true);
-    setError("");
     try {
       const res = await fetch("/api/transactions", {
         method: "PUT",
@@ -225,45 +228,69 @@ export default function App() {
       }
       const data = await res.json();
       setSavedAt(data.savedAt || new Date().toISOString());
+      setSaveError(null);
     } catch (err) {
-      setError(err.message);
+      setSaveError(err.message || "Save failed");
+      setTimeout(() => setSaveError(null), 5000);
     } finally {
       setSaving(false);
     }
   }, []);
+
+  const scheduleSave = useCallback(
+    (next) => {
+      setDirty(true);
+      setSaveError(null);
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+      debounceRef.current = setTimeout(() => save(next), 800);
+    },
+    [save]
+  );
+
+  // Flush pending save before page unload.
+  useEffect(() => {
+    const flush = () => {
+      if (debounceRef.current) {
+        clearTimeout(debounceRef.current);
+        if (dirty) save(transactions);
+      }
+    };
+    window.addEventListener("beforeunload", flush);
+    return () => window.removeEventListener("beforeunload", flush);
+  }, [dirty, transactions, save]);
 
   // ---- Mutations -----------------------------------------------------------
   const addTransactions = useCallback(
     (rows) => {
       setTransactions((prev) => {
         const next = [...rows, ...prev];
-        save(next);
+        scheduleSave(next);
         return next;
       });
     },
-    [save]
+    [scheduleSave]
   );
 
   const deleteTransaction = useCallback(
     (id) => {
       setTransactions((prev) => {
         const next = prev.filter((t) => t.id !== id);
-        save(next);
+        scheduleSave(next);
         return next;
       });
     },
-    [save]
+    [scheduleSave]
   );
 
   const updateTransaction = useCallback(
     (updated) => {
       setTransactions((prev) => {
         const next = prev.map((t) => (t.id === updated.id ? updated : t));
-        save(next);
+        scheduleSave(next);
         return next;
       });
     },
-    [save]
+    [scheduleSave]
   );
 
   // ---- Eye toggle ----------------------------------------------------------
@@ -295,6 +322,8 @@ export default function App() {
         onLogout={logout}
         saving={saving}
         savedAt={savedAt}
+        dirty={dirty}
+        saveError={saveError}
       />
 
       {error ? <div style={S.errorBar}>{error}</div> : null}
@@ -430,16 +459,52 @@ function Login({ onAuthed }) {
 // Header + TabBar
 // ===========================================================================
 
-function Header({ hideValues, onToggleHide, onRefresh, onLogout, saving, savedAt }) {
+function SaveIndicator({ saving, dirty, savedAt, saveError }) {
+  if (saveError) {
+    return (
+      <span style={{ fontSize: 11, color: "#f87171", display: "flex", alignItems: "center", gap: 3 }}>
+        <span>✕</span>
+        <span style={{ maxWidth: 120, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+          {saveError}
+        </span>
+      </span>
+    );
+  }
+  if (saving) {
+    return (
+      <span style={{ fontSize: 11, color: "#8b94a3", display: "flex", alignItems: "center", gap: 3 }}>
+        <span style={{ display: "inline-block", animation: "hl-spin 1s linear infinite" }}>·</span>
+        <span>saving…</span>
+      </span>
+    );
+  }
+  if (dirty && !saving) {
+    return (
+      <span style={{ fontSize: 11, color: "#fbbf24", display: "flex", alignItems: "center", gap: 3 }}>
+        <span>●</span>
+        <span>unsaved…</span>
+      </span>
+    );
+  }
+  if (savedAt && !dirty && !saving && !saveError) {
+    const timeStr = new Date(savedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    return (
+      <span style={{ fontSize: 11, color: "#34d399", display: "flex", alignItems: "center", gap: 3 }}>
+        <span>✓</span>
+        <span>saved {timeStr}</span>
+      </span>
+    );
+  }
+  return null;
+}
+
+function Header({ hideValues, onToggleHide, onRefresh, onLogout, saving, savedAt, dirty, saveError }) {
   return (
     <header style={S.header}>
+      <style>{`@keyframes hl-spin { 0%,100%{opacity:1} 50%{opacity:0.2} }`}</style>
       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
         <span style={{ fontWeight: 700, fontSize: 17 }}>Household Ledger</span>
-        {saving ? (
-          <span style={{ fontSize: 11, color: "#8b94a3" }}>saving…</span>
-        ) : savedAt ? (
-          <span style={{ fontSize: 11, color: "#475569" }}>saved</span>
-        ) : null}
+        <SaveIndicator saving={saving} dirty={dirty} savedAt={savedAt} saveError={saveError} />
       </div>
       <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
         <IconButton onClick={onRefresh} title="Refresh">
@@ -718,11 +783,14 @@ function Charts({ transactions, hideValues }) {
   }
 
   const fmtAxis = (v) => (hideValues ? "" : `$${Math.round(v)}`);
+  const isSingleMonth = month !== "All";
+  const label = periodLabel(year, month);
 
   return (
     <div style={S.col}>
+      <h2 style={{ margin: "4px 0 0", fontSize: 16, color: "#e5e7eb", fontWeight: 600 }}>{label}</h2>
       <PeriodFilter year={year} month={month} setYear={setYear} setMonth={setMonth} years={years} />
-      {scoped.length === 0 ? <Empty>No data for {periodLabel(year, month)}.</Empty> : null}
+      {scoped.length === 0 ? <Empty>No data for {label}.</Empty> : null}
       <h3 style={S.sectionTitle}>Spending by Category</h3>
       <div style={{ ...S.card, height: 280 }}>
         {byCategory.length === 0 ? (
@@ -749,20 +817,28 @@ function Charts({ transactions, hideValues }) {
         )}
       </div>
 
-      <h3 style={S.sectionTitle}>Income vs Expenses (Monthly)</h3>
-      <div style={{ ...S.card, height: 300 }}>
-        <ResponsiveContainer width="100%" height="100%">
-          <BarChart data={byMonth} margin={{ top: 8, right: 8, left: 8, bottom: 8 }}>
-            <CartesianGrid strokeDasharray="3 3" stroke="#1f2937" />
-            <XAxis dataKey="month" tick={{ fill: "#8b94a3", fontSize: 11 }} />
-            <YAxis tick={{ fill: "#8b94a3", fontSize: 11 }} tickFormatter={fmtAxis} width={48} />
-            {!hideValues && <Tooltip formatter={(v) => usd.format(v)} />}
-            <Legend wrapperStyle={{ fontSize: 12 }} />
-            <Bar dataKey="income" name="Income" fill="#34d399" radius={[4, 4, 0, 0]} />
-            <Bar dataKey="expenses" name="Expenses" fill="#f87171" radius={[4, 4, 0, 0]} />
-          </BarChart>
-        </ResponsiveContainer>
-      </div>
+      {isSingleMonth ? (
+        <p style={{ color: "#8b94a3", fontSize: 12, margin: "4px 0 0", textAlign: "center" }}>
+          Monthly comparison not available for single-month view.
+        </p>
+      ) : (
+        <>
+          <h3 style={S.sectionTitle}>Income vs Expenses (Monthly)</h3>
+          <div style={{ ...S.card, height: 300 }}>
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={byMonth} margin={{ top: 8, right: 8, left: 8, bottom: 8 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#1f2937" />
+                <XAxis dataKey="month" tick={{ fill: "#8b94a3", fontSize: 11 }} />
+                <YAxis tick={{ fill: "#8b94a3", fontSize: 11 }} tickFormatter={fmtAxis} width={48} />
+                {!hideValues && <Tooltip formatter={(v) => usd.format(v)} />}
+                <Legend wrapperStyle={{ fontSize: 12 }} />
+                <Bar dataKey="income" name="Income" fill="#34d399" radius={[4, 4, 0, 0]} />
+                <Bar dataKey="expenses" name="Expenses" fill="#f87171" radius={[4, 4, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </>
+      )}
     </div>
   );
 }
@@ -859,7 +935,7 @@ function Transactions({ transactions, money, onDelete, onUpdate }) {
       </div>
 
       {filtered.length === 0 ? (
-        <Empty>Nothing here.</Empty>
+        <Empty>{hasFilters ? "No transactions match your filters." : "Nothing here."}</Empty>
       ) : (
         <div style={S.list}>
           {filtered.map((t) => (
@@ -1045,8 +1121,8 @@ function EditModal({ txn, onClose, onSave }) {
   };
 
   return (
-    <div style={S.modalOverlay} onClick={onClose}>
-      <div style={S.modalCard} onClick={(e) => e.stopPropagation()}>
+    <div style={S.modalOverlay} onClick={onClose} role="dialog" aria-modal="true">
+      <div style={S.modalCard} onClick={(e) => e.stopPropagation()} aria-label="Edit transaction">
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
           <h3 style={{ ...S.sectionTitle, margin: 0 }}>Edit Transaction</h3>
           <button onClick={onClose} style={S.deleteBtn} title="Close">
@@ -1059,6 +1135,7 @@ function EditModal({ txn, onClose, onSave }) {
           </Field>
           <Field label="Description">
             <input
+              autoFocus
               type="text"
               value={description}
               onChange={(e) => setDescription(e.target.value)}
@@ -1229,22 +1306,30 @@ function ImportTransactions({ onImport }) {
         <>
           <h3 style={S.sectionTitle}>Column Mapping</h3>
           <div style={S.col}>
-            {IMPORT_FIELDS.map((f) => (
-              <Field key={f.key} label={f.required ? `${f.label} *` : f.label}>
-                <select
-                  value={mapping[f.key] || ""}
-                  onChange={(e) => setColumn(f.key, e.target.value)}
-                  style={S.input}
-                >
-                  <option value="">— none —</option>
-                  {headers.map((h) => (
-                    <option key={h} value={h}>
-                      {h}
-                    </option>
-                  ))}
-                </select>
-              </Field>
-            ))}
+            {IMPORT_FIELDS.map((f) => {
+              const fallbackHint =
+                f.key === "category"
+                  ? "— use default: Other —"
+                  : f.key === "account"
+                  ? `— use default: ${ACCOUNTS[0]} —`
+                  : "— skip —";
+              return (
+                <Field key={f.key} label={f.required ? `${f.label} *` : f.label}>
+                  <select
+                    value={mapping[f.key] || ""}
+                    onChange={(e) => setColumn(f.key, e.target.value)}
+                    style={S.input}
+                  >
+                    <option value="">{f.required ? "— none —" : fallbackHint}</option>
+                    {headers.map((h) => (
+                      <option key={h} value={h}>
+                        {h}
+                      </option>
+                    ))}
+                  </select>
+                </Field>
+              );
+            })}
           </div>
 
           {missingRequired.length > 0 ? (
@@ -1255,6 +1340,7 @@ function ImportTransactions({ onImport }) {
 
           <div style={{ color: "#8b94a3", fontSize: 12 }}>
             {rows.length} of {rawRows.length} rows ready
+            {rows.length > 50 ? ` · Showing 50 of ${rows.length} rows` : null}
           </div>
           <div style={{ ...S.list, maxHeight: 320, overflowY: "auto" }}>
             {rows.slice(0, 50).map((t) => (
