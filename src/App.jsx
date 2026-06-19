@@ -8,6 +8,9 @@ import {
   Eye,
   EyeOff,
   Trash2,
+  Pencil,
+  Search,
+  X,
   LogOut,
   RefreshCw,
 } from "lucide-react";
@@ -252,6 +255,17 @@ export default function App() {
     [save]
   );
 
+  const updateTransaction = useCallback(
+    (updated) => {
+      setTransactions((prev) => {
+        const next = prev.map((t) => (t.id === updated.id ? updated : t));
+        save(next);
+        return next;
+      });
+    },
+    [save]
+  );
+
   // ---- Eye toggle ----------------------------------------------------------
   const toggleHide = useCallback(() => {
     setHideValues((v) => {
@@ -297,6 +311,7 @@ export default function App() {
             transactions={transactions}
             money={money}
             onDelete={deleteTransaction}
+            onUpdate={updateTransaction}
           />
         ) : tab === "add" ? (
           <AddTransaction onAdd={(row) => addTransactions([row])} />
@@ -509,23 +524,103 @@ function computeTotals(rows) {
 }
 
 // ===========================================================================
+// Period filter (month / year)
+// ===========================================================================
+
+const MONTHS = [
+  { v: "01", l: "Jan" },
+  { v: "02", l: "Feb" },
+  { v: "03", l: "Mar" },
+  { v: "04", l: "Apr" },
+  { v: "05", l: "May" },
+  { v: "06", l: "Jun" },
+  { v: "07", l: "Jul" },
+  { v: "08", l: "Aug" },
+  { v: "09", l: "Sep" },
+  { v: "10", l: "Oct" },
+  { v: "11", l: "Nov" },
+  { v: "12", l: "Dec" },
+];
+
+// Distinct years present in the data, newest first.
+function availableYears(rows) {
+  const years = new Set();
+  for (const t of rows) {
+    const y = (t.date || "").slice(0, 4);
+    if (y) years.add(y);
+  }
+  return [...years].sort((a, b) => (a < b ? 1 : -1));
+}
+
+// year/month are "All" or "YYYY"/"MM".
+function matchPeriod(dateStr, year, month) {
+  if (year === "All" && month === "All") return true;
+  const y = (dateStr || "").slice(0, 4);
+  const m = (dateStr || "").slice(5, 7);
+  if (year !== "All" && y !== year) return false;
+  if (month !== "All" && m !== month) return false;
+  return true;
+}
+
+function periodLabel(year, month) {
+  const m = MONTHS.find((x) => x.v === month);
+  if (year === "All" && month === "All") return "All Time";
+  if (year === "All") return m ? m.l : "All Time";
+  if (month === "All") return year;
+  return m ? `${m.l} ${year}` : year;
+}
+
+function PeriodFilter({ year, month, setYear, setMonth, years }) {
+  // Always include the currently-selected year so the control stays valid even
+  // if the only matching transaction was just filtered/edited away.
+  const yearOpts =
+    year !== "All" && !years.includes(year) ? [year, ...years] : years;
+  return (
+    <div style={{ display: "flex", gap: 8 }}>
+      <select value={year} onChange={(e) => setYear(e.target.value)} style={S.select}>
+        <option value="All">All years</option>
+        {yearOpts.map((y) => (
+          <option key={y} value={y}>
+            {y}
+          </option>
+        ))}
+      </select>
+      <select value={month} onChange={(e) => setMonth(e.target.value)} style={S.select}>
+        <option value="All">All months</option>
+        {MONTHS.map((m) => (
+          <option key={m.v} value={m.v}>
+            {m.l}
+          </option>
+        ))}
+      </select>
+    </div>
+  );
+}
+
+// ===========================================================================
 // Dashboard
 // ===========================================================================
 
 function Dashboard({ transactions, money }) {
   const all = useMemo(() => computeTotals(transactions), [transactions]);
+  const years = useMemo(() => availableYears(transactions), [transactions]);
 
-  const thisMonth = useMemo(() => {
-    const mk = monthKey(todayISO());
-    return computeTotals(transactions.filter((t) => monthKey(t.date) === mk));
-  }, [transactions]);
+  // Default the period to the current month.
+  const [year, setYear] = useState(() => todayISO().slice(0, 4));
+  const [month, setMonth] = useState(() => todayISO().slice(5, 7));
+
+  const periodTxns = useMemo(
+    () => transactions.filter((t) => matchPeriod(t.date, year, month)),
+    [transactions, year, month]
+  );
+  const period = useMemo(() => computeTotals(periodTxns), [periodTxns]);
 
   const recent = useMemo(
     () =>
-      [...transactions]
+      [...periodTxns]
         .sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0))
         .slice(0, 8),
-    [transactions]
+    [periodTxns]
   );
 
   return (
@@ -538,21 +633,22 @@ function Dashboard({ transactions, money }) {
         <StatCard label="Total Expenses" value={money(all.expenses)} accent="#f87171" />
       </div>
 
-      <h3 style={S.sectionTitle}>This Month</h3>
+      <h3 style={S.sectionTitle}>{periodLabel(year, month)}</h3>
+      <PeriodFilter year={year} month={month} setYear={setYear} setMonth={setMonth} years={years} />
       <div style={S.cardRow}>
-        <StatCard label="Income" value={money(thisMonth.income)} accent="#34d399" small />
-        <StatCard label="Expenses" value={money(thisMonth.expenses)} accent="#f87171" small />
+        <StatCard label="Income" value={money(period.income)} accent="#34d399" small />
+        <StatCard label="Expenses" value={money(period.expenses)} accent="#f87171" small />
         <StatCard
           label="Net"
-          value={money(thisMonth.net)}
-          accent={thisMonth.net >= 0 ? "#34d399" : "#f87171"}
+          value={money(period.net)}
+          accent={period.net >= 0 ? "#34d399" : "#f87171"}
           small
         />
       </div>
 
       <h3 style={S.sectionTitle}>Recent</h3>
       {recent.length === 0 ? (
-        <Empty>No transactions yet. Add or import to get started.</Empty>
+        <Empty>No transactions in this period.</Empty>
       ) : (
         <div style={S.list}>
           {recent.map((t) => (
@@ -580,9 +676,19 @@ function StatCard({ label, value, accent, small }) {
 // ===========================================================================
 
 function Charts({ transactions, hideValues }) {
+  const years = useMemo(() => availableYears(transactions), [transactions]);
+  // Charts are trend-oriented, so default to all data.
+  const [year, setYear] = useState("All");
+  const [month, setMonth] = useState("All");
+
+  const scoped = useMemo(
+    () => transactions.filter((t) => matchPeriod(t.date, year, month)),
+    [transactions, year, month]
+  );
+
   const byCategory = useMemo(() => {
     const map = new Map();
-    for (const t of transactions) {
+    for (const t of scoped) {
       if (isTransfer(t.category) || isIncome(t.category)) continue;
       const amt = Math.abs(Number(t.amount) || 0);
       map.set(t.category, (map.get(t.category) || 0) + amt);
@@ -590,11 +696,11 @@ function Charts({ transactions, hideValues }) {
     return [...map.entries()]
       .map(([name, value]) => ({ name, value }))
       .sort((a, b) => b.value - a.value);
-  }, [transactions]);
+  }, [scoped]);
 
   const byMonth = useMemo(() => {
     const map = new Map();
-    for (const t of transactions) {
+    for (const t of scoped) {
       if (isTransfer(t.category)) continue;
       const mk = monthKey(t.date);
       if (!mk) continue;
@@ -605,7 +711,7 @@ function Charts({ transactions, hideValues }) {
       map.set(mk, entry);
     }
     return [...map.values()].sort((a, b) => (a.month < b.month ? -1 : 1)).slice(-12);
-  }, [transactions]);
+  }, [scoped]);
 
   if (transactions.length === 0) {
     return <Empty>No data to chart yet.</Empty>;
@@ -615,6 +721,8 @@ function Charts({ transactions, hideValues }) {
 
   return (
     <div style={S.col}>
+      <PeriodFilter year={year} month={month} setYear={setYear} setMonth={setMonth} years={years} />
+      {scoped.length === 0 ? <Empty>No data for {periodLabel(year, month)}.</Empty> : null}
       <h3 style={S.sectionTitle}>Spending by Category</h3>
       <div style={{ ...S.card, height: 280 }}>
         {byCategory.length === 0 ? (
@@ -663,19 +771,60 @@ function Charts({ transactions, hideValues }) {
 // Transactions list
 // ===========================================================================
 
-function Transactions({ transactions, money, onDelete }) {
+function Transactions({ transactions, money, onDelete, onUpdate }) {
   const [catFilter, setCatFilter] = useState("All");
   const [acctFilter, setAcctFilter] = useState("All");
+  const [query, setQuery] = useState("");
+  const [from, setFrom] = useState("");
+  const [to, setTo] = useState("");
+  const [editing, setEditing] = useState(null);
 
   const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
     return [...transactions]
       .filter((t) => (catFilter === "All" ? true : t.category === catFilter))
       .filter((t) => (acctFilter === "All" ? true : t.account === acctFilter))
+      .filter((t) => (from ? (t.date || "") >= from : true))
+      .filter((t) => (to ? (t.date || "") <= to : true))
+      .filter((t) =>
+        q
+          ? `${t.description || ""} ${t.category || ""} ${t.account || ""}`
+              .toLowerCase()
+              .includes(q)
+          : true
+      )
       .sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));
-  }, [transactions, catFilter, acctFilter]);
+  }, [transactions, catFilter, acctFilter, query, from, to]);
+
+  const hasFilters =
+    catFilter !== "All" || acctFilter !== "All" || query || from || to;
+
+  const clearFilters = () => {
+    setCatFilter("All");
+    setAcctFilter("All");
+    setQuery("");
+    setFrom("");
+    setTo("");
+  };
 
   return (
     <div style={S.col}>
+      <div style={S.searchWrap}>
+        <Search size={16} color="#8b94a3" />
+        <input
+          type="text"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Search description, category, account…"
+          style={S.searchInput}
+        />
+        {query ? (
+          <button onClick={() => setQuery("")} style={S.deleteBtn} title="Clear search">
+            <X size={15} />
+          </button>
+        ) : null}
+      </div>
+
       <div style={{ display: "flex", gap: 8 }}>
         <select value={catFilter} onChange={(e) => setCatFilter(e.target.value)} style={S.select}>
           <option>All</option>
@@ -691,22 +840,49 @@ function Transactions({ transactions, money, onDelete }) {
         </select>
       </div>
 
-      <div style={{ color: "#8b94a3", fontSize: 12 }}>{filtered.length} transactions</div>
+      <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+        <Field label="From" style={{ flex: 1 }}>
+          <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} style={S.input} />
+        </Field>
+        <Field label="To" style={{ flex: 1 }}>
+          <input type="date" value={to} onChange={(e) => setTo(e.target.value)} style={S.input} />
+        </Field>
+      </div>
+
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+        <div style={{ color: "#8b94a3", fontSize: 12 }}>{filtered.length} transactions</div>
+        {hasFilters ? (
+          <button onClick={clearFilters} style={S.linkBtn}>
+            Clear filters
+          </button>
+        ) : null}
+      </div>
 
       {filtered.length === 0 ? (
         <Empty>Nothing here.</Empty>
       ) : (
         <div style={S.list}>
           {filtered.map((t) => (
-            <TxnRow key={t.id} t={t} money={money} onDelete={onDelete} />
+            <TxnRow key={t.id} t={t} money={money} onDelete={onDelete} onEdit={setEditing} />
           ))}
         </div>
       )}
+
+      {editing ? (
+        <EditModal
+          txn={editing}
+          onClose={() => setEditing(null)}
+          onSave={(updated) => {
+            onUpdate(updated);
+            setEditing(null);
+          }}
+        />
+      ) : null}
     </div>
   );
 }
 
-function TxnRow({ t, money, onDelete }) {
+function TxnRow({ t, money, onDelete, onEdit }) {
   const income = isIncome(t.category);
   const transfer = isTransfer(t.category);
   const color = transfer ? "#8b94a3" : income ? "#34d399" : "#f87171";
@@ -728,6 +904,11 @@ function TxnRow({ t, money, onDelete }) {
           {sign}
           {money(amt)}
         </span>
+        {onEdit ? (
+          <button onClick={() => onEdit(t)} style={S.deleteBtn} title="Edit">
+            <Pencil size={15} />
+          </button>
+        ) : null}
         {onDelete ? (
           <button onClick={() => onDelete(t.id)} style={S.deleteBtn} title="Delete">
             <Trash2 size={15} />
@@ -821,9 +1002,9 @@ function AddTransaction({ onAdd }) {
   );
 }
 
-function Field({ label, children }) {
+function Field({ label, children, style }) {
   return (
-    <label style={{ display: "block" }}>
+    <label style={{ display: "block", ...style }}>
       <div style={{ fontSize: 12, color: "#8b94a3", marginBottom: 6 }}>{label}</div>
       {children}
     </label>
@@ -831,11 +1012,163 @@ function Field({ label, children }) {
 }
 
 // ===========================================================================
+// Edit transaction (modal)
+// ===========================================================================
+
+function EditModal({ txn, onClose, onSave }) {
+  const [date, setDate] = useState(txn.date || todayISO());
+  const [description, setDescription] = useState(txn.description || "");
+  const [amount, setAmount] = useState(String(Math.abs(Number(txn.amount) || 0)));
+  const [category, setCategory] = useState(
+    CATEGORIES.includes(txn.category) ? txn.category : "Other"
+  );
+  const [account, setAccount] = useState(
+    ACCOUNTS.includes(txn.account) ? txn.account : ACCOUNTS[0]
+  );
+  const [err, setErr] = useState("");
+
+  const submit = (e) => {
+    e.preventDefault();
+    const amt = parseFloat(amount);
+    if (!Number.isFinite(amt) || amt === 0) {
+      setErr("Enter a valid amount.");
+      return;
+    }
+    onSave({
+      ...txn,
+      date,
+      description: description.trim(),
+      amount: Math.abs(amt),
+      category,
+      account,
+    });
+  };
+
+  return (
+    <div style={S.modalOverlay} onClick={onClose}>
+      <div style={S.modalCard} onClick={(e) => e.stopPropagation()}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
+          <h3 style={{ ...S.sectionTitle, margin: 0 }}>Edit Transaction</h3>
+          <button onClick={onClose} style={S.deleteBtn} title="Close">
+            <X size={18} />
+          </button>
+        </div>
+        <form onSubmit={submit} style={S.col}>
+          <Field label="Date">
+            <input type="date" value={date} onChange={(e) => setDate(e.target.value)} style={S.input} />
+          </Field>
+          <Field label="Description">
+            <input
+              type="text"
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              placeholder="e.g. Costco run"
+              style={S.input}
+            />
+          </Field>
+          <Field label="Amount (USD)">
+            <input
+              type="number"
+              inputMode="decimal"
+              step="0.01"
+              value={amount}
+              onChange={(e) => setAmount(e.target.value)}
+              placeholder="0.00"
+              style={S.input}
+            />
+          </Field>
+          <Field label="Category">
+            <select value={category} onChange={(e) => setCategory(e.target.value)} style={S.input}>
+              {CATEGORIES.map((c) => (
+                <option key={c}>{c}</option>
+              ))}
+            </select>
+          </Field>
+          <Field label="Account">
+            <select value={account} onChange={(e) => setAccount(e.target.value)} style={S.input}>
+              {ACCOUNTS.map((a) => (
+                <option key={a}>{a}</option>
+              ))}
+            </select>
+          </Field>
+          {err ? <div style={{ color: "#f87171", fontSize: 13 }}>{err}</div> : null}
+          <div style={{ display: "flex", gap: 8 }}>
+            <button type="button" onClick={onClose} style={S.secondaryBtn}>
+              Cancel
+            </button>
+            <button type="submit" style={S.primaryBtn}>
+              Save
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+// ===========================================================================
 // Import (CSV)
 // ===========================================================================
 
+// Canonical fields the importer maps CSV columns onto. `aliases` drive the
+// initial auto-detection; the user can override any of them in the UI.
+const IMPORT_FIELDS = [
+  { key: "date", label: "Date", aliases: ["date", "transaction date", "posted date"], required: true },
+  { key: "description", label: "Description", aliases: ["description", "memo", "name", "merchant"] },
+  { key: "amount", label: "Amount", aliases: ["amount", "value", "amt"], required: true },
+  { key: "category", label: "Category", aliases: ["category", "type"] },
+  { key: "account", label: "Account", aliases: ["account", "card"] },
+];
+
+// Best-guess header for a field from its aliases (case-insensitive).
+function guessColumn(headers, aliases) {
+  const lower = headers.map((h) => (h || "").trim().toLowerCase());
+  for (const a of aliases) {
+    const i = lower.indexOf(a);
+    if (i !== -1) return headers[i];
+  }
+  return "";
+}
+
+function guessMapping(headers) {
+  const map = {};
+  for (const f of IMPORT_FIELDS) map[f.key] = guessColumn(headers, f.aliases);
+  return map;
+}
+
+// Build a canonical transaction from a raw CSV record using the column mapping.
+function buildRow(raw, mapping) {
+  const val = (key) => {
+    const col = mapping[key];
+    return col ? String(raw[col] ?? "").trim() : "";
+  };
+
+  const amount = Math.abs(parseFloat(val("amount").replace(/[$,]/g, "")));
+  if (!Number.isFinite(amount)) return null;
+
+  let date = val("date");
+  // Coerce common US format MM/DD/YYYY -> YYYY-MM-DD
+  const m = date.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/);
+  if (m) {
+    const yyyy = m[3].length === 2 ? `20${m[3]}` : m[3];
+    date = `${yyyy}-${m[1].padStart(2, "0")}-${m[2].padStart(2, "0")}`;
+  }
+  if (!date) date = todayISO();
+
+  return {
+    id: uid(),
+    date,
+    description: val("description"),
+    amount,
+    category: matchOption(val("category"), CATEGORIES, "Other"),
+    account: matchOption(val("account"), ACCOUNTS, ACCOUNTS[0]),
+  };
+}
+
 function ImportTransactions({ onImport }) {
-  const [rows, setRows] = useState([]);
+  const [rawRows, setRawRows] = useState([]);
+  const [headers, setHeaders] = useState([]);
+  const [mapping, setMapping] = useState({});
   const [error, setError] = useState("");
   const [done, setDone] = useState("");
 
@@ -848,39 +1181,81 @@ function ImportTransactions({ onImport }) {
       header: true,
       skipEmptyLines: true,
       complete: (result) => {
-        try {
-          const parsed = result.data.map((r) => normalizeRow(r));
-          setRows(parsed.filter(Boolean));
-        } catch (err) {
-          setError(err.message);
+        const cols = (result.meta?.fields || []).filter(Boolean);
+        if (cols.length === 0) {
+          setError("No columns detected in this CSV.");
+          return;
         }
+        setHeaders(cols);
+        setMapping(guessMapping(cols));
+        setRawRows(result.data);
       },
       error: (err) => setError(err.message),
     });
   };
 
+  // Live preview reflects the current column mapping.
+  const rows = useMemo(() => {
+    if (rawRows.length === 0) return [];
+    return rawRows.map((r) => buildRow(r, mapping)).filter(Boolean);
+  }, [rawRows, mapping]);
+
+  const missingRequired = IMPORT_FIELDS.filter((f) => f.required && !mapping[f.key]);
+
+  const setColumn = (key, col) => setMapping((prev) => ({ ...prev, [key]: col }));
+
   const confirm = () => {
-    if (rows.length === 0) return;
+    if (rows.length === 0 || missingRequired.length > 0) return;
     onImport(rows);
     setDone(`Imported ${rows.length} transactions.`);
-    setRows([]);
+    setRawRows([]);
+    setHeaders([]);
+    setMapping({});
   };
 
   return (
     <div style={S.col}>
       <h3 style={S.sectionTitle}>Import CSV</h3>
       <p style={{ color: "#8b94a3", fontSize: 13, margin: 0 }}>
-        Expected columns: <code>date, description, amount, category, account</code>. Headers are
-        matched case-insensitively.
+        Pick a CSV, then map its columns to each field. Columns are auto-detected
+        from common headers — adjust any of them below.
       </p>
       <input type="file" accept=".csv,text/csv" onChange={onFile} style={{ color: "#cbd5e1" }} />
 
       {error ? <div style={{ color: "#f87171", fontSize: 13 }}>{error}</div> : null}
       {done ? <div style={{ color: "#34d399", fontSize: 13 }}>{done}</div> : null}
 
-      {rows.length > 0 ? (
+      {headers.length > 0 ? (
         <>
-          <div style={{ color: "#8b94a3", fontSize: 12 }}>{rows.length} rows ready</div>
+          <h3 style={S.sectionTitle}>Column Mapping</h3>
+          <div style={S.col}>
+            {IMPORT_FIELDS.map((f) => (
+              <Field key={f.key} label={f.required ? `${f.label} *` : f.label}>
+                <select
+                  value={mapping[f.key] || ""}
+                  onChange={(e) => setColumn(f.key, e.target.value)}
+                  style={S.input}
+                >
+                  <option value="">— none —</option>
+                  {headers.map((h) => (
+                    <option key={h} value={h}>
+                      {h}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+            ))}
+          </div>
+
+          {missingRequired.length > 0 ? (
+            <div style={{ color: "#fbbf24", fontSize: 13 }}>
+              Map a column for: {missingRequired.map((f) => f.label).join(", ")}.
+            </div>
+          ) : null}
+
+          <div style={{ color: "#8b94a3", fontSize: 12 }}>
+            {rows.length} of {rawRows.length} rows ready
+          </div>
           <div style={{ ...S.list, maxHeight: 320, overflowY: "auto" }}>
             {rows.slice(0, 50).map((t) => (
               <div key={t.id} style={S.txnRow}>
@@ -894,47 +1269,21 @@ function ImportTransactions({ onImport }) {
               </div>
             ))}
           </div>
-          <button onClick={confirm} style={S.primaryBtn}>
+          <button
+            onClick={confirm}
+            disabled={rows.length === 0 || missingRequired.length > 0}
+            style={{
+              ...S.primaryBtn,
+              opacity: rows.length === 0 || missingRequired.length > 0 ? 0.5 : 1,
+              cursor: rows.length === 0 || missingRequired.length > 0 ? "not-allowed" : "pointer",
+            }}
+          >
             Import {rows.length} transactions
           </button>
         </>
       ) : null}
     </div>
   );
-}
-
-// Map a loose CSV record to the canonical transaction shape.
-function normalizeRow(r) {
-  const get = (...keys) => {
-    for (const k of Object.keys(r)) {
-      if (keys.includes(k.trim().toLowerCase())) return r[k];
-    }
-    return "";
-  };
-  const rawAmount = String(get("amount", "value", "amt")).replace(/[$,]/g, "").trim();
-  const amount = Math.abs(parseFloat(rawAmount));
-  if (!Number.isFinite(amount)) return null;
-
-  let date = String(get("date", "transaction date", "posted date")).trim();
-  // Coerce common US format MM/DD/YYYY -> YYYY-MM-DD
-  const m = date.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/);
-  if (m) {
-    const yyyy = m[3].length === 2 ? `20${m[3]}` : m[3];
-    date = `${yyyy}-${m[1].padStart(2, "0")}-${m[2].padStart(2, "0")}`;
-  }
-  if (!date) date = todayISO();
-
-  const category = matchOption(String(get("category", "type")).trim(), CATEGORIES, "Other");
-  const account = matchOption(String(get("account", "card")).trim(), ACCOUNTS, ACCOUNTS[0]);
-
-  return {
-    id: uid(),
-    date,
-    description: String(get("description", "memo", "name", "merchant")).trim(),
-    amount,
-    category,
-    account,
-  };
 }
 
 function matchOption(value, options, fallback) {
@@ -1080,6 +1429,64 @@ const S = {
     fontSize: 15,
     fontWeight: 600,
     cursor: "pointer",
+  },
+  secondaryBtn: {
+    width: "100%",
+    background: "transparent",
+    border: "1px solid #232a33",
+    borderRadius: 10,
+    padding: "13px 16px",
+    color: "#cbd5e1",
+    fontSize: 15,
+    fontWeight: 600,
+    cursor: "pointer",
+  },
+  linkBtn: {
+    background: "transparent",
+    border: "none",
+    color: "#60a5fa",
+    fontSize: 12,
+    cursor: "pointer",
+    padding: 0,
+  },
+  searchWrap: {
+    display: "flex",
+    alignItems: "center",
+    gap: 8,
+    background: "#0f1216",
+    border: "1px solid #232a33",
+    borderRadius: 10,
+    padding: "0 10px",
+  },
+  searchInput: {
+    flex: 1,
+    background: "transparent",
+    border: "none",
+    outline: "none",
+    color: "#e5e7eb",
+    fontSize: 15,
+    padding: "12px 0",
+  },
+  modalOverlay: {
+    position: "fixed",
+    inset: 0,
+    zIndex: 50,
+    background: "rgba(0,0,0,0.6)",
+    display: "flex",
+    alignItems: "flex-end",
+    justifyContent: "center",
+    padding: 12,
+  },
+  modalCard: {
+    width: "100%",
+    maxWidth: 536,
+    maxHeight: "90vh",
+    overflowY: "auto",
+    background: "#14171c",
+    border: "1px solid #1f242c",
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: "max(12px, env(safe-area-inset-bottom))",
   },
   loginCard: {
     background: "#14171c",
