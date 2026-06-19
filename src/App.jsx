@@ -13,6 +13,7 @@ import {
   X,
   LogOut,
   RefreshCw,
+  TrendingUp,
 } from "lucide-react";
 import {
   ResponsiveContainer,
@@ -26,6 +27,8 @@ import {
   Tooltip,
   Legend,
   CartesianGrid,
+  LineChart,
+  Line,
 } from "recharts";
 import Papa from "papaparse";
 
@@ -172,6 +175,10 @@ export default function App() {
   const [dirty, setDirty] = useState(false);
   const [saveError, setSaveError] = useState(null);
 
+  // Budgets: { [category]: number } — loaded from /api/budgets on mount.
+  const [budgets, setBudgets] = useState({});
+  const [budgetSaving, setBudgetSaving] = useState(false);
+
   // Format a money value, respecting the global eye toggle.
   const money = useCallback(
     (n) => (hideValues ? "•••••" : usd.format(n || 0)),
@@ -259,6 +266,58 @@ export default function App() {
     return () => window.removeEventListener("beforeunload", flush);
   }, [dirty, transactions, save]);
 
+  // ---- Budgets load / save -------------------------------------------------
+  const loadBudgets = useCallback(async () => {
+    try {
+      const res = await fetch("/api/budgets", {
+        method: "GET",
+        headers: buildAuthHeaders(),
+      });
+      if (!res.ok) return;
+      const data = await res.json();
+      if (data.budgets && typeof data.budgets === "object") {
+        setBudgets(data.budgets);
+      }
+    } catch {
+      // Silently ignore — budgets are non-critical.
+    }
+  }, []);
+
+  const saveBudgets = useCallback(async (next) => {
+    setBudgetSaving(true);
+    try {
+      await fetch("/api/budgets", {
+        method: "PUT",
+        headers: buildAuthHeaders(),
+        body: JSON.stringify({ budgets: next }),
+      });
+    } catch {
+      // Silently ignore.
+    } finally {
+      setBudgetSaving(false);
+    }
+  }, []);
+
+  const updateBudget = useCallback(
+    (category, value) => {
+      setBudgets((prev) => {
+        const next = { ...prev };
+        if (value === 0 || value === "" || value === null) {
+          delete next[category];
+        } else {
+          next[category] = Number(value);
+        }
+        saveBudgets(next);
+        return next;
+      });
+    },
+    [saveBudgets]
+  );
+
+  useEffect(() => {
+    if (authed) loadBudgets();
+  }, [authed, loadBudgets]);
+
   // ---- Mutations -----------------------------------------------------------
   const addTransactions = useCallback(
     (rows) => {
@@ -344,8 +403,17 @@ export default function App() {
           />
         ) : tab === "add" ? (
           <AddTransaction onAdd={(row) => addTransactions([row])} />
-        ) : (
+        ) : tab === "import" ? (
           <ImportTransactions onImport={addTransactions} />
+        ) : (
+          <Analyze
+            transactions={transactions}
+            money={money}
+            hideValues={hideValues}
+            budgets={budgets}
+            onUpdateBudget={updateBudget}
+            budgetSaving={budgetSaving}
+          />
         )}
       </main>
 
@@ -544,9 +612,10 @@ function IconButton({ children, ...props }) {
 const TABS = [
   { id: "dashboard", label: "Dashboard", Icon: LayoutDashboard },
   { id: "charts", label: "Charts", Icon: PieIcon },
-  { id: "transactions", label: "Transactions", Icon: List },
+  { id: "transactions", label: "Txns", Icon: List },
   { id: "add", label: "Add", Icon: PlusCircle },
   { id: "import", label: "Import", Icon: Upload },
+  { id: "analyze", label: "Analyze", Icon: TrendingUp },
 ];
 
 function TabBar({ tab, setTab }) {
@@ -1380,6 +1449,634 @@ function matchOption(value, options, fallback) {
 }
 
 // ===========================================================================
+// Analyze tab — 4 sections
+// ===========================================================================
+
+// Expense categories only (no income, no transfer)
+const EXPENSE_CATEGORIES = CATEGORIES.filter(
+  (c) => !isIncome(c) && !isTransfer(c)
+);
+
+// ---- Section 1: Balance by Account ----------------------------------------
+
+function AccountBalances({ transactions, money, hideValues }) {
+  // Collect all distinct accounts (excluding Transfer txns)
+  const accountData = useMemo(() => {
+    const map = new Map();
+    for (const t of transactions) {
+      if (isTransfer(t.category)) continue;
+      const acct = t.account || "Unknown";
+      const entry = map.get(acct) || { account: acct, credits: 0, debits: 0 };
+      const amt = Math.abs(Number(t.amount) || 0);
+      if (isIncome(t.category)) entry.credits += amt;
+      else entry.debits += amt;
+      map.set(acct, entry);
+    }
+    return [...map.values()]
+      .map((e) => ({ ...e, net: e.credits - e.debits }))
+      .sort((a, b) => b.debits - a.debits);
+  }, [transactions]);
+
+  if (accountData.length === 0) return <Empty>No account data yet.</Empty>;
+
+  const fmtAxis = (v) => (hideValues ? "" : `$${Math.round(v)}`);
+
+  const chartData = accountData.map((e) => ({
+    account: e.account.length > 14 ? e.account.slice(0, 12) + "…" : e.account,
+    debits: e.debits,
+  }));
+
+  return (
+    <>
+      {/* Horizontal bar chart: spending by account */}
+      <div style={{ ...S.card, height: Math.max(220, accountData.length * 42 + 40) }}>
+        <ResponsiveContainer width="100%" height="100%">
+          <BarChart
+            data={chartData}
+            layout="vertical"
+            margin={{ top: 4, right: 12, left: 4, bottom: 4 }}
+          >
+            <CartesianGrid strokeDasharray="3 3" stroke="#1f2937" horizontal={false} />
+            <XAxis
+              type="number"
+              tick={{ fill: "#8b94a3", fontSize: 10 }}
+              tickFormatter={fmtAxis}
+            />
+            <YAxis
+              type="category"
+              dataKey="account"
+              tick={{ fill: "#8b94a3", fontSize: 10 }}
+              width={80}
+            />
+            {!hideValues && <Tooltip formatter={(v) => usd.format(v)} />}
+            <Bar dataKey="debits" name="Expenses" fill="#f87171" radius={[0, 4, 4, 0]} />
+          </BarChart>
+        </ResponsiveContainer>
+      </div>
+
+      {/* Per-account detail rows */}
+      <div style={S.list}>
+        {accountData.map((e) => (
+          <div key={e.account} style={S.txnRow}>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 13, color: "#e5e7eb", fontWeight: 500 }}>{e.account}</div>
+              <div style={{ fontSize: 11, color: "#8b94a3", marginTop: 2 }}>
+                <span style={{ color: "#34d399" }}>+{money(e.credits)}</span>
+                {" / "}
+                <span style={{ color: "#f87171" }}>−{money(e.debits)}</span>
+              </div>
+            </div>
+            <span
+              style={{
+                fontWeight: 600,
+                fontSize: 14,
+                color: e.net >= 0 ? "#34d399" : "#f87171",
+                whiteSpace: "nowrap",
+              }}
+            >
+              {e.net >= 0 ? "+" : "−"}
+              {money(Math.abs(e.net))}
+            </span>
+          </div>
+        ))}
+      </div>
+    </>
+  );
+}
+
+// ---- Section 2: Trends — line chart top-5 + stacked bars + comparison table
+
+function Trends({ transactions, hideValues, money }) {
+  const fmtAxis = (v) => (hideValues ? "" : `$${Math.round(v)}`);
+
+  // Build byMonth data for all expense categories (last 12 months)
+  const { months, top5, stackedData, comparisonData } = useMemo(() => {
+    // Gather all expense amounts by month+category
+    const monthCatMap = new Map(); // "YYYY-MM" -> { [cat]: amount }
+    const catTotals = new Map(); // cat -> total across all months
+
+    for (const t of transactions) {
+      if (isTransfer(t.category) || isIncome(t.category)) continue;
+      const mk = monthKey(t.date);
+      if (!mk) continue;
+      const amt = Math.abs(Number(t.amount) || 0);
+      const entry = monthCatMap.get(mk) || {};
+      entry[t.category] = (entry[t.category] || 0) + amt;
+      monthCatMap.set(mk, entry);
+      catTotals.set(t.category, (catTotals.get(t.category) || 0) + amt);
+    }
+
+    // Sort months, keep last 12
+    const allMonths = [...monthCatMap.keys()].sort().slice(-12);
+
+    // Top-5 expense categories by total volume
+    const sorted = [...catTotals.entries()].sort((a, b) => b[1] - a[1]);
+    const top5cats = sorted.slice(0, 5).map(([c]) => c);
+
+    // Data for the line chart (top 5)
+    const lineData = allMonths.map((mk) => {
+      const entry = monthCatMap.get(mk) || {};
+      const point = { month: mk };
+      for (const c of top5cats) point[c] = entry[c] || 0;
+      return point;
+    });
+
+    // Data for stacked bar (all categories)
+    const allCats = [...catTotals.keys()];
+    const stackData = allMonths.map((mk) => {
+      const entry = monthCatMap.get(mk) || {};
+      const point = { month: mk };
+      for (const c of allCats) point[c] = entry[c] || 0;
+      return point;
+    });
+
+    // Comparison: current vs previous month
+    const now = todayISO().slice(0, 7);
+    const prevMonthDate = new Date(now + "-01");
+    prevMonthDate.setMonth(prevMonthDate.getMonth() - 1);
+    const prev = prevMonthDate.toISOString().slice(0, 7);
+
+    const currData = monthCatMap.get(now) || {};
+    const prevData = monthCatMap.get(prev) || {};
+    const compCats = new Set([...Object.keys(currData), ...Object.keys(prevData)]);
+    const compRows = [...compCats]
+      .map((c) => {
+        const curr = currData[c] || 0;
+        const p = prevData[c] || 0;
+        const delta = curr - p;
+        const pct = p > 0 ? (delta / p) * 100 : curr > 0 ? 100 : 0;
+        return { cat: c, curr, prev: p, delta, pct };
+      })
+      .sort((a, b) => b.curr - a.curr);
+
+    return {
+      months: allMonths,
+      top5: { cats: top5cats, data: lineData },
+      stackedData: { cats: allCats, data: stackData },
+      comparisonData: { now, prev, rows: compRows },
+    };
+  }, [transactions]);
+
+  if (months.length === 0) return <Empty>Not enough data for trend analysis.</Empty>;
+
+  const lineColors = ["#60a5fa", "#f87171", "#34d399", "#fbbf24", "#a78bfa"];
+
+  return (
+    <>
+      {/* Line chart: top 5 expense categories */}
+      {top5.cats.length > 0 && (
+        <>
+          <div style={S.sectionSubtitle}>Top 5 Categories — Monthly Trend</div>
+          <div style={{ ...S.card, height: 260 }}>
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={top5.data} margin={{ top: 8, right: 8, left: 4, bottom: 8 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#1f2937" />
+                <XAxis
+                  dataKey="month"
+                  tick={{ fill: "#8b94a3", fontSize: 10 }}
+                  tickFormatter={(v) => v.slice(5)}
+                />
+                <YAxis
+                  tick={{ fill: "#8b94a3", fontSize: 10 }}
+                  tickFormatter={fmtAxis}
+                  width={44}
+                />
+                {!hideValues && <Tooltip formatter={(v) => usd.format(v)} />}
+                <Legend wrapperStyle={{ fontSize: 11 }} />
+                {top5.cats.map((c, i) => (
+                  <Line
+                    key={c}
+                    type="monotone"
+                    dataKey={c}
+                    stroke={lineColors[i % lineColors.length]}
+                    strokeWidth={2}
+                    dot={false}
+                  />
+                ))}
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+        </>
+      )}
+
+      {/* Stacked bar: category composition by month */}
+      {stackedData.cats.length > 0 && (
+        <>
+          <div style={S.sectionSubtitle}>Monthly Expense Mix</div>
+          <div style={{ ...S.card, height: 260 }}>
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart
+                data={stackedData.data}
+                margin={{ top: 8, right: 8, left: 4, bottom: 8 }}
+              >
+                <CartesianGrid strokeDasharray="3 3" stroke="#1f2937" />
+                <XAxis
+                  dataKey="month"
+                  tick={{ fill: "#8b94a3", fontSize: 10 }}
+                  tickFormatter={(v) => v.slice(5)}
+                />
+                <YAxis
+                  tick={{ fill: "#8b94a3", fontSize: 10 }}
+                  tickFormatter={fmtAxis}
+                  width={44}
+                />
+                {!hideValues && <Tooltip formatter={(v) => usd.format(v)} />}
+                {stackedData.cats.map((c, i) => (
+                  <Bar
+                    key={c}
+                    dataKey={c}
+                    stackId="a"
+                    fill={CATEGORY_COLORS[i % CATEGORY_COLORS.length]}
+                  />
+                ))}
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        </>
+      )}
+
+      {/* Comparison table */}
+      <div style={S.sectionSubtitle}>
+        {comparisonData.now} vs {comparisonData.prev}
+      </div>
+      {comparisonData.rows.length === 0 ? (
+        <Empty>No expenses in either month.</Empty>
+      ) : (
+        <div style={{ ...S.card, overflowX: "auto", padding: 0 }}>
+          <table style={S.table}>
+            <thead>
+              <tr>
+                <th style={S.th}>Category</th>
+                <th style={{ ...S.th, textAlign: "right" }}>This month</th>
+                <th style={{ ...S.th, textAlign: "right" }}>Prev month</th>
+                <th style={{ ...S.th, textAlign: "right" }}>Delta $</th>
+                <th style={{ ...S.th, textAlign: "right" }}>Delta %</th>
+              </tr>
+            </thead>
+            <tbody>
+              {comparisonData.rows.map((r) => (
+                <tr key={r.cat}>
+                  <td style={S.td}>{r.cat}</td>
+                  <td style={{ ...S.td, textAlign: "right", color: "#e5e7eb" }}>{money(r.curr)}</td>
+                  <td style={{ ...S.td, textAlign: "right", color: "#8b94a3" }}>{money(r.prev)}</td>
+                  <td
+                    style={{
+                      ...S.td,
+                      textAlign: "right",
+                      color: r.delta > 0 ? "#f87171" : r.delta < 0 ? "#34d399" : "#8b94a3",
+                    }}
+                  >
+                    {r.delta > 0 ? "+" : ""}
+                    {money(r.delta)}
+                  </td>
+                  <td
+                    style={{
+                      ...S.td,
+                      textAlign: "right",
+                      color: r.delta > 0 ? "#f87171" : r.delta < 0 ? "#34d399" : "#8b94a3",
+                    }}
+                  >
+                    {r.pct === 0 ? "—" : `${r.delta > 0 ? "+" : ""}${r.pct.toFixed(0)}%`}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </>
+  );
+}
+
+// ---- Section 3: Budgets ----------------------------------------------------
+
+function Budgets({ transactions, budgets, onUpdateBudget, budgetSaving, money }) {
+  // Current month expenses by expense category
+  const currentMK = todayISO().slice(0, 7);
+
+  const spendMap = useMemo(() => {
+    const map = {};
+    for (const t of transactions) {
+      if (isTransfer(t.category) || isIncome(t.category)) continue;
+      const mk = monthKey(t.date);
+      if (mk !== currentMK) continue;
+      const amt = Math.abs(Number(t.amount) || 0);
+      map[t.category] = (map[t.category] || 0) + amt;
+    }
+    return map;
+  }, [transactions, currentMK]);
+
+  // Categories that either have a budget or have spending
+  const activeCats = useMemo(() => {
+    const cats = new Set([
+      ...EXPENSE_CATEGORIES.filter((c) => budgets[c] > 0),
+      ...Object.keys(spendMap),
+    ]);
+    return EXPENSE_CATEGORIES.filter((c) => cats.has(c));
+  }, [budgets, spendMap]);
+
+  // Over-budget categories
+  const overBudget = useMemo(
+    () =>
+      activeCats.filter((c) => {
+        const limit = budgets[c] || 0;
+        return limit > 0 && (spendMap[c] || 0) >= limit;
+      }),
+    [activeCats, budgets, spendMap]
+  );
+
+  const [editCat, setEditCat] = useState(null);
+  const [editVal, setEditVal] = useState("");
+
+  const startEdit = (cat) => {
+    setEditCat(cat);
+    setEditVal(budgets[cat] ? String(budgets[cat]) : "");
+  };
+
+  const commitEdit = () => {
+    if (editCat === null) return;
+    const v = parseFloat(editVal);
+    onUpdateBudget(editCat, Number.isFinite(v) && v > 0 ? v : 0);
+    setEditCat(null);
+    setEditVal("");
+  };
+
+  return (
+    <>
+      {overBudget.length > 0 && (
+        <div style={S.alertBanner}>
+          <span style={{ fontWeight: 600 }}>Budget exceeded:</span>{" "}
+          {overBudget.join(", ")}
+        </div>
+      )}
+
+      {budgetSaving && (
+        <div style={{ fontSize: 11, color: "#8b94a3", textAlign: "right" }}>
+          Saving budgets…
+        </div>
+      )}
+
+      {/* All expense categories — show budget editor */}
+      <div style={{ ...S.card, padding: 0, overflow: "hidden" }}>
+        {EXPENSE_CATEGORIES.map((cat, idx) => {
+          const limit = budgets[cat] || 0;
+          const spent = spendMap[cat] || 0;
+          const pct = limit > 0 ? Math.min((spent / limit) * 100, 100) : 0;
+          const barColor =
+            pct >= 100 ? "#f87171" : pct >= 80 ? "#fbbf24" : "#34d399";
+          const isEditing = editCat === cat;
+
+          return (
+            <div
+              key={cat}
+              style={{
+                ...S.budgetRow,
+                borderTop: idx > 0 ? "1px solid #1f242c" : "none",
+              }}
+            >
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    marginBottom: 4,
+                  }}
+                >
+                  <span style={{ fontSize: 13, color: "#e5e7eb", fontWeight: 500 }}>
+                    {cat}
+                  </span>
+                  <span style={{ fontSize: 12, color: "#8b94a3", whiteSpace: "nowrap", marginLeft: 8 }}>
+                    {money(spent)}
+                    {limit > 0 ? ` / ${money(limit)}` : ""}
+                  </span>
+                </div>
+
+                {/* Progress bar (only shown when limit is set) */}
+                {limit > 0 && (
+                  <div style={S.progressTrack}>
+                    <div
+                      style={{
+                        ...S.progressBar,
+                        width: `${pct}%`,
+                        background: barColor,
+                      }}
+                    />
+                  </div>
+                )}
+
+                {/* Inline budget editor */}
+                {isEditing ? (
+                  <div style={{ display: "flex", gap: 6, marginTop: 8 }}>
+                    <input
+                      autoFocus
+                      type="number"
+                      inputMode="decimal"
+                      step="1"
+                      min="0"
+                      value={editVal}
+                      onChange={(e) => setEditVal(e.target.value)}
+                      placeholder="Monthly limit"
+                      style={{ ...S.input, padding: "8px 10px", fontSize: 13 }}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") commitEdit();
+                        if (e.key === "Escape") setEditCat(null);
+                      }}
+                    />
+                    <button
+                      onClick={commitEdit}
+                      style={{ ...S.primaryBtn, width: "auto", padding: "8px 14px", fontSize: 13 }}
+                    >
+                      Set
+                    </button>
+                    <button
+                      onClick={() => setEditCat(null)}
+                      style={{ ...S.secondaryBtn, width: "auto", padding: "8px 10px", fontSize: 13 }}
+                    >
+                      ✕
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => startEdit(cat)}
+                    style={{
+                      ...S.linkBtn,
+                      fontSize: 11,
+                      marginTop: 4,
+                      display: "inline-block",
+                    }}
+                  >
+                    {limit > 0 ? "Edit limit" : "Set limit"}
+                  </button>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </>
+  );
+}
+
+// ---- Section 4: Recurring / subscriptions ----------------------------------
+
+function Recurrents({ transactions, money }) {
+  const recurrents = useMemo(() => {
+    // Group expense (non-income, non-transfer) by normalized description
+    const groups = new Map(); // normalizedDesc -> [txn, ...]
+
+    for (const t of transactions) {
+      if (isTransfer(t.category) || isIncome(t.category)) continue;
+      const key = (t.description || "").trim().toLowerCase();
+      if (!key) continue;
+      const arr = groups.get(key) || [];
+      arr.push(t);
+      groups.set(key, arr);
+    }
+
+    const results = [];
+
+    for (const [, txns] of groups) {
+      // Must appear in 2+ distinct months
+      const months = new Set(txns.map((t) => monthKey(t.date)));
+      if (months.size < 2) continue;
+
+      const amounts = txns.map((t) => Math.abs(Number(t.amount) || 0)).sort((a, b) => a - b);
+      const mid = Math.floor(amounts.length / 2);
+      const median =
+        amounts.length % 2 === 0
+          ? (amounts[mid - 1] + amounts[mid]) / 2
+          : amounts[mid];
+
+      if (median === 0) continue;
+
+      // Filter to amounts within ±10% of median
+      const inRange = txns.filter((t) => {
+        const a = Math.abs(Number(t.amount) || 0);
+        return Math.abs(a - median) / median <= 0.1;
+      });
+
+      // Still need 2+ distinct months after filtering
+      const filteredMonths = new Set(inRange.map((t) => monthKey(t.date)));
+      if (filteredMonths.size < 2) continue;
+
+      const lastMonth = [...filteredMonths].sort().at(-1);
+      const lastTxn = inRange
+        .filter((t) => monthKey(t.date) === lastMonth)
+        .sort((a, b) => (a.date < b.date ? 1 : -1))[0];
+
+      results.push({
+        description: (txns[0].description || "").trim(),
+        amount: median,
+        account: lastTxn?.account || txns[0].account || "",
+        months: filteredMonths.size,
+        lastMonth,
+      });
+    }
+
+    // Sort by amount descending
+    return results.sort((a, b) => b.amount - a.amount);
+  }, [transactions]);
+
+  if (recurrents.length === 0)
+    return (
+      <Empty>
+        No recurring transactions detected yet. They appear when the same
+        description occurs in 2+ months with a consistent amount.
+      </Empty>
+    );
+
+  return (
+    <div style={S.list}>
+      {recurrents.map((r) => (
+        <div key={r.description} style={S.txnRow}>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div
+              style={{
+                fontSize: 13,
+                color: "#e5e7eb",
+                fontWeight: 500,
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                whiteSpace: "nowrap",
+              }}
+            >
+              {r.description}
+            </div>
+            <div style={{ fontSize: 11, color: "#8b94a3", marginTop: 2 }}>
+              {r.account} · {r.months} months · last {r.lastMonth}
+            </div>
+          </div>
+          <span style={{ fontWeight: 600, fontSize: 14, color: "#f87171", whiteSpace: "nowrap" }}>
+            {money(r.amount)}
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ---- Analyze (container) ---------------------------------------------------
+
+function Analyze({ transactions, money, hideValues, budgets, onUpdateBudget, budgetSaving }) {
+  const years = useMemo(() => availableYears(transactions), [transactions]);
+  const [year, setYear] = useState("All");
+  const [month, setMonth] = useState("All");
+
+  const scoped = useMemo(
+    () => transactions.filter((t) => matchPeriod(t.date, year, month)),
+    [transactions, year, month]
+  );
+
+  return (
+    <div style={S.col}>
+      <h2 style={{ margin: "4px 0 0", fontSize: 16, color: "#e5e7eb", fontWeight: 600 }}>
+        Analyze
+      </h2>
+
+      {/* ---- Section 1: Account balances ---- */}
+      <h3 style={S.sectionTitle}>Account Balances</h3>
+      <PeriodFilter
+        year={year}
+        month={month}
+        setYear={setYear}
+        setMonth={setMonth}
+        years={years}
+      />
+      <AccountBalances
+        transactions={scoped}
+        money={money}
+        hideValues={hideValues}
+      />
+
+      {/* ---- Section 2: Trends ---- */}
+      <h3 style={{ ...S.sectionTitle, marginTop: 8 }}>Trends</h3>
+      <Trends
+        transactions={transactions}
+        money={money}
+        hideValues={hideValues}
+      />
+
+      {/* ---- Section 3: Budgets ---- */}
+      <h3 style={{ ...S.sectionTitle, marginTop: 8 }}>
+        Budgets — {todayISO().slice(0, 7)}
+      </h3>
+      <Budgets
+        transactions={transactions}
+        budgets={budgets}
+        onUpdateBudget={onUpdateBudget}
+        budgetSaving={budgetSaving}
+        money={money}
+      />
+
+      {/* ---- Section 4: Recurrents ---- */}
+      <h3 style={{ ...S.sectionTitle, marginTop: 8 }}>Recurring / Subscriptions</h3>
+      <Recurrents transactions={transactions} money={money} />
+    </div>
+  );
+}
+
+// ===========================================================================
 // Small shared bits
 // ===========================================================================
 
@@ -1580,5 +2277,56 @@ const S = {
     borderRadius: 16,
     padding: 24,
     margin: 16,
+  },
+  // Analyze tab
+  sectionSubtitle: {
+    fontSize: 13,
+    color: "#8b94a3",
+    fontWeight: 600,
+    margin: "4px 0 0",
+  },
+  alertBanner: {
+    background: "#3b0d0d",
+    color: "#fca5a5",
+    border: "1px solid #7f1d1d",
+    borderRadius: 10,
+    padding: "10px 14px",
+    fontSize: 13,
+  },
+  budgetRow: {
+    padding: "12px 14px",
+    display: "flex",
+    alignItems: "flex-start",
+    gap: 10,
+  },
+  progressTrack: {
+    height: 6,
+    background: "#1f242c",
+    borderRadius: 4,
+    overflow: "hidden",
+  },
+  progressBar: {
+    height: "100%",
+    borderRadius: 4,
+    transition: "width 0.3s ease",
+  },
+  table: {
+    width: "100%",
+    borderCollapse: "collapse",
+    fontSize: 12,
+  },
+  th: {
+    padding: "10px 12px",
+    color: "#8b94a3",
+    fontWeight: 600,
+    textAlign: "left",
+    borderBottom: "1px solid #1f242c",
+    whiteSpace: "nowrap",
+  },
+  td: {
+    padding: "9px 12px",
+    color: "#8b94a3",
+    borderBottom: "1px solid #1a1d23",
+    whiteSpace: "nowrap",
   },
 };
