@@ -28,12 +28,13 @@ persistente por usuário.
 ```
 household-ledger/
 ├── api/
-│   └── transactions.js     # GET/PUT do ledger (auth obrigatória)
+│   ├── transactions.js     # GET/PUT do ledger (auth obrigatória)
+│   └── budgets.js          # GET/PUT de orçamentos por categoria (auth obrigatória)
 ├── lib/
 │   ├── auth.js             # verificação de token Google + senha + allowlist
 │   └── redis.js            # singleton ioredis
 ├── src/
-│   ├── App.jsx             # app completo (5 tabs)
+│   ├── App.jsx             # app completo (6 tabs)
 │   └── main.jsx            # entrypoint React
 ├── index.html
 ├── vite.config.js
@@ -93,6 +94,22 @@ Cada transação:
 
 Persistido no Redis como `{ transactions: [...], savedAt }`.
 
+### Orçamentos
+
+Limites mensais por categoria de despesa persistidos separadamente no Redis:
+
+```jsonc
+// chave: household:USERID:budgets
+{ "budgets": { "Groceries": 800, "Restaurant": 300 }, "savedAt": "..." }
+```
+
+Endpoint `api/budgets.js`:
+
+| Método | Rota           | Descrição                                   |
+| ------ | -------------- | ------------------------------------------- |
+| GET    | `/api/budgets` | Retorna `{ budgets: {...}, savedAt }`        |
+| PUT    | `/api/budgets` | Body `{ budgets: {...} }` → `{ ok: true, savedAt }` |
+
 ### Categorias
 
 Despesas: `Car, Dog, Entertainment, Fuel, Groceries, Home, Medical,
@@ -115,7 +132,7 @@ T-Mobile, United Explorer, Venmo, Venture X`.
 
 ## UI
 
-Mobile-first, tema escuro (`#0b0d10`). Tab bar inferior fixa com 5 abas:
+Mobile-first, tema escuro (`#0b0d10`). Tab bar inferior fixa com 6 abas:
 
 1. **Dashboard** — saldo líquido, receitas/despesas totais, resumo do mês
    corrente e transações recentes. Filtrável por mês/ano via `PeriodFilter`
@@ -130,6 +147,20 @@ Mobile-first, tema escuro (`#0b0d10`). Tab bar inferior fixa com 5 abas:
 5. **Import** — importação de CSV (papaparse) com mapeamento de colunas
    configurável (`IMPORT_FIELDS`, `guessMapping`, selects por campo com
    hints de fallback) e contador "Showing 50 of N rows" na prévia.
+6. **Analyze** — análise aprofundada com quatro seções:
+   - **Saldo e gastos por conta** — lista cada conta com total de débitos,
+     créditos e saldo líquido no período; BarChart horizontal por volume de
+     gastos.
+   - **Tendências mês a mês** — LineChart com top-5 categorias de despesa por
+     volume nos últimos 12 meses; StackedBarChart com mix de todas as categorias
+     por mês; tabela comparativa mês atual vs. anterior com delta $ e %.
+   - **Orçamentos por categoria** — limites mensais editáveis inline por
+     categoria de despesa; barra de progresso verde/amarelo/vermelho; banner de
+     alerta ao ultrapassar 100%; limites persistidos no Redis via
+     `/api/budgets`.
+   - **Recorrentes / assinaturas** — detecção client-side por descrição exata
+     em ≥ 2 meses distintos com valor ± 10 % da mediana; lista com valor
+     típico, conta, frequência e último mês visto.
 
 **Toggle do olho** no cabeçalho esconde/mostra todos os valores
 monetários globalmente (persistido em `localStorage`).
@@ -163,10 +194,10 @@ O app inicia com array vazio quando não há dados salvos (sem SEED).
 - [x] Mapeamento de colunas configurável no import
 
 ### Fase 3 — Análise
-- [ ] Orçamentos por categoria e alertas
-- [ ] Tendências e comparação mês a mês
-- [ ] Saldo e gastos por conta
-- [ ] Recorrentes / assinaturas detectadas
+- [x] Orçamentos por categoria e alertas
+- [x] Tendências e comparação mês a mês
+- [x] Saldo e gastos por conta
+- [x] Recorrentes / assinaturas detectadas
 
 ### Fase 4 — Plataforma
 - [ ] Exportar CSV/JSON
