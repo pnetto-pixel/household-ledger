@@ -110,6 +110,9 @@ dist
 # Serverless directories
 .serverless/
 
+# Vercel
+.vercel
+
 # FuseBox cache
 .fusebox/
 
