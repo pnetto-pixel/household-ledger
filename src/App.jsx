@@ -398,6 +398,7 @@ export default function App() {
           <Transactions
             transactions={transactions}
             money={money}
+            hideValues={hideValues}
             onDelete={deleteTransaction}
             onUpdate={updateTransaction}
           />
@@ -916,13 +917,43 @@ function Charts({ transactions, hideValues }) {
 // Transactions list
 // ===========================================================================
 
-function Transactions({ transactions, money, onDelete, onUpdate }) {
+function Transactions({ transactions, money, hideValues, onDelete, onUpdate }) {
   const [catFilter, setCatFilter] = useState("All");
   const [acctFilter, setAcctFilter] = useState("All");
   const [query, setQuery] = useState("");
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
   const [editing, setEditing] = useState(null);
+
+  const exportRows = (filteredArr) =>
+    filteredArr.map((t) => ({
+      date: t.date,
+      description: t.description,
+      amount: t.amount,
+      category: t.category,
+      account: t.account,
+    }));
+
+  const triggerDownload = (blob, filename) => {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleExportCSV = (filteredArr) => {
+    const rows = exportRows(filteredArr);
+    const csv = Papa.unparse(rows);
+    triggerDownload(new Blob([csv], { type: "text/csv;charset=utf-8" }), "household-transactions.csv");
+  };
+
+  const handleExportJSON = (filteredArr) => {
+    const rows = exportRows(filteredArr);
+    const json = JSON.stringify(rows, null, 2);
+    triggerDownload(new Blob([json], { type: "application/json" }), "household-transactions.json");
+  };
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -994,13 +1025,51 @@ function Transactions({ transactions, money, onDelete, onUpdate }) {
         </Field>
       </div>
 
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-        <div style={{ color: "#8b94a3", fontSize: 12 }}>{filtered.length} transactions</div>
-        {hasFilters ? (
-          <button onClick={clearFilters} style={S.linkBtn}>
-            Clear filters
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          <div style={{ color: "#8b94a3", fontSize: 12 }}>{filtered.length} transaction(s)</div>
+          {hasFilters ? (
+            <button onClick={clearFilters} style={S.linkBtn}>
+              Clear filters
+            </button>
+          ) : null}
+        </div>
+        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          <button
+            onClick={() => handleExportCSV(filtered)}
+            disabled={hideValues}
+            title={hideValues ? "Show values to export" : "Export CSV"}
+            style={{
+              background: "#1e2328",
+              border: "1px solid #3a3f4a",
+              color: "#e0e6f0",
+              borderRadius: 6,
+              padding: "6px 14px",
+              cursor: hideValues ? "not-allowed" : "pointer",
+              fontSize: 13,
+              opacity: hideValues ? 0.4 : 1,
+            }}
+          >
+            CSV
           </button>
-        ) : null}
+          <button
+            onClick={() => handleExportJSON(filtered)}
+            disabled={hideValues}
+            title={hideValues ? "Show values to export" : "Export JSON"}
+            style={{
+              background: "#1e2328",
+              border: "1px solid #3a3f4a",
+              color: "#e0e6f0",
+              borderRadius: 6,
+              padding: "6px 14px",
+              cursor: hideValues ? "not-allowed" : "pointer",
+              fontSize: 13,
+              opacity: hideValues ? 0.4 : 1,
+            }}
+          >
+            JSON
+          </button>
+        </div>
       </div>
 
       {filtered.length === 0 ? (
