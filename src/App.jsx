@@ -1019,9 +1019,13 @@ function Transactions({ transactions, money, hideValues, onDelete, onUpdate }) {
   const [catFilter, setCatFilter] = useState("All");
   const [acctFilter, setAcctFilter] = useState("All");
   const [query, setQuery] = useState("");
+  const [year, setYear] = useState("All");
+  const [month, setMonth] = useState("All");
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
   const [editing, setEditing] = useState(null);
+
+  const years = useMemo(() => availableYears(transactions), [transactions]);
 
   const exportRows = (filteredArr) =>
     filteredArr.map((t) => ({
@@ -1058,6 +1062,7 @@ function Transactions({ transactions, money, hideValues, onDelete, onUpdate }) {
     return [...transactions]
       .filter((t) => (catFilter === "All" ? true : t.category === catFilter))
       .filter((t) => (acctFilter === "All" ? true : t.account === acctFilter))
+      .filter((t) => matchPeriod(t.date, year, month))
       .filter((t) => (from ? (t.date || "") >= from : true))
       .filter((t) => (to ? (t.date || "") <= to : true))
       .filter((t) =>
@@ -1068,15 +1073,23 @@ function Transactions({ transactions, money, hideValues, onDelete, onUpdate }) {
           : true
       )
       .sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));
-  }, [transactions, catFilter, acctFilter, query, from, to]);
+  }, [transactions, catFilter, acctFilter, query, year, month, from, to]);
 
   const hasFilters =
-    catFilter !== "All" || acctFilter !== "All" || query || from || to;
+    catFilter !== "All" ||
+    acctFilter !== "All" ||
+    query ||
+    year !== "All" ||
+    month !== "All" ||
+    from ||
+    to;
 
   const clearFilters = () => {
     setCatFilter("All");
     setAcctFilter("All");
     setQuery("");
+    setYear("All");
+    setMonth("All");
     setFrom("");
     setTo("");
   };
@@ -1113,6 +1126,8 @@ function Transactions({ transactions, money, hideValues, onDelete, onUpdate }) {
           ))}
         </select>
       </div>
+
+      <PeriodFilter year={year} month={month} setYear={setYear} setMonth={setMonth} years={years} />
 
       <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
         <Field label="From" style={{ flex: 1 }}>
