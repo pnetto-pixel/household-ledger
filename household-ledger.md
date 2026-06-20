@@ -147,9 +147,13 @@ Mobile-first, tema escuro (`#0b0d10`). Tab bar inferior fixa com 6 abas:
    description, amount, category, account`); desabilitados quando o toggle
    do olho está ativo.
 4. **Add** — formulário para adicionar uma transação.
-5. **Import** — importação de CSV (papaparse) com mapeamento de colunas
-   configurável (`IMPORT_FIELDS`, `guessMapping`, selects por campo com
-   hints de fallback) e contador "Showing 50 of N rows" na prévia.
+5. **Import** — importação de CSV (papaparse) com seletor **Bank / Source**
+   (Chase Bela, Preferred, Reserve, Ink Biz Cash, Ink Unlimited; genérico);
+   perfil selecionado aplica mapeamento de colunas automaticamente e
+   pré-preenche a conta. Suporta também **OFX/QFX** (Chase): parser inline
+   sem dependência extra, pula tela de mapeamento. Mapeamento manual
+   configurável (`IMPORT_FIELDS`, `guessMapping`) continua disponível no
+   modo genérico. Contador "Showing 50 of N rows" na prévia.
 6. **Analyze** — análise aprofundada com quatro seções:
    - **Saldo e gastos por conta** — lista cada conta com total de débitos,
      créditos e saldo líquido no período; BarChart horizontal por volume de
@@ -169,9 +173,16 @@ Mobile-first, tema escuro (`#0b0d10`). Tab bar inferior fixa com 6 abas:
 monetários globalmente (persistido em `localStorage`).
 
 **SaveIndicator** no cabeçalho exibe o estado do save: `saving`, `saved HH:MM`,
-`unsaved` ou `error`. O save usa debounce de 800 ms (`scheduleSave`), com
-flush via `beforeunload`. Erros de save são rastreados em `saveError`
-separado do `error` geral.
+`unsaved`, `error` ou `Offline` (âmbar). O save usa debounce de 800 ms
+(`scheduleSave`), com flush via `beforeunload` (suprimido se offline). Erros
+de save são rastreados em `saveError` separado do `error` geral.
+
+**PWA offline-first** via `vite-plugin-pwa` (`autoUpdate`): Service Worker
+pré-cacheia o app shell; `/api/*` usa estratégia NetworkFirst com timeout de
+4 s. Banner âmbar exibido abaixo do header quando a conexão cai. Escrita
+suprimida offline (dado em memória, sync na próxima mutação online).
+`public/manifest.json` + ícones PNG (192 × 512) habilitam instalação
+na tela inicial.
 
 **EditModal** abre com todos os campos da transação, `role="dialog"`,
 `aria-modal` e `autoFocus`; persiste via PUT em `api/transactions.js`.
@@ -205,5 +216,5 @@ O app inicia com array vazio quando não há dados salvos (sem SEED).
 ### Fase 4 — Plataforma
 - [x] Exportar CSV/JSON
 - [ ] Multiusuário / household compartilhado
-- [ ] PWA offline-first
-- [ ] Integrações de import (bancos, cartões)
+- [x] PWA offline-first
+- [x] Integrações de import (bancos, cartões)
