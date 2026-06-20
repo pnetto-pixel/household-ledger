@@ -175,6 +175,19 @@ export default function App() {
   const [dirty, setDirty] = useState(false);
   const [saveError, setSaveError] = useState(null);
 
+  // Online / offline status
+  const [isOnline, setIsOnline] = useState(navigator.onLine);
+  useEffect(() => {
+    const up = () => setIsOnline(true);
+    const down = () => setIsOnline(false);
+    window.addEventListener("online", up);
+    window.addEventListener("offline", down);
+    return () => {
+      window.removeEventListener("online", up);
+      window.removeEventListener("offline", down);
+    };
+  }, []);
+
   // Budgets: { [category]: number } — loaded from /api/budgets on mount.
   const [budgets, setBudgets] = useState({});
   const [budgetSaving, setBudgetSaving] = useState(false);
@@ -221,6 +234,10 @@ export default function App() {
 
   // ---- Save (debounced after mutations) ------------------------------------
   const save = useCallback(async (next) => {
+    if (!navigator.onLine) {
+      setSaveError("offline");
+      return;
+    }
     setDirty(false);
     setSaving(true);
     try {
@@ -257,6 +274,7 @@ export default function App() {
   // Flush pending save before page unload.
   useEffect(() => {
     const flush = () => {
+      if (!navigator.onLine) return;
       if (debounceRef.current) {
         clearTimeout(debounceRef.current);
         if (dirty) save(transactions);
@@ -384,6 +402,12 @@ export default function App() {
         dirty={dirty}
         saveError={saveError}
       />
+
+      {!isOnline && (
+        <div style={S.offlineBanner}>
+          Offline — changes will sync when reconnected
+        </div>
+      )}
 
       {error ? <div style={S.errorBar}>{error}</div> : null}
 
@@ -529,12 +553,20 @@ function Login({ onAuthed }) {
 // ===========================================================================
 
 function SaveIndicator({ saving, dirty, savedAt, saveError }) {
+  if (saveError === "offline") {
+    return (
+      <span style={{ fontSize: 11, color: "#fbbf24", display: "flex", alignItems: "center", gap: 3 }}>
+        <span>↻</span>
+        <span>Offline</span>
+      </span>
+    );
+  }
   if (saveError) {
     return (
       <span style={{ fontSize: 11, color: "#f87171", display: "flex", alignItems: "center", gap: 3 }}>
         <span>✕</span>
         <span style={{ maxWidth: 120, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-          {saveError}
+          Save failed
         </span>
       </span>
     );
@@ -2397,5 +2429,13 @@ const S = {
     color: "#8b94a3",
     borderBottom: "1px solid #1a1d23",
     whiteSpace: "nowrap",
+  },
+  offlineBanner: {
+    background: "#7c3a00",
+    color: "#ffd580",
+    padding: "8px 16px",
+    textAlign: "center",
+    fontSize: 13,
+    fontWeight: 500,
   },
 };
