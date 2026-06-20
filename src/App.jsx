@@ -3,7 +3,6 @@ import {
   LayoutDashboard,
   PieChart as PieIcon,
   List,
-  PlusCircle,
   Upload,
   Eye,
   EyeOff,
@@ -496,8 +495,6 @@ export default function App() {
             onDelete={deleteTransaction}
             onUpdate={updateTransaction}
           />
-        ) : tab === "add" ? (
-          <AddTransaction onAdd={(row) => addTransactions([row])} />
         ) : tab === "import" ? (
           <ImportTransactions onImport={addTransactions} />
         ) : (
@@ -716,7 +713,6 @@ const TABS = [
   { id: "dashboard", label: "Dashboard", Icon: LayoutDashboard },
   { id: "charts", label: "Charts", Icon: PieIcon },
   { id: "transactions", label: "Txns", Icon: List },
-  { id: "add", label: "Add", Icon: PlusCircle },
   { id: "import", label: "Import", Icon: Upload },
   { id: "analyze", label: "Analyze", Icon: TrendingUp },
 ];
@@ -1235,89 +1231,6 @@ function TxnRow({ t, money, onDelete, onEdit }) {
   );
 }
 
-// ===========================================================================
-// Add transaction
-// ===========================================================================
-
-function AddTransaction({ onAdd }) {
-  const [date, setDate] = useState(todayISO());
-  const [description, setDescription] = useState("");
-  const [amount, setAmount] = useState("");
-  const [category, setCategory] = useState("Groceries");
-  const [account, setAccount] = useState(ACCOUNTS[0]);
-  const [flash, setFlash] = useState("");
-
-  const submit = (e) => {
-    e.preventDefault();
-    const amt = parseFloat(amount);
-    if (!Number.isFinite(amt) || amt === 0) {
-      setFlash("Enter a valid amount.");
-      return;
-    }
-    onAdd({
-      id: uid(),
-      date,
-      description: description.trim(),
-      amount: Math.abs(amt),
-      category,
-      account,
-    });
-    setDescription("");
-    setAmount("");
-    setFlash("Added ✓");
-    setTimeout(() => setFlash(""), 1500);
-  };
-
-  return (
-    <div style={S.col}>
-      <h3 style={S.sectionTitle}>Add Transaction</h3>
-      <form onSubmit={submit} style={S.col}>
-        <Field label="Date">
-          <input type="date" value={date} onChange={(e) => setDate(e.target.value)} style={S.input} />
-        </Field>
-        <Field label="Description">
-          <input
-            type="text"
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-            placeholder="e.g. Costco run"
-            style={S.input}
-          />
-        </Field>
-        <Field label="Amount (USD)">
-          <input
-            type="number"
-            inputMode="decimal"
-            step="0.01"
-            value={amount}
-            onChange={(e) => setAmount(e.target.value)}
-            placeholder="0.00"
-            style={S.input}
-          />
-        </Field>
-        <Field label="Category">
-          <select value={category} onChange={(e) => setCategory(e.target.value)} style={S.input}>
-            {CATEGORIES.map((c) => (
-              <option key={c}>{c}</option>
-            ))}
-          </select>
-        </Field>
-        <Field label="Account">
-          <select value={account} onChange={(e) => setAccount(e.target.value)} style={S.input}>
-            {ACCOUNTS.map((a) => (
-              <option key={a}>{a}</option>
-            ))}
-          </select>
-        </Field>
-        {flash ? <div style={{ color: "#34d399", fontSize: 13 }}>{flash}</div> : null}
-        <button type="submit" style={S.primaryBtn}>
-          Add
-        </button>
-      </form>
-    </div>
-  );
-}
-
 function Field({ label, children, style }) {
   return (
     <label style={{ display: "block", ...style }}>
@@ -1766,93 +1679,6 @@ function matchOption(value, options, fallback) {
 const EXPENSE_CATEGORIES = CATEGORIES.filter(
   (c) => !isIncome(c) && !isTransfer(c)
 );
-
-// ---- Section 1: Balance by Account ----------------------------------------
-
-function AccountBalances({ transactions, money, hideValues }) {
-  // Collect all distinct accounts (excluding Transfer txns)
-  const accountData = useMemo(() => {
-    const map = new Map();
-    for (const t of transactions) {
-      if (isTransfer(t.category)) continue;
-      const acct = t.account || "Unknown";
-      const entry = map.get(acct) || { account: acct, credits: 0, debits: 0 };
-      const amt = Math.abs(Number(t.amount) || 0);
-      if (isIncome(t.category)) entry.credits += amt;
-      else entry.debits += amt;
-      map.set(acct, entry);
-    }
-    return [...map.values()]
-      .map((e) => ({ ...e, net: e.credits - e.debits }))
-      .sort((a, b) => b.debits - a.debits);
-  }, [transactions]);
-
-  if (accountData.length === 0) return <Empty>No account data yet.</Empty>;
-
-  const fmtAxis = (v) => (hideValues ? "" : `$${Math.round(v)}`);
-
-  const chartData = accountData.map((e) => ({
-    account: e.account.length > 14 ? e.account.slice(0, 12) + "…" : e.account,
-    debits: e.debits,
-  }));
-
-  return (
-    <>
-      {/* Horizontal bar chart: spending by account */}
-      <div style={{ ...S.card, height: Math.max(220, accountData.length * 42 + 40) }}>
-        <ResponsiveContainer width="100%" height="100%">
-          <BarChart
-            data={chartData}
-            layout="vertical"
-            margin={{ top: 4, right: 12, left: 4, bottom: 4 }}
-          >
-            <CartesianGrid strokeDasharray="3 3" stroke="#1f2937" horizontal={false} />
-            <XAxis
-              type="number"
-              tick={{ fill: "#8b94a3", fontSize: 10 }}
-              tickFormatter={fmtAxis}
-            />
-            <YAxis
-              type="category"
-              dataKey="account"
-              tick={{ fill: "#8b94a3", fontSize: 10 }}
-              width={80}
-            />
-            {!hideValues && <Tooltip formatter={(v) => usd.format(v)} />}
-            <Bar dataKey="debits" name="Expenses" fill="#f87171" radius={[0, 4, 4, 0]} />
-          </BarChart>
-        </ResponsiveContainer>
-      </div>
-
-      {/* Per-account detail rows */}
-      <div style={S.list}>
-        {accountData.map((e) => (
-          <div key={e.account} style={S.txnRow}>
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontSize: 13, color: "#e5e7eb", fontWeight: 500 }}>{e.account}</div>
-              <div style={{ fontSize: 11, color: "#8b94a3", marginTop: 2 }}>
-                <span style={{ color: "#34d399" }}>+{money(e.credits)}</span>
-                {" / "}
-                <span style={{ color: "#f87171" }}>−{money(e.debits)}</span>
-              </div>
-            </div>
-            <span
-              style={{
-                fontWeight: 600,
-                fontSize: 14,
-                color: e.net >= 0 ? "#34d399" : "#f87171",
-                whiteSpace: "nowrap",
-              }}
-            >
-              {e.net >= 0 ? "+" : "−"}
-              {money(Math.abs(e.net))}
-            </span>
-          </div>
-        ))}
-      </div>
-    </>
-  );
-}
 
 // ---- Section 2: Trends — line chart top-5 + stacked bars + comparison table
 
@@ -2329,37 +2155,13 @@ function Recurrents({ transactions, money }) {
 // ---- Analyze (container) ---------------------------------------------------
 
 function Analyze({ transactions, money, hideValues, budgets, onUpdateBudget, budgetSaving }) {
-  const years = useMemo(() => availableYears(transactions), [transactions]);
-  const [year, setYear] = useState("All");
-  const [month, setMonth] = useState("All");
-
-  const scoped = useMemo(
-    () => transactions.filter((t) => matchPeriod(t.date, year, month)),
-    [transactions, year, month]
-  );
-
   return (
     <div style={S.col}>
       <h2 style={{ margin: "4px 0 0", fontSize: 16, color: "#e5e7eb", fontWeight: 600 }}>
         Analyze
       </h2>
 
-      {/* ---- Section 1: Account balances ---- */}
-      <h3 style={S.sectionTitle}>Account Balances</h3>
-      <PeriodFilter
-        year={year}
-        month={month}
-        setYear={setYear}
-        setMonth={setMonth}
-        years={years}
-      />
-      <AccountBalances
-        transactions={scoped}
-        money={money}
-        hideValues={hideValues}
-      />
-
-      {/* ---- Section 2: Trends ---- */}
+      {/* ---- Section 1: Trends ---- */}
       <h3 style={{ ...S.sectionTitle, marginTop: 8 }}>Trends</h3>
       <Trends
         transactions={transactions}
