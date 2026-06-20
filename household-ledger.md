@@ -34,7 +34,7 @@ household-ledger/
 │   ├── auth.js             # verificação de token Google + senha + allowlist
 │   └── redis.js            # singleton ioredis
 ├── src/
-│   ├── App.jsx             # app completo (6 tabs)
+│   ├── App.jsx             # app completo (5 tabs)
 │   └── main.jsx            # entrypoint React
 ├── index.html
 ├── vite.config.js
@@ -132,7 +132,7 @@ T-Mobile, United Explorer, Venmo, Venture X`.
 
 ## UI
 
-Mobile-first, tema escuro (`#0b0d10`). Tab bar inferior fixa com 6 abas:
+Mobile-first, tema escuro (`#0b0d10`). Tab bar inferior fixa com 5 abas. A entrada de transações é exclusivamente via Import — não há formulário manual de adição.
 
 1. **Dashboard** — saldo líquido, receitas/despesas totais, resumo do mês
    corrente e transações recentes. Filtrável por mês/ano via `PeriodFilter`
@@ -146,14 +146,10 @@ Mobile-first, tema escuro (`#0b0d10`). Tab bar inferior fixa com 6 abas:
    **CSV** e **JSON** exportam as transações filtradas (campos: `date,
    description, amount, category, account`); desabilitados quando o toggle
    do olho está ativo.
-4. **Add** — formulário para adicionar uma transação.
-5. **Import** — importação de CSV (papaparse) com mapeamento de colunas
+4. **Import** — importação de CSV (papaparse) com mapeamento de colunas
    configurável (`IMPORT_FIELDS`, `guessMapping`, selects por campo com
    hints de fallback) e contador "Showing 50 of N rows" na prévia.
-6. **Analyze** — análise aprofundada com quatro seções:
-   - **Saldo e gastos por conta** — lista cada conta com total de débitos,
-     créditos e saldo líquido no período; BarChart horizontal por volume de
-     gastos.
+5. **Analyze** — análise aprofundada com três seções:
    - **Tendências mês a mês** — LineChart com top-5 categorias de despesa por
      volume nos últimos 12 meses; StackedBarChart com mix de todas as categorias
      por mês; tabela comparativa mês atual vs. anterior com delta $ e %.
@@ -195,11 +191,12 @@ O app inicia com array vazio quando não há dados salvos (sem SEED).
 - [x] Filtro por mês/ano no Dashboard e Charts
 - [x] Save com debounce e indicador de estado mais rico
 - [x] Mapeamento de colunas configurável no import
+- [x] Entrada de transações exclusivamente via Import (tab Add e formulário manual removidos — PR #8)
 
 ### Fase 3 — Análise
 - [x] Orçamentos por categoria e alertas
 - [x] Tendências e comparação mês a mês
-- [x] Saldo e gastos por conta
+- [x] Saldo e gastos por conta *(removido do Analyze no PR #8 — seção Account Balances descontinuada)*
 - [x] Recorrentes / assinaturas detectadas
 
 ### Fase 4 — Plataforma
