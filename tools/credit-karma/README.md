@@ -4,21 +4,32 @@ O Credit Karma **não tem botão oficial de exportar transações**, mas funcion
 como agregador (todas as suas contas e cartões estão conectados lá). Esta
 ferramenta extrai as transações linha a linha direto da API interna do Credit
 Karma e gera um CSV pronto para o **Import** do Household Ledger — tudo rodando
-no iPhone, sem PC, sem extensão de Chrome e sem bookmarklet.
+no iPhone, sem PC.
 
-> **Por que não bookmarklet/extensão?** O Chrome no iOS não roda bookmarklets
-> `javascript:` de forma confiável e o iOS não permite extensões de browser
-> tipo desktop. A saída é o app **Scriptable**, que tem WebView + acesso a
-> rede e arquivos.
+Há **dois caminhos**, ambos rodando no iPhone:
+
+| | **Safari + bookmarklet** | **Scriptable (app)** |
+|---|---|---|
+| Baixar app | **Não** | Sim (Scriptable) |
+| Login a cada uso | Não — usa a sessão já logada no Safari | Sim, dentro da WebView |
+| Setup inicial | Criar o bookmarklet (chato 1x no iOS) | Colar o script no app |
+| Saída do CSV | Share sheet → "Salvar em Arquivos" | Salva direto em Arquivos |
+
+Use o **Safari** se quiser evitar instalar app e ter menos passos por uso.
+Use o **Scriptable** se preferir uma UI de erros melhor ou já tiver o app.
+
+> **Por que não bookmarklet no Chrome?** O Chrome no iOS não roda bookmarklets
+> `javascript:` de forma confiável. O bookmarklet abaixo é **só para Safari**.
+> Extensões de browser tipo desktop também não existem no iOS.
 
 ## Como funciona
 
-`creditkarma-export.scriptable.js` abre o Credit Karma numa WebView dentro do
-Scriptable. Depois que você loga, ele executa o `fetch` da API GraphQL
-**de dentro daquela página logada** — então a requisição sai com a origem
+Os dois caminhos usam a mesma ideia: executar o `fetch` da API GraphQL do
+Credit Karma **de dentro de uma página logada** (a aba do Safari no caminho A,
+ou uma WebView do Scriptable no caminho B). Assim a requisição sai com a origem
 `www.creditkarma.com` e os cookies de sessão, exatamente como o site real faz
-(CORS e autenticação funcionam). Ele usa duas operações que o próprio app web
-do Credit Karma usa:
+(CORS e autenticação funcionam). Ambos usam duas operações que o próprio app
+web do Credit Karma usa:
 
 - `GetTransactionsList` — pega o grosso das transações recentes numa tacada.
 - `GetTransactions` — pagina (via `afterCursor`) voltando no tempo até cobrir
@@ -28,7 +39,42 @@ O resultado vira um CSV cujas **5 primeiras colunas batem com o import do
 ledger**: `date,description,amount,category,account` (mais `ck_category,type`
 para ajudar você a ajustar o mapeamento).
 
-## Setup (uma vez)
+---
+
+## Caminho A — Safari (sem app)
+
+Arquivos: `bookmarklet.src.js` (fonte legível) e `bookmarklet.txt` (o
+one-liner `javascript:` pronto pra colar; gerado por `build-bookmarklet.js`).
+
+### Setup (uma vez)
+
+Instalar bookmarklet no iOS Safari é meio chato, mas é só uma vez:
+
+1. No Safari, favorite qualquer página (ícone de compartilhar →
+   **Adicionar aos Favoritos**). Dê o nome **"CK Export"**.
+2. Abra **Favoritos** → **Editar** → toque no "CK Export".
+3. Apague o endereço (URL) e **cole o conteúdo de `bookmarklet.txt`**
+   inteiro (começa com `javascript:`). Salve.
+   - Dica: abra `bookmarklet.txt` deste repo no celular e copie tudo.
+
+### Uso
+
+1. No Safari, abra `https://www.creditkarma.com/networth/transactions` e
+   **faça login** (a sessão fica salva para as próximas vezes).
+2. Toque na barra de endereço, comece a digitar **CK Export** e toque no
+   favorito (ou abra Favoritos e toque nele).
+3. Um banner mostra o progresso; ao terminar abre o **share sheet** com o
+   CSV → **Salvar em Arquivos**.
+4. No Household Ledger, **Import** → escolha o CSV.
+
+Se o share de arquivo não estiver disponível no seu iOS, ele copia o CSV
+para a área de transferência como fallback.
+
+---
+
+## Caminho B — Scriptable (app)
+
+### Setup (uma vez)
 
 1. Instale o app **Scriptable** (grátis) na App Store.
 2. Abra o arquivo `creditkarma-export.scriptable.js` deste repositório, copie
@@ -92,8 +138,10 @@ tudo do período em segundos.
   3. Ache as requisições `POST` para `api.creditkarma.com/graphql` com
      `operationName: GetTransactions` e `GetTransactionsList`.
   4. Copie o `sha256Hash` de cada uma (em `extensions.persistedQuery`) e
-     substitua `TRANSACTIONS_QUERY_HASH` e `TRANSACTIONS_LIST_HASH` no topo do
-     script.
+     substitua `TRANSACTIONS_QUERY_HASH`/`TRANSACTIONS_LIST_HASH` (no
+     `creditkarma-export.scriptable.js`) ou `PAGE_HASH`/`LIST_HASH` (no
+     `bookmarklet.src.js`). No caminho A, depois rode
+     `node tools/credit-karma/build-bookmarklet.js` e reinstale o bookmarklet.
   - Referência da técnica:
     [CreditKarmaExtractor](https://github.com/cbangera2/CreditKarmaExtractor)
     (extensão Chrome) e
