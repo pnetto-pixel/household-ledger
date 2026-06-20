@@ -203,4 +203,6 @@ O app inicia com array vazio quando não há dados salvos (sem SEED).
 - [x] Exportar CSV/JSON
 - [ ] Multiusuário / household compartilhado
 - [ ] PWA offline-first
-- [ ] Integrações de import (bancos, cartões)
+- [~] Integrações de import (bancos, cartões) — exportador Credit Karma para
+  iPhone via Scriptable em `tools/credit-karma/` (gera CSV no formato do
+  Import: `date,description,amount,category,account`)
