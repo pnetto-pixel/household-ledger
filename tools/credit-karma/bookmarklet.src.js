@@ -77,8 +77,8 @@
     if (!tok) return done('NO_TOKEN: nao achei a sessao. Abra a pagina de transacoes logado e tente de novo.');
     status('Conectando ao Credit Karma...');
     const headers = { 'Accept': 'application/json', 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + tok, 'ck-client-name': 'prime_web', 'ck-client-version': CLIENT_VERSION, 'ck-cookie-id': cookie('CKTRKID') || '', 'ck-device-type': 'Desktop', 'ck-trace-id': cookie('CKTRACEID') || traceId() };
-    const all = [], seen = {};
-    function add(arr) { if (!arr) return; for (let i = 0; i < arr.length; i++) { const t = arr[i], k = t.id || ((t.description || '') + '_' + t.date + '_' + ((t.amount && t.amount.value) || 0)); if (seen[k]) continue; seen[k] = 1; all.push(norm(t)); } }
+    const all = [], seen = {}; let sampleRaw = null;
+    function add(arr) { if (!arr) return; if (!sampleRaw && arr.length) sampleRaw = arr[0]; for (let i = 0; i < arr.length; i++) { const t = arr[i], k = t.id || ((t.description || '') + '_' + t.date + '_' + ((t.amount && t.amount.value) || 0)); if (seen[k]) continue; seen[k] = 1; all.push(norm(t)); } }
 
     // Phase 1: GetTransactionsList
     const listBody = { extensions: { persistedQuery: { sha256Hash: LIST_HASH, version: 1 } }, operationName: 'GetTransactionsList', variables: { input: { accountInput: {}, categoryInput: { categoryId: null, primeCategoryType: null } } } };
@@ -86,6 +86,7 @@
     const d1 = await r1.json();
     if (d1.errors) { const es = JSON.stringify(d1.errors); if (es.indexOf('PersistedQueryNotFound') >= 0 || es.indexOf('PERSISTED_QUERY_NOT_FOUND') >= 0) return done('HASH_OUTDATED: a API mudou. Atualize os hashes (ver README).'); }
     const p1 = (d1.data && d1.data.prime) || {};
+    const listPrimeKeys = Object.keys(p1).join('|') || (d1.data ? Object.keys(d1.data).join('|') : 'no-data');
     add((p1.transactionsHub && p1.transactionsHub.transactionPage && p1.transactionsHub.transactionPage.transactions) || (p1.transactionList && p1.transactionList.transactions) || []);
 
     // Phase 2: GetTransactions paginated
@@ -121,7 +122,17 @@
       rows.push({ date: date, description: t.description || '', amount: Math.abs(Number(t.amount) || 0), category: mapCat(t.category, t.categoryType), account: acctLabel(t.provider, t.account, t.mask), ck_account: t.account || '', provider: t.provider || '', ck_category: t.category || '', type: (t.categoryType || '').toUpperCase() === 'INCOME' ? 'income' : 'expense' });
     }
     rows.sort(function (a, b) { return a.date < b.date ? 1 : a.date > b.date ? -1 : 0; });
-    if (rows.length === 0) return done('Nenhuma transacao no periodo. Aumente DAYS_BACK no bookmarklet.');
+    if (rows.length === 0) {
+      if (banner) { banner.remove(); banner = null; }
+      const diag = 'fetched=' + all.length + '\nlistPrimeKeys=' + listPrimeKeys + '\nsample=' + (sampleRaw ? JSON.stringify(sampleRaw).slice(0, 1200) : 'null');
+      const ov = document.createElement('div');
+      ov.style.cssText = 'position:fixed;inset:0;z-index:99999;display:flex;flex-direction:column;align-items:center;justify-content:center;background:rgba(0,0,0,.92);color:#fff;font:14px -apple-system,sans-serif;padding:20px;text-align:center';
+      const t1 = document.createElement('div'); t1.textContent = '0 linhas no periodo. Copie o diagnostico e me mande:'; t1.style.cssText = 'margin-bottom:10px';
+      const ta = document.createElement('textarea'); ta.value = diag; ta.style.cssText = 'width:94%;height:55%;font-size:12px';
+      const cb = document.createElement('button'); cb.textContent = 'Fechar'; cb.style.cssText = 'margin-top:12px;padding:10px 18px;border:none;border-radius:10px;background:#444;color:#fff'; cb.onclick = function () { ov.remove(); };
+      ov.appendChild(t1); ov.appendChild(ta); ov.appendChild(cb); document.body.appendChild(ov);
+      return;
+    }
 
     const header = ['date', 'description', 'amount', 'category', 'account', 'ck_account', 'provider', 'ck_category', 'type'];
     const lines = [header.join(',')];
