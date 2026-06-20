@@ -85,7 +85,8 @@ const PAGE_CODE = `(async () => {
     return null;
   }
   function traceId(){return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g,function(c){var r=Math.random()*16|0,v=c==='x'?r:(r&0x3|0x8);return v.toString(16);});}
-  function norm(t){return {id:t.id,date:t.date,description:(t.description||(t.merchant&&t.merchant.name)||''),category:(t.category&&t.category.name)||'',categoryType:(t.category&&t.category.type)||'',amount:(t.amount&&t.amount.value)||0,account:(t.account&&t.account.name)||'',accountType:(t.account&&t.account.type)||'',provider:(t.account&&t.account.providerName)||''};}
+  function acctMask(a){if(!a)return '';return String(a.mask||a.lastFour||a.last4||a.accountNumberMask||a.partialAccountNumber||a.maskedAccountNumber||'').replace(/[^0-9]/g,'').slice(-4);}
+  function norm(t){return {id:t.id,date:t.date,description:(t.description||(t.merchant&&t.merchant.name)||''),category:(t.category&&t.category.name)||'',categoryType:(t.category&&t.category.type)||'',amount:(t.amount&&t.amount.value)||0,account:(t.account&&t.account.name)||'',accountType:(t.account&&t.account.type)||'',provider:(t.account&&t.account.providerName)||'',mask:acctMask(t.account)};}
   try {
     var ENDPOINT='https://api.creditkarma.com/graphql';
     var LIST_HASH='__LIST_HASH__';
@@ -152,12 +153,21 @@ function csvCell(v) {
   const s = String(v == null ? '' : v);
   return '"' + s.replace(/"/g, '""') + '"';
 }
+// Build a useful account label: prefix the bank when the name is just a
+// product type ("CREDIT CARD"), and append the last 4 digits when present.
+function acctLabel(provider, name, mask) {
+  const p = (provider || '').trim(), n = (name || '').trim(), m = (mask || '').trim();
+  let base;
+  if (p && n) base = n.toUpperCase().indexOf(p.toUpperCase()) >= 0 ? n : p + ' ' + n;
+  else base = n || p || '';
+  return m ? (base + ' ' + m).trim() : base;
+}
 function toCSV(rows) {
-  const header = ['date', 'description', 'amount', 'category', 'account', 'ck_category', 'type'];
+  const header = ['date', 'description', 'amount', 'category', 'account', 'ck_account', 'provider', 'ck_category', 'type'];
   const lines = [header.join(',')];
   for (const r of rows) {
     lines.push(
-      [r.date, r.description, r.amount, r.category, r.account, r.ck_category, r.type]
+      [r.date, r.description, r.amount, r.category, r.account, r.ck_account, r.provider, r.ck_category, r.type]
         .map(csvCell)
         .join(',')
     );
@@ -220,7 +230,9 @@ async function main() {
       description: t.description || '',
       amount: Math.abs(Number(t.amount) || 0),
       category: mapCategory(t.category, t.categoryType),
-      account: t.account || t.provider || '',
+      account: acctLabel(t.provider, t.account, t.mask),
+      ck_account: t.account || '',
+      provider: t.provider || '',
       ck_category: t.category || '',
       type: (t.categoryType || '').toUpperCase() === 'INCOME' ? 'income' : 'expense',
     });

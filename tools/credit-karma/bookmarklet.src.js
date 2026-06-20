@@ -49,7 +49,17 @@
     return CAT[k] || 'Other';
   }
   function cell(v) { return '"' + String(v == null ? '' : v).replace(/"/g, '""') + '"'; }
-  function norm(t) { return { id: t.id, date: t.date, description: (t.description || (t.merchant && t.merchant.name) || ''), category: (t.category && t.category.name) || '', categoryType: (t.category && t.category.type) || '', amount: (t.amount && t.amount.value) || 0, account: (t.account && t.account.name) || '', provider: (t.account && t.account.providerName) || '' }; }
+  function acctMask(a) { if (!a) return ''; return String(a.mask || a.lastFour || a.last4 || a.accountNumberMask || a.partialAccountNumber || a.maskedAccountNumber || '').replace(/[^0-9]/g, '').slice(-4); }
+  function norm(t) { return { id: t.id, date: t.date, description: (t.description || (t.merchant && t.merchant.name) || ''), category: (t.category && t.category.name) || '', categoryType: (t.category && t.category.type) || '', amount: (t.amount && t.amount.value) || 0, account: (t.account && t.account.name) || '', provider: (t.account && t.account.providerName) || '', mask: acctMask(t.account) }; }
+  // Build a useful account label: prefix the bank when the name is just a
+  // product type ("CREDIT CARD"), and append the last 4 digits when present.
+  function acctLabel(provider, name, mask) {
+    const p = (provider || '').trim(), n = (name || '').trim(), m = (mask || '').trim();
+    let base;
+    if (p && n) base = n.toUpperCase().indexOf(p.toUpperCase()) >= 0 ? n : p + ' ' + n;
+    else base = n || p || '';
+    return m ? (base + ' ' + m).trim() : base;
+  }
 
   let banner;
   function status(msg) {
@@ -108,14 +118,14 @@
       const date = normDate(t.date);
       if (!date) continue;
       if (new Date(date).getTime() < START_MS) continue;
-      rows.push({ date: date, description: t.description || '', amount: Math.abs(Number(t.amount) || 0), category: mapCat(t.category, t.categoryType), account: t.account || t.provider || '', ck_category: t.category || '', type: (t.categoryType || '').toUpperCase() === 'INCOME' ? 'income' : 'expense' });
+      rows.push({ date: date, description: t.description || '', amount: Math.abs(Number(t.amount) || 0), category: mapCat(t.category, t.categoryType), account: acctLabel(t.provider, t.account, t.mask), ck_account: t.account || '', provider: t.provider || '', ck_category: t.category || '', type: (t.categoryType || '').toUpperCase() === 'INCOME' ? 'income' : 'expense' });
     }
     rows.sort(function (a, b) { return a.date < b.date ? 1 : a.date > b.date ? -1 : 0; });
     if (rows.length === 0) return done('Nenhuma transacao no periodo. Aumente DAYS_BACK no bookmarklet.');
 
-    const header = ['date', 'description', 'amount', 'category', 'account', 'ck_category', 'type'];
+    const header = ['date', 'description', 'amount', 'category', 'account', 'ck_account', 'provider', 'ck_category', 'type'];
     const lines = [header.join(',')];
-    for (const r of rows) lines.push([r.date, r.description, r.amount, r.category, r.account, r.ck_category, r.type].map(cell).join(','));
+    for (const r of rows) lines.push([r.date, r.description, r.amount, r.category, r.account, r.ck_account, r.provider, r.ck_category, r.type].map(cell).join(','));
     const csv = lines.join('\n');
     const name = 'creditkarma_' + ymd(new Date(START_MS)) + '_to_' + ymd(new Date()) + '.csv';
 

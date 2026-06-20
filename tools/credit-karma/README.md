@@ -106,10 +106,13 @@ para a área de transferência como fallback.
   ledger (ex.: `FOOD_AND_DINING` → `Restaurant`, `PETS` → `Dog`). O que não
   reconhece vira `Other`. A coluna `ck_category` mostra o original para você
   conferir/ajustar.
-- **Conta**: vem o nome da conta como o Credit Karma reporta (ex.: "Sapphire
-  Reserve"). Como você tem várias contas no mesmo banco, talvez precise
-  renomear para os nomes do ledger ("Chase Reserve" etc.) — dá pra fazer no
-  próprio Import (mapeamento) ou editando depois.
+- **Conta**: a coluna `account` combina banco + nome + 4 últimos dígitos
+  quando disponíveis (ex.: "Chase TOTAL CHECKING 1234"). Para algumas contas o
+  Credit Karma só reporta o tipo do produto ("CREDIT CARD", "TOTAL CHECKING")
+  e **não** envia os 4 dígitos — nesses casos cartões do mesmo banco podem
+  ficar com o mesmo rótulo e você precisa diferenciá-los à mão. As colunas
+  `ck_account` (nome cru) e `provider` (banco) vão no CSV para ajudar a
+  remapear no Import ou editar depois para os nomes do ledger.
 - **Valor**: sempre positivo; o sinal (receita/despesa) vem da categoria, como
   o ledger espera. A coluna `type` indica `income`/`expense` para referência.
 
