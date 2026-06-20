@@ -141,7 +141,8 @@ Mobile-first, tema escuro (`#0b0d10`). Tab bar inferior fixa com 5 abas. A entra
    despesa por mês (recharts). Filtrável por mês/ano via `PeriodFilter`
    compartilhado (inicia em "All").
 3. **Transactions** — lista com busca textual livre, filtros por intervalo
-   de datas (from/to), categoria e conta, botão "Clear filters" e contador
+   de datas (from/to), categoria, conta e mês/ano via `PeriodFilter`
+   (reutilizado do Dashboard e Charts), botão "Clear filters" e contador
    de resultados. Suporta edição via `EditModal` (PUT) e exclusão. Botões
    **CSV** e **JSON** exportam as transações filtradas (campos: `date,
    description, amount, category, account`); desabilitados quando o toggle
