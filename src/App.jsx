@@ -88,6 +88,76 @@ const ACCOUNTS = [
   "Venture X",
 ];
 
+// ---------------------------------------------------------------------------
+// Bank import profiles
+// ---------------------------------------------------------------------------
+
+const BANK_PROFILES = [
+  {
+    id: 'generic',
+    label: 'Generic (manual mapping)',
+    group: null,
+    format: 'csv',
+    columnMap: null,
+    defaultAccount: '',
+    normalizeAmount: null,
+  },
+  {
+    id: 'chase-bela',
+    label: 'Chase Bela',
+    group: 'Chase',
+    format: 'csv',
+    columnMap: { date: 'Transaction Date', description: 'Description', amount: 'Amount', category: 'Category', account: null },
+    defaultAccount: 'Chase Bela',
+    normalizeAmount: (raw) => Math.abs(parseFloat(String(raw).replace(/[$,]/g, '')) || 0),
+  },
+  {
+    id: 'chase-preferred',
+    label: 'Chase Preferred',
+    group: 'Chase',
+    format: 'csv',
+    columnMap: { date: 'Transaction Date', description: 'Description', amount: 'Amount', category: 'Category', account: null },
+    defaultAccount: 'Chase Preferred',
+    normalizeAmount: (raw) => Math.abs(parseFloat(String(raw).replace(/[$,]/g, '')) || 0),
+  },
+  {
+    id: 'chase-reserve',
+    label: 'Chase Reserve',
+    group: 'Chase',
+    format: 'csv',
+    columnMap: { date: 'Transaction Date', description: 'Description', amount: 'Amount', category: 'Category', account: null },
+    defaultAccount: 'Chase Reserve',
+    normalizeAmount: (raw) => Math.abs(parseFloat(String(raw).replace(/[$,]/g, '')) || 0),
+  },
+  {
+    id: 'ink-biz-cash',
+    label: 'Ink Biz Cash',
+    group: 'Chase',
+    format: 'csv',
+    columnMap: { date: 'Transaction Date', description: 'Description', amount: 'Amount', category: 'Category', account: null },
+    defaultAccount: 'Ink Biz Cash',
+    normalizeAmount: (raw) => Math.abs(parseFloat(String(raw).replace(/[$,]/g, '')) || 0),
+  },
+  {
+    id: 'ink-unlimited',
+    label: 'Ink Unlimited',
+    group: 'Chase',
+    format: 'csv',
+    columnMap: { date: 'Transaction Date', description: 'Description', amount: 'Amount', category: 'Category', account: null },
+    defaultAccount: 'Ink Unlimited',
+    normalizeAmount: (raw) => Math.abs(parseFloat(String(raw).replace(/[$,]/g, '')) || 0),
+  },
+  {
+    id: 'chase-ofx',
+    label: 'Chase (OFX/QFX)',
+    group: 'Chase',
+    format: 'ofx',
+    columnMap: null,
+    defaultAccount: '',
+    normalizeAmount: null,
+  },
+];
+
 const CATEGORY_COLORS = [
   "#60a5fa",
   "#f87171",
@@ -1384,14 +1454,18 @@ function guessMapping(headers) {
 }
 
 // Build a canonical transaction from a raw CSV record using the column mapping.
-function buildRow(raw, mapping) {
+// profile is optional; when provided, its normalizeAmount and defaultAccount are used.
+function buildRow(raw, mapping, profile) {
   const val = (key) => {
     const col = mapping[key];
     return col ? String(raw[col] ?? "").trim() : "";
   };
 
-  const amount = Math.abs(parseFloat(val("amount").replace(/[$,]/g, "")));
-  if (!Number.isFinite(amount)) return null;
+  const rawAmount = val("amount");
+  const amount = profile && profile.normalizeAmount
+    ? profile.normalizeAmount(rawAmount)
+    : Math.abs(parseFloat(String(rawAmount).replace(/[$,]/g, "")) || 0);
+  if (!Number.isFinite(amount) || amount === 0) return null;
 
   let date = val("date");
   // Coerce common US format MM/DD/YYYY -> YYYY-MM-DD
@@ -1402,52 +1476,150 @@ function buildRow(raw, mapping) {
   }
   if (!date) date = todayISO();
 
+  const rawAccount = (mapping.account && val("account")) || "";
+  const account = rawAccount
+    ? matchOption(rawAccount, ACCOUNTS, profile?.defaultAccount || ACCOUNTS[0])
+    : (profile?.defaultAccount || ACCOUNTS[0]);
+
   return {
     id: uid(),
     date,
     description: val("description"),
     amount,
     category: matchOption(val("category"), CATEGORIES, "Other"),
-    account: matchOption(val("account"), ACCOUNTS, ACCOUNTS[0]),
+    account,
   };
 }
 
+// Parse OFX/QFX text format into canonical transaction objects.
+function parseOFX(text) {
+  const transactions = [];
+  const txnRegex = /<STMTTRN>([\s\S]*?)<\/STMTTRN>/gi;
+  let match;
+  while ((match = txnRegex.exec(text)) !== null) {
+    const block = match[1];
+    const get = (tag) => {
+      const m = new RegExp(`<${tag}>([^<\r\n]+)`, 'i').exec(block);
+      return m ? m[1].trim() : '';
+    };
+    const rawDate = get('DTPOSTED') || get('DTUSER');
+    // OFX date: YYYYMMDD[HHmmss[...]] -> YYYY-MM-DD
+    const date = rawDate.length >= 8
+      ? `${rawDate.slice(0, 4)}-${rawDate.slice(4, 6)}-${rawDate.slice(6, 8)}`
+      : '';
+    const rawAmount = get('TRNAMT');
+    const amount = Math.abs(parseFloat(rawAmount) || 0);
+    const description = get('NAME') || get('MEMO') || '';
+    if (date && amount > 0) {
+      transactions.push({ date, description, amount, category: 'Other', account: '' });
+    }
+  }
+  return transactions;
+}
+
 function ImportTransactions({ onImport }) {
+  const [profileId, setProfileId] = useState('generic');
+  const profile = BANK_PROFILES.find((p) => p.id === profileId) || BANK_PROFILES[0];
+
+  // CSV state
   const [rawRows, setRawRows] = useState([]);
   const [headers, setHeaders] = useState([]);
   const [mapping, setMapping] = useState({});
+
+  // OFX state — parsed rows already in canonical form
+  const [ofxRows, setOfxRows] = useState([]);
+
   const [error, setError] = useState("");
   const [done, setDone] = useState("");
+
+  // When profile changes, reset everything.
+  const resetAll = () => {
+    setRawRows([]);
+    setHeaders([]);
+    setMapping({});
+    setOfxRows([]);
+    setError("");
+    setDone("");
+  };
+
+  // Auto-apply column mapping whenever rows/headers/profile change.
+  useEffect(() => {
+    if (!rawRows.length || !headers.length) return;
+    if (profile.columnMap) {
+      // Profile with fixed mapping: apply directly, only for headers that exist.
+      const auto = {};
+      for (const [field, col] of Object.entries(profile.columnMap)) {
+        if (col && headers.includes(col)) auto[field] = col;
+      }
+      setMapping((prev) => ({ ...auto, ...prev }));
+    } else {
+      setMapping(guessMapping(headers));
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rawRows, headers, profileId]);
 
   const onFile = (e) => {
     const file = e.target.files?.[0];
     if (!file) return;
     setError("");
     setDone("");
-    Papa.parse(file, {
-      header: true,
-      skipEmptyLines: true,
-      complete: (result) => {
-        const cols = (result.meta?.fields || []).filter(Boolean);
-        if (cols.length === 0) {
-          setError("No columns detected in this CSV.");
-          return;
+    setRawRows([]);
+    setHeaders([]);
+    setMapping({});
+    setOfxRows([]);
+
+    if (profile.format === 'ofx') {
+      const reader = new FileReader();
+      reader.onload = (ev) => {
+        try {
+          const parsed = parseOFX(ev.target.result);
+          if (parsed.length === 0) {
+            setError("No transactions found in this OFX/QFX file.");
+            return;
+          }
+          // Apply defaultAccount if the profile has one.
+          const withAccount = parsed.map((t) => ({
+            ...t,
+            id: uid(),
+            account: profile.defaultAccount || t.account,
+          }));
+          setOfxRows(withAccount);
+        } catch (err) {
+          setError("Failed to parse OFX/QFX file: " + err.message);
         }
-        setHeaders(cols);
-        setMapping(guessMapping(cols));
-        setRawRows(result.data);
-      },
-      error: (err) => setError(err.message),
-    });
+      };
+      reader.onerror = () => setError("Could not read file.");
+      reader.readAsText(file);
+    } else {
+      Papa.parse(file, {
+        header: true,
+        skipEmptyLines: true,
+        complete: (result) => {
+          const cols = (result.meta?.fields || []).filter(Boolean);
+          if (cols.length === 0) {
+            setError("No columns detected in this CSV.");
+            return;
+          }
+          setHeaders(cols);
+          setRawRows(result.data);
+        },
+        error: (err) => setError(err.message),
+      });
+    }
   };
 
-  // Live preview reflects the current column mapping.
-  const rows = useMemo(() => {
+  // Live preview for CSV: reflect current column mapping.
+  const csvRows = useMemo(() => {
     if (rawRows.length === 0) return [];
-    return rawRows.map((r) => buildRow(r, mapping)).filter(Boolean);
-  }, [rawRows, mapping]);
+    return rawRows.map((r) => buildRow(r, mapping, profile)).filter(Boolean);
+  }, [rawRows, mapping, profile]);
 
-  const missingRequired = IMPORT_FIELDS.filter((f) => f.required && !mapping[f.key]);
+  // All ready rows: OFX or CSV depending on format.
+  const rows = profile.format === 'ofx' ? ofxRows : csvRows;
+
+  const missingRequired = profile.format === 'ofx'
+    ? []
+    : IMPORT_FIELDS.filter((f) => f.required && !mapping[f.key]);
 
   const setColumn = (key, col) => setMapping((prev) => ({ ...prev, [key]: col }));
 
@@ -1455,61 +1627,98 @@ function ImportTransactions({ onImport }) {
     if (rows.length === 0 || missingRequired.length > 0) return;
     onImport(rows);
     setDone(`Imported ${rows.length} transactions.`);
-    setRawRows([]);
-    setHeaders([]);
-    setMapping({});
+    resetAll();
   };
+
+  const hasData = profile.format === 'ofx' ? ofxRows.length > 0 : headers.length > 0;
 
   return (
     <div style={S.col}>
-      <h3 style={S.sectionTitle}>Import CSV</h3>
+      <h3 style={S.sectionTitle}>Import</h3>
       <p style={{ color: "#8b94a3", fontSize: 13, margin: 0 }}>
-        Pick a CSV, then map its columns to each field. Columns are auto-detected
-        from common headers — adjust any of them below.
+        Select your bank to auto-configure column mapping, then upload a file.
       </p>
-      <input type="file" accept=".csv,text/csv" onChange={onFile} style={{ color: "#cbd5e1" }} />
+
+      {/* Bank / Source selector */}
+      <div style={{ marginBottom: 4 }}>
+        <label style={{ fontSize: 13, color: "#8892a4", display: "block", marginBottom: 4 }}>
+          Bank / Source
+        </label>
+        <select
+          value={profileId}
+          onChange={(e) => {
+            setProfileId(e.target.value);
+            resetAll();
+          }}
+          style={{ background: "#1e2328", border: "1px solid #3a3f4a", color: "#e0e6f0", borderRadius: 6, padding: "7px 10px", fontSize: 14, width: "100%" }}
+        >
+          <option value="generic">Generic (manual mapping)</option>
+          <optgroup label="Chase">
+            {BANK_PROFILES.filter((p) => p.group === 'Chase' && p.format === 'csv').map((p) => (
+              <option key={p.id} value={p.id}>{p.label}</option>
+            ))}
+          </optgroup>
+          <optgroup label="Chase (OFX/QFX)">
+            {BANK_PROFILES.filter((p) => p.group === 'Chase' && p.format === 'ofx').map((p) => (
+              <option key={p.id} value={p.id}>{p.label}</option>
+            ))}
+          </optgroup>
+        </select>
+      </div>
+
+      <input
+        type="file"
+        accept={profile.format === 'ofx' ? '.ofx,.qfx' : '.csv,.tsv,.txt'}
+        onChange={onFile}
+        style={{ color: "#cbd5e1" }}
+      />
 
       {error ? <div style={{ color: "#f87171", fontSize: 13 }}>{error}</div> : null}
       {done ? <div style={{ color: "#34d399", fontSize: 13 }}>{done}</div> : null}
 
-      {headers.length > 0 ? (
+      {hasData ? (
         <>
-          <h3 style={S.sectionTitle}>Column Mapping</h3>
-          <div style={S.col}>
-            {IMPORT_FIELDS.map((f) => {
-              const fallbackHint =
-                f.key === "category"
-                  ? "— use default: Other —"
-                  : f.key === "account"
-                  ? `— use default: ${ACCOUNTS[0]} —`
-                  : "— skip —";
-              return (
-                <Field key={f.key} label={f.required ? `${f.label} *` : f.label}>
-                  <select
-                    value={mapping[f.key] || ""}
-                    onChange={(e) => setColumn(f.key, e.target.value)}
-                    style={S.input}
-                  >
-                    <option value="">{f.required ? "— none —" : fallbackHint}</option>
-                    {headers.map((h) => (
-                      <option key={h} value={h}>
-                        {h}
-                      </option>
-                    ))}
-                  </select>
-                </Field>
-              );
-            })}
-          </div>
+          {/* Column mapping — only shown for CSV, not for OFX (fields already parsed) */}
+          {profile.format !== 'ofx' && (
+            <>
+              <h3 style={S.sectionTitle}>Column Mapping</h3>
+              <div style={S.col}>
+                {IMPORT_FIELDS.map((f) => {
+                  const fallbackHint =
+                    f.key === "category"
+                      ? "— use default: Other —"
+                      : f.key === "account"
+                      ? `— use default: ${profile.defaultAccount || ACCOUNTS[0]} —`
+                      : "— skip —";
+                  return (
+                    <Field key={f.key} label={f.required ? `${f.label} *` : f.label}>
+                      <select
+                        value={mapping[f.key] || ""}
+                        onChange={(e) => setColumn(f.key, e.target.value)}
+                        style={S.input}
+                      >
+                        <option value="">{f.required ? "— none —" : fallbackHint}</option>
+                        {headers.map((h) => (
+                          <option key={h} value={h}>
+                            {h}
+                          </option>
+                        ))}
+                      </select>
+                    </Field>
+                  );
+                })}
+              </div>
 
-          {missingRequired.length > 0 ? (
-            <div style={{ color: "#fbbf24", fontSize: 13 }}>
-              Map a column for: {missingRequired.map((f) => f.label).join(", ")}.
-            </div>
-          ) : null}
+              {missingRequired.length > 0 ? (
+                <div style={{ color: "#fbbf24", fontSize: 13 }}>
+                  Map a column for: {missingRequired.map((f) => f.label).join(", ")}.
+                </div>
+              ) : null}
+            </>
+          )}
 
           <div style={{ color: "#8b94a3", fontSize: 12 }}>
-            {rows.length} of {rawRows.length} rows ready
+            {rows.length} {profile.format === 'ofx' ? '' : `of ${rawRows.length} `}rows ready
             {rows.length > 50 ? ` · Showing 50 of ${rows.length} rows` : null}
           </div>
           <div style={{ ...S.list, maxHeight: 320, overflowY: "auto" }}>
