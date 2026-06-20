@@ -142,7 +142,10 @@ Mobile-first, tema escuro (`#0b0d10`). Tab bar inferior fixa com 6 abas:
    compartilhado (inicia em "All").
 3. **Transactions** — lista com busca textual livre, filtros por intervalo
    de datas (from/to), categoria e conta, botão "Clear filters" e contador
-   de resultados. Suporta edição via `EditModal` (PUT) e exclusão.
+   de resultados. Suporta edição via `EditModal` (PUT) e exclusão. Botões
+   **CSV** e **JSON** exportam as transações filtradas (campos: `date,
+   description, amount, category, account`); desabilitados quando o toggle
+   do olho está ativo.
 4. **Add** — formulário para adicionar uma transação.
 5. **Import** — importação de CSV (papaparse) com mapeamento de colunas
    configurável (`IMPORT_FIELDS`, `guessMapping`, selects por campo com
@@ -200,7 +203,7 @@ O app inicia com array vazio quando não há dados salvos (sem SEED).
 - [x] Recorrentes / assinaturas detectadas
 
 ### Fase 4 — Plataforma
-- [ ] Exportar CSV/JSON
+- [x] Exportar CSV/JSON
 - [ ] Multiusuário / household compartilhado
 - [ ] PWA offline-first
 - [ ] Integrações de import (bancos, cartões)
