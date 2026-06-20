@@ -121,12 +121,50 @@
 
     if (banner) banner.remove(); banner = null;
     const file = new File([csv], name, { type: 'text/csv' });
-    if (navigator.canShare && navigator.canShare({ files: [file] })) {
-      await navigator.share({ files: [file], title: name });
-    } else {
-      try { await navigator.clipboard.writeText(csv); alert(rows.length + ' transacoes. Share de arquivo indisponivel; CSV copiado pra area de transferencia.'); }
-      catch (e) { const w = window.open('', '_blank'); if (w) { w.document.write('<pre>' + csv.replace(/</g, '&lt;') + '</pre>'); } else { alert('Nao consegui exportar: ' + e.message); } }
-    }
+
+    // iOS only allows navigator.share / clipboard during a *fresh* user
+    // gesture. After the long async fetch our tap is no longer "active", so
+    // we hand off via a button the user taps now.
+    const overlay = document.createElement('div');
+    overlay.style.cssText = 'position:fixed;inset:0;z-index:99999;display:flex;flex-direction:column;align-items:center;justify-content:center;background:rgba(0,0,0,.92);color:#fff;font:16px -apple-system,sans-serif;padding:24px;text-align:center';
+    const info = document.createElement('div');
+    info.style.cssText = 'margin-bottom:20px;max-width:340px;line-height:1.4';
+    info.textContent = rows.length + ' transacoes prontas. Toque em Salvar CSV.';
+    const btn = document.createElement('button');
+    btn.textContent = 'Salvar CSV';
+    btn.style.cssText = 'padding:16px 32px;font-size:18px;font-weight:600;border:none;border-radius:12px;background:#2ecc71;color:#fff';
+    const closeBtn = document.createElement('button');
+    closeBtn.textContent = 'Cancelar';
+    closeBtn.style.cssText = 'margin-top:14px;padding:10px 18px;border:none;border-radius:10px;background:#444;color:#fff';
+    overlay.appendChild(info); overlay.appendChild(btn); overlay.appendChild(closeBtn);
+    document.body.appendChild(overlay);
+    closeBtn.onclick = function () { overlay.remove(); };
+    btn.onclick = async function () {
+      try {
+        if (navigator.canShare && navigator.canShare({ files: [file] })) {
+          await navigator.share({ files: [file], title: name });
+        } else if (navigator.share) {
+          await navigator.share({ title: name, text: csv });
+        } else {
+          await navigator.clipboard.writeText(csv);
+          alert('CSV copiado pra area de transferencia.');
+        }
+        overlay.remove();
+      } catch (e) {
+        try {
+          await navigator.clipboard.writeText(csv);
+          alert('Compartilhamento cancelado/indisponivel. CSV copiado pra area de transferencia.');
+          overlay.remove();
+        } catch (e2) {
+          info.textContent = 'Copie o CSV abaixo (toque e segure -> Selecionar tudo -> Copiar):';
+          btn.style.display = 'none';
+          const ta = document.createElement('textarea');
+          ta.value = csv;
+          ta.style.cssText = 'width:92%;height:45%;margin-top:12px;font-size:12px';
+          overlay.appendChild(ta);
+        }
+      }
+    };
   } catch (e) {
     done('EXCEPTION: ' + ((e && e.message) || e));
   }
