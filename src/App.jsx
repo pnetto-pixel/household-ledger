@@ -1087,9 +1087,22 @@ function Transactions({ transactions, money, hideValues, isWide, onDelete, onUpd
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [bulkCat, setBulkCat] = useState("");
   const [bulkAcct, setBulkAcct] = useState("");
+  // Desktop date range is month-granular (YYYY-MM); mobile keeps from/to days.
+  const [fromMonth, setFromMonth] = useState("");
+  const [toMonth, setToMonth] = useState("");
 
   const selecting = isWide || selectMode;
   const years = useMemo(() => availableYears(transactions), [transactions]);
+
+  // Distinct values present in the data — drive the column-header filters.
+  const acctOptions = useMemo(
+    () => [...new Set(transactions.map((t) => t.account).filter(Boolean))].sort(),
+    [transactions]
+  );
+  const catOptions = useMemo(
+    () => [...new Set(transactions.map((t) => t.category).filter(Boolean))].sort(),
+    [transactions]
+  );
 
   const exportRows = (filteredArr) =>
     filteredArr.map((t) => ({
@@ -1163,8 +1176,17 @@ function Transactions({ transactions, money, hideValues, isWide, onDelete, onUpd
       .filter((t) => (acctFilter === "All" ? true : t.account === acctFilter))
       .filter((t) => (typeFilter === "All" ? true : txnType(t.category) === typeFilter))
       .filter((t) => matchPeriod(t.date, year, month))
-      .filter((t) => (from ? (t.date || "") >= from : true))
-      .filter((t) => (to ? (t.date || "") <= to : true))
+      .filter((t) => {
+        if (isWide) {
+          const mk = monthKey(t.date);
+          if (fromMonth && mk < fromMonth) return false;
+          if (toMonth && mk > toMonth) return false;
+          return true;
+        }
+        if (from && (t.date || "") < from) return false;
+        if (to && (t.date || "") > to) return false;
+        return true;
+      })
       .filter((t) =>
         q
           ? `${t.description || ""} ${t.category || ""} ${t.account || ""}`
@@ -1173,7 +1195,7 @@ function Transactions({ transactions, money, hideValues, isWide, onDelete, onUpd
           : true
       )
       .sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));
-  }, [transactions, catFilter, acctFilter, typeFilter, query, year, month, from, to]);
+  }, [transactions, catFilter, acctFilter, typeFilter, query, year, month, from, to, fromMonth, toMonth, isWide]);
 
   // Audit summary for the filtered set.
   const summary = useMemo(() => {
@@ -1195,7 +1217,9 @@ function Transactions({ transactions, money, hideValues, isWide, onDelete, onUpd
     year !== "All" ||
     month !== "All" ||
     from ||
-    to;
+    to ||
+    fromMonth ||
+    toMonth;
 
   const clearFilters = () => {
     setCatFilter("All");
@@ -1206,56 +1230,72 @@ function Transactions({ transactions, money, hideValues, isWide, onDelete, onUpd
     setMonth("All");
     setFrom("");
     setTo("");
+    setFromMonth("");
+    setToMonth("");
   };
 
   const allSelected = filtered.length > 0 && filtered.every((t) => selectedIds.has(t.id));
 
   return (
     <div style={S.col}>
-      {/* Filters — wrap horizontally on desktop, stack on mobile */}
-      <div style={S.filterBar}>
-        <div style={{ ...S.searchWrap, flex: "3 1 240px" }}>
-          <Search size={16} color="#8b94a3" />
-          <input
-            type="text"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search description, category, account…"
-            style={S.searchInput}
-          />
-          {query ? (
-            <button onClick={() => setQuery("")} style={S.deleteBtn} title="Clear search">
-              <X size={15} />
-            </button>
-          ) : null}
-        </div>
-
-        <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)} style={{ ...S.select, flex: "1 1 120px" }}>
-          <option value="All">All types</option>
-          <option value="Income">Income</option>
-          <option value="Expense">Expense</option>
-          <option value="Transfer">Transfer</option>
-        </select>
-        <select value={catFilter} onChange={(e) => setCatFilter(e.target.value)} style={{ ...S.select, flex: "1 1 130px" }}>
-          <option>All</option>
-          {CATEGORIES.map((c) => (
-            <option key={c}>{c}</option>
-          ))}
-        </select>
-        <select value={acctFilter} onChange={(e) => setAcctFilter(e.target.value)} style={{ ...S.select, flex: "1 1 130px" }}>
-          <option>All</option>
-          {ACCOUNTS.map((a) => (
-            <option key={a}>{a}</option>
-          ))}
-        </select>
-
-        <div style={{ flex: "1 1 180px" }}>
-          <PeriodFilter year={year} month={month} setYear={setYear} setMonth={setMonth} years={years} />
-        </div>
-
-        <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} title="From date" style={{ ...S.input, flex: "1 1 130px" }} />
-        <input type="date" value={to} onChange={(e) => setTo(e.target.value)} title="To date" style={{ ...S.input, flex: "1 1 130px" }} />
+      {/* Search box — always above the table */}
+      <div style={S.searchWrap}>
+        <Search size={16} color="#8b94a3" />
+        <input
+          type="text"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Search description, category, account…"
+          style={S.searchInput}
+        />
+        {query ? (
+          <button onClick={() => setQuery("")} style={S.deleteBtn} title="Clear search">
+            <X size={15} />
+          </button>
+        ) : null}
       </div>
+
+      {isWide ? (
+        /* Desktop: only a month-granular From/To here; type/category/account
+           are filtered from the column headers. */
+        <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
+          <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, color: "#8b94a3" }}>
+            From
+            <input type="month" value={fromMonth} onChange={(e) => setFromMonth(e.target.value)} style={{ ...S.input, width: "auto", padding: "8px 10px", fontSize: 13 }} />
+          </label>
+          <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, color: "#8b94a3" }}>
+            To
+            <input type="month" value={toMonth} onChange={(e) => setToMonth(e.target.value)} style={{ ...S.input, width: "auto", padding: "8px 10px", fontSize: 13 }} />
+          </label>
+        </div>
+      ) : (
+        /* Mobile: keep the stacked select filters */
+        <div style={S.filterBar}>
+          <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)} style={{ ...S.select, flex: "1 1 120px" }}>
+            <option value="All">All types</option>
+            <option value="Income">Income</option>
+            <option value="Expense">Expense</option>
+            <option value="Transfer">Transfer</option>
+          </select>
+          <select value={catFilter} onChange={(e) => setCatFilter(e.target.value)} style={{ ...S.select, flex: "1 1 130px" }}>
+            <option>All</option>
+            {CATEGORIES.map((c) => (
+              <option key={c}>{c}</option>
+            ))}
+          </select>
+          <select value={acctFilter} onChange={(e) => setAcctFilter(e.target.value)} style={{ ...S.select, flex: "1 1 130px" }}>
+            <option>All</option>
+            {ACCOUNTS.map((a) => (
+              <option key={a}>{a}</option>
+            ))}
+          </select>
+          <div style={{ flex: "1 1 180px" }}>
+            <PeriodFilter year={year} month={month} setYear={setYear} setMonth={setMonth} years={years} />
+          </div>
+          <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} title="From date" style={{ ...S.input, flex: "1 1 130px" }} />
+          <input type="date" value={to} onChange={(e) => setTo(e.target.value)} title="To date" style={{ ...S.input, flex: "1 1 130px" }} />
+        </div>
+      )}
 
       {/* Audit summary for the filtered set */}
       <div style={S.summaryBar}>
@@ -1383,6 +1423,14 @@ function Transactions({ transactions, money, hideValues, isWide, onDelete, onUpd
           onInlineChange={(t, patch) => onUpdate({ ...t, ...patch })}
           onEdit={setEditing}
           onDelete={onDelete}
+          typeFilter={typeFilter}
+          setTypeFilter={setTypeFilter}
+          acctFilter={acctFilter}
+          setAcctFilter={setAcctFilter}
+          catFilter={catFilter}
+          setCatFilter={setCatFilter}
+          acctOptions={acctOptions}
+          catOptions={catOptions}
         />
       ) : (
         <div style={S.list}>
@@ -1415,14 +1463,50 @@ function Transactions({ transactions, money, hideValues, isWide, onDelete, onUpd
   );
 }
 
+// Clickable column-header filter: a popover with a single-select option list
+// ("All" + the given options). Highlights when a filter is active.
+function HeaderFilter({ label, value, options, onChange }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+  const active = value && value !== "All";
+  useEffect(() => {
+    if (!open) return;
+    const onDoc = (e) => {
+      if (ref.current && !ref.current.contains(e.target)) setOpen(false);
+    };
+    document.addEventListener("mousedown", onDoc);
+    return () => document.removeEventListener("mousedown", onDoc);
+  }, [open]);
+  return (
+    <div ref={ref} style={{ position: "relative" }}>
+      <button onClick={() => setOpen((o) => !o)} style={S.thBtn(active)} title="Filter">
+        <span>{label}{active ? `: ${value}` : ""}</span>
+        <span style={{ fontSize: 9, opacity: 0.7 }}>▼</span>
+      </button>
+      {open && (
+        <div style={S.headerPop}>
+          <button onClick={() => { onChange("All"); setOpen(false); }} style={S.popItem(value === "All" || !value)}>
+            All
+          </button>
+          {options.map((o) => (
+            <button key={o} onClick={() => { onChange(o); setOpen(false); }} style={S.popItem(value === o)}>
+              {o}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Audit table (desktop) — inline-editable category/account, type badge,
 // row selection for bulk actions.
 // ---------------------------------------------------------------------------
 
-function TxnTable({ rows, money, selectedIds, allSelected, onToggleSelect, onSelectAll, onInlineChange, onEdit, onDelete }) {
+function TxnTable({ rows, money, selectedIds, allSelected, onToggleSelect, onSelectAll, onInlineChange, onEdit, onDelete, typeFilter, setTypeFilter, acctFilter, setAcctFilter, catFilter, setCatFilter, acctOptions, catOptions }) {
   return (
-    <div style={{ ...S.card, padding: 0, overflowX: "auto" }}>
+    <div style={{ ...S.card, padding: 0, overflow: "visible" }}>
       <table style={S.table}>
         <thead>
           <tr>
@@ -1431,10 +1515,16 @@ function TxnTable({ rows, money, selectedIds, allSelected, onToggleSelect, onSel
             </th>
             <th style={S.th}>Date</th>
             <th style={S.th}>Description</th>
-            <th style={S.th}>Account (source)</th>
-            <th style={S.th}>Type</th>
+            <th style={S.th}>
+              <HeaderFilter label="Account (source)" value={acctFilter} options={acctOptions} onChange={setAcctFilter} />
+            </th>
+            <th style={S.th}>
+              <HeaderFilter label="Type" value={typeFilter} options={["Income", "Expense", "Transfer"]} onChange={setTypeFilter} />
+            </th>
             <th style={S.th}>CK orig</th>
-            <th style={S.th}>Category</th>
+            <th style={S.th}>
+              <HeaderFilter label="Category" value={catFilter} options={catOptions} onChange={setCatFilter} />
+            </th>
             <th style={{ ...S.th, textAlign: "right" }}>Amount</th>
             <th style={{ ...S.th, width: 70, textAlign: "right" }}></th>
           </tr>
@@ -2885,4 +2975,45 @@ const S = {
     fontSize: 11,
     fontWeight: 600,
   },
+  thBtn: (active) => ({
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 5,
+    background: "transparent",
+    border: "none",
+    padding: 0,
+    cursor: "pointer",
+    font: "inherit",
+    fontWeight: 600,
+    color: active ? "#93c5fd" : "#8b94a3",
+  }),
+  headerPop: {
+    position: "absolute",
+    top: "100%",
+    left: 0,
+    marginTop: 6,
+    minWidth: 160,
+    maxHeight: 280,
+    overflowY: "auto",
+    background: "#14171c",
+    border: "1px solid #2a3340",
+    borderRadius: 10,
+    padding: 4,
+    zIndex: 40,
+    boxShadow: "0 8px 24px rgba(0,0,0,0.5)",
+  },
+  popItem: (active) => ({
+    display: "block",
+    width: "100%",
+    textAlign: "left",
+    background: active ? "#1e3a5f" : "transparent",
+    border: "none",
+    borderRadius: 7,
+    padding: "7px 10px",
+    color: active ? "#93c5fd" : "#cbd5e1",
+    fontSize: 13,
+    fontWeight: active ? 600 : 400,
+    cursor: "pointer",
+    whiteSpace: "nowrap",
+  }),
 };
