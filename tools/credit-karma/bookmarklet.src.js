@@ -168,11 +168,9 @@
       try {
         if (navigator.canShare && navigator.canShare({ files: [file] })) {
           await navigator.share({ files: [file], title: name });
-        } else if (navigator.share) {
-          await navigator.share({ title: name, text: csv });
         } else {
           await navigator.clipboard.writeText(csv);
-          alert('CSV copiado pra area de transferencia.');
+          alert('Share de arquivo indisponivel; CSV copiado pra area de transferencia.');
         }
         overlay.remove();
       } catch (e) {

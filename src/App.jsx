@@ -1433,6 +1433,7 @@ function TxnTable({ rows, money, selectedIds, allSelected, onToggleSelect, onSel
             <th style={S.th}>Description</th>
             <th style={S.th}>Account (source)</th>
             <th style={S.th}>Type</th>
+            <th style={S.th}>CK orig</th>
             <th style={S.th}>Category</th>
             <th style={{ ...S.th, textAlign: "right" }}>Amount</th>
             <th style={{ ...S.th, width: 70, textAlign: "right" }}></th>
@@ -1469,6 +1470,9 @@ function TxnTable({ rows, money, selectedIds, allSelected, onToggleSelect, onSel
                 </td>
                 <td style={S.td}>
                   <span style={{ ...S.badge, color: TYPE_COLOR[type], borderColor: TYPE_COLOR[type] }}>{type}</span>
+                </td>
+                <td style={{ ...S.td, color: "#8b94a3", fontSize: 11, whiteSpace: "nowrap" }} title="Raw category from the import source">
+                  {t.ckCategory || "—"}
                 </td>
                 <td style={S.td}>
                   <select
@@ -1657,6 +1661,11 @@ function EditModal({ txn, onClose, onSave }) {
               ))}
             </select>
           </Field>
+          {txn.ckCategory ? (
+            <div style={{ fontSize: 12, color: "#8b94a3", marginTop: -6 }}>
+              Source category (audit): <span style={{ color: "#cbd5e1" }}>{txn.ckCategory}</span>
+            </div>
+          ) : null}
           <Field label="Account">
             <select value={account} onChange={(e) => setAccount(e.target.value)} style={S.input}>
               {ACCOUNTS.map((a) => (
@@ -1691,6 +1700,7 @@ const IMPORT_FIELDS = [
   { key: "amount", label: "Amount", aliases: ["amount", "value", "amt"], required: true },
   { key: "category", label: "Category", aliases: ["category", "type"] },
   { key: "account", label: "Account", aliases: ["account", "card"] },
+  { key: "ckCategory", label: "Source category (audit)", aliases: ["ck_category", "ck category", "source category", "original category"] },
 ];
 
 // Best-guess header for a field from its aliases (case-insensitive).
@@ -1737,7 +1747,7 @@ function buildRow(raw, mapping, profile) {
     ? matchOption(rawAccount, ACCOUNTS, profile?.defaultAccount || ACCOUNTS[0])
     : (profile?.defaultAccount || ACCOUNTS[0]);
 
-  return {
+  const row = {
     id: uid(),
     date,
     description: val("description"),
@@ -1745,6 +1755,11 @@ function buildRow(raw, mapping, profile) {
     category: matchOption(val("category"), CATEGORIES, "Other"),
     account,
   };
+  // Keep the raw source category (e.g. from Credit Karma) for auditing the
+  // category-mapping decisions. Optional — only present when the column maps.
+  const ckCategory = mapping.ckCategory ? val("ckCategory") : "";
+  if (ckCategory) row.ckCategory = ckCategory;
+  return row;
 }
 
 // Parse OFX/QFX text format into canonical transaction objects.
