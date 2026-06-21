@@ -428,6 +428,18 @@ export default function App() {
     [scheduleSave]
   );
 
+  const deleteSelected = useCallback(
+    (ids) => {
+      setTransactions((prev) => {
+        const idSet = new Set(ids);
+        const next = prev.filter((t) => !idSet.has(t.id));
+        scheduleSave(next);
+        return next;
+      });
+    },
+    [scheduleSave]
+  );
+
   const updateTransaction = useCallback(
     (updated) => {
       setTransactions((prev) => {
@@ -494,6 +506,7 @@ export default function App() {
             hideValues={hideValues}
             onDelete={deleteTransaction}
             onUpdate={updateTransaction}
+            onDeleteSelected={deleteSelected}
           />
         ) : tab === "import" ? (
           <ImportTransactions onImport={addTransactions} />
@@ -1015,7 +1028,7 @@ function Charts({ transactions, hideValues }) {
 // Transactions list
 // ===========================================================================
 
-function Transactions({ transactions, money, hideValues, onDelete, onUpdate }) {
+function Transactions({ transactions, money, hideValues, onDelete, onUpdate, onDeleteSelected }) {
   const [catFilter, setCatFilter] = useState("All");
   const [acctFilter, setAcctFilter] = useState("All");
   const [query, setQuery] = useState("");
@@ -1024,6 +1037,11 @@ function Transactions({ transactions, money, hideValues, onDelete, onUpdate }) {
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
   const [editing, setEditing] = useState(null);
+
+  // Bulk-select state
+  const [selectMode, setSelectMode] = useState(false);
+  const [selectedIds, setSelectedIds] = useState(new Set());
+  const [confirmDelete, setConfirmDelete] = useState(false);
 
   const years = useMemo(() => availableYears(transactions), [transactions]);
 
@@ -1051,10 +1069,39 @@ function Transactions({ transactions, money, hideValues, onDelete, onUpdate }) {
     triggerDownload(new Blob([csv], { type: "text/csv;charset=utf-8" }), "household-transactions.csv");
   };
 
-  const handleExportJSON = (filteredArr) => {
-    const rows = exportRows(filteredArr);
-    const json = JSON.stringify(rows, null, 2);
-    triggerDownload(new Blob([json], { type: "application/json" }), "household-transactions.json");
+  const toggleSelectMode = () => {
+    setSelectMode((v) => {
+      if (v) {
+        // Exiting select mode: reset selection and confirmation
+        setSelectedIds(new Set());
+        setConfirmDelete(false);
+      }
+      return !v;
+    });
+  };
+
+  const toggleRowSelect = (id) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const handleSelectAll = (filteredArr, checked) => {
+    if (checked) {
+      setSelectedIds(new Set(filteredArr.map((t) => t.id)));
+    } else {
+      setSelectedIds(new Set());
+    }
+  };
+
+  const handleConfirmDelete = () => {
+    onDeleteSelected([...selectedIds]);
+    setSelectedIds(new Set());
+    setSelectMode(false);
+    setConfirmDelete(false);
   };
 
   const filtered = useMemo(() => {
@@ -1138,7 +1185,7 @@ function Transactions({ transactions, money, hideValues, onDelete, onUpdate }) {
         </Field>
       </div>
 
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
           <div style={{ color: "#8b94a3", fontSize: 12 }}>{filtered.length} transaction(s)</div>
           {hasFilters ? (
@@ -1152,45 +1199,83 @@ function Transactions({ transactions, money, hideValues, onDelete, onUpdate }) {
             onClick={() => handleExportCSV(filtered)}
             disabled={hideValues}
             title={hideValues ? "Show values to export" : "Export CSV"}
-            style={{
-              background: "#1e2328",
-              border: "1px solid #3a3f4a",
-              color: "#e0e6f0",
-              borderRadius: 6,
-              padding: "6px 14px",
-              cursor: hideValues ? "not-allowed" : "pointer",
-              fontSize: 13,
-              opacity: hideValues ? 0.4 : 1,
-            }}
+            style={S.exportBtn(hideValues)}
           >
             CSV
           </button>
           <button
-            onClick={() => handleExportJSON(filtered)}
-            disabled={hideValues}
-            title={hideValues ? "Show values to export" : "Export JSON"}
-            style={{
-              background: "#1e2328",
-              border: "1px solid #3a3f4a",
-              color: "#e0e6f0",
-              borderRadius: 6,
-              padding: "6px 14px",
-              cursor: hideValues ? "not-allowed" : "pointer",
-              fontSize: 13,
-              opacity: hideValues ? 0.4 : 1,
-            }}
+            onClick={toggleSelectMode}
+            title={selectMode ? "Cancel selection" : "Select transactions"}
+            style={S.exportBtn(false, selectMode)}
           >
-            JSON
+            {selectMode ? "Cancel" : "Select"}
           </button>
         </div>
       </div>
+
+      {selectMode && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <label style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer", fontSize: 13, color: "#cbd5e1" }}>
+              <input
+                type="checkbox"
+                checked={filtered.length > 0 && filtered.every((t) => selectedIds.has(t.id))}
+                onChange={(e) => handleSelectAll(filtered, e.target.checked)}
+                style={S.checkbox}
+              />
+              Select all ({filtered.length})
+            </label>
+          </div>
+
+          {selectedIds.size > 0 && !confirmDelete && (
+            <button
+              onClick={() => setConfirmDelete(true)}
+              style={S.deleteSelectedBtn}
+            >
+              <Trash2 size={15} />
+              Delete selected ({selectedIds.size})
+            </button>
+          )}
+
+          {confirmDelete && (
+            <div style={S.alertBanner}>
+              <div style={{ marginBottom: 8, fontWeight: 600 }}>
+                Delete {selectedIds.size} transaction{selectedIds.size !== 1 ? "s" : ""}? This cannot be undone.
+              </div>
+              <div style={{ display: "flex", gap: 8 }}>
+                <button
+                  onClick={handleConfirmDelete}
+                  style={{ background: "#7f1d1d", border: "1px solid #ef4444", color: "#fff", borderRadius: 8, padding: "6px 16px", cursor: "pointer", fontSize: 13, fontWeight: 600 }}
+                >
+                  Yes, delete
+                </button>
+                <button
+                  onClick={() => setConfirmDelete(false)}
+                  style={{ background: "transparent", border: "1px solid #4b5563", color: "#cbd5e1", borderRadius: 8, padding: "6px 16px", cursor: "pointer", fontSize: 13 }}
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       {filtered.length === 0 ? (
         <Empty>{hasFilters ? "No transactions match your filters." : "Nothing here."}</Empty>
       ) : (
         <div style={S.list}>
           {filtered.map((t) => (
-            <TxnRow key={t.id} t={t} money={money} onDelete={onDelete} onEdit={setEditing} />
+            <TxnRow
+              key={t.id}
+              t={t}
+              money={money}
+              onDelete={selectMode ? undefined : onDelete}
+              onEdit={setEditing}
+              selectMode={selectMode}
+              selected={selectedIds.has(t.id)}
+              onToggleSelect={toggleRowSelect}
+            />
           ))}
         </div>
       )}
@@ -1209,14 +1294,40 @@ function Transactions({ transactions, money, hideValues, onDelete, onUpdate }) {
   );
 }
 
-function TxnRow({ t, money, onDelete, onEdit }) {
+function TxnRow({ t, money, onDelete, onEdit, selectMode = false, selected = false, onToggleSelect }) {
   const income = isIncome(t.category);
   const transfer = isTransfer(t.category);
   const color = transfer ? "#8b94a3" : income ? "#34d399" : "#f87171";
   const sign = transfer ? "" : income ? "+" : "−";
   const amt = Math.abs(Number(t.amount) || 0);
+
+  const handleRowClick = selectMode
+    ? (e) => {
+        // Avoid double-toggle when clicking checkbox itself
+        if (e.target.type === "checkbox") return;
+        onToggleSelect && onToggleSelect(t.id);
+      }
+    : undefined;
+
   return (
-    <div style={S.txnRow}>
+    <div
+      style={{
+        ...S.txnRow,
+        cursor: selectMode ? "pointer" : "default",
+        outline: selected ? "1px solid #3b82f6" : undefined,
+        background: selected ? "#1a1f2e" : "#14171c",
+      }}
+      onClick={handleRowClick}
+    >
+      {selectMode && (
+        <input
+          type="checkbox"
+          checked={selected}
+          onChange={() => onToggleSelect && onToggleSelect(t.id)}
+          onClick={(e) => e.stopPropagation()}
+          style={S.checkbox}
+        />
+      )}
       <div style={{ minWidth: 0, flex: 1 }}>
         <div style={{ fontSize: 14, color: "#e5e7eb", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
           {t.description || t.category}
@@ -1232,12 +1343,20 @@ function TxnRow({ t, money, onDelete, onEdit }) {
           {money(amt)}
         </span>
         {onEdit ? (
-          <button onClick={() => onEdit(t)} style={S.deleteBtn} title="Edit">
+          <button
+            onClick={(e) => { e.stopPropagation(); onEdit(t); }}
+            style={S.deleteBtn}
+            title="Edit"
+          >
             <Pencil size={15} />
           </button>
         ) : null}
-        {onDelete ? (
-          <button onClick={() => onDelete(t.id)} style={S.deleteBtn} title="Delete">
+        {!selectMode && onDelete ? (
+          <button
+            onClick={(e) => { e.stopPropagation(); onDelete(t.id); }}
+            style={S.deleteBtn}
+            title="Delete"
+          >
             <Trash2 size={15} />
           </button>
         ) : null}
@@ -2463,5 +2582,38 @@ const S = {
     textAlign: "center",
     fontSize: 13,
     fontWeight: 500,
+  },
+  // Bulk-select feature
+  exportBtn: (disabled, active) => ({
+    background: active ? "#1e3a5f" : "#1e2328",
+    border: active ? "1px solid #3b82f6" : "1px solid #3a3f4a",
+    color: active ? "#93c5fd" : "#e0e6f0",
+    borderRadius: 6,
+    padding: "6px 14px",
+    cursor: disabled ? "not-allowed" : "pointer",
+    fontSize: 13,
+    opacity: disabled ? 0.4 : 1,
+    fontWeight: active ? 600 : 400,
+  }),
+  deleteSelectedBtn: {
+    display: "flex",
+    alignItems: "center",
+    gap: 6,
+    background: "#3b0d0d",
+    border: "1px solid #7f1d1d",
+    color: "#fca5a5",
+    borderRadius: 8,
+    padding: "8px 14px",
+    cursor: "pointer",
+    fontSize: 13,
+    fontWeight: 600,
+    alignSelf: "flex-start",
+  },
+  checkbox: {
+    width: 16,
+    height: 16,
+    accentColor: "#3b82f6",
+    cursor: "pointer",
+    flexShrink: 0,
   },
 };
