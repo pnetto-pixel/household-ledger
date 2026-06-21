@@ -184,6 +184,28 @@ const CATEGORY_COLORS = [
 const isIncome = (cat) => INCOME_CATEGORIES.includes(cat);
 const isTransfer = (cat) => cat === TRANSFER_CATEGORY;
 
+// Derived "type" of a transaction, used by the audit table.
+const txnType = (cat) =>
+  isTransfer(cat) ? "Transfer" : isIncome(cat) ? "Income" : "Expense";
+
+const TYPE_COLOR = { Income: "#34d399", Expense: "#f87171", Transfer: "#8b94a3" };
+
+// Tracks whether the viewport is wide enough for the desktop audit layout.
+function useMediaWide(px = 900) {
+  const [wide, setWide] = useState(
+    () => typeof window !== "undefined" && window.innerWidth >= px
+  );
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const mq = window.matchMedia(`(min-width:${px}px)`);
+    const handler = (e) => setWide(e.matches);
+    setWide(mq.matches);
+    mq.addEventListener("change", handler);
+    return () => mq.removeEventListener("change", handler);
+  }, [px]);
+  return wide;
+}
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -451,6 +473,19 @@ export default function App() {
     [scheduleSave]
   );
 
+  // Bulk-apply a partial patch (e.g. { category } or { account }) to many rows.
+  const updateMany = useCallback(
+    (ids, patch) => {
+      setTransactions((prev) => {
+        const idSet = new Set(ids);
+        const next = prev.map((t) => (idSet.has(t.id) ? { ...t, ...patch } : t));
+        scheduleSave(next);
+        return next;
+      });
+    },
+    [scheduleSave]
+  );
+
   // ---- Eye toggle ----------------------------------------------------------
   const toggleHide = useCallback(() => {
     setHideValues((v) => {
@@ -467,12 +502,16 @@ export default function App() {
     setTransactions([]);
   }, []);
 
+  // Desktop gets a wider shell so the audit table has horizontal room.
+  const isWide = useMediaWide(900);
+  const shellWidth = isWide ? 1180 : 560;
+
   if (!authed) {
     return <Login onAuthed={() => setAuthed(true)} />;
   }
 
   return (
-    <div style={S.app}>
+    <div style={{ ...S.app, maxWidth: shellWidth }}>
       <Header
         hideValues={hideValues}
         onToggleHide={toggleHide}
@@ -504,9 +543,11 @@ export default function App() {
             transactions={transactions}
             money={money}
             hideValues={hideValues}
+            isWide={isWide}
             onDelete={deleteTransaction}
             onUpdate={updateTransaction}
             onDeleteSelected={deleteSelected}
+            onUpdateMany={updateMany}
           />
         ) : tab === "import" ? (
           <ImportTransactions onImport={addTransactions} />
@@ -522,7 +563,7 @@ export default function App() {
         )}
       </main>
 
-      <TabBar tab={tab} setTab={setTab} />
+      <TabBar tab={tab} setTab={setTab} wide={isWide} />
     </div>
   );
 }
@@ -730,9 +771,9 @@ const TABS = [
   { id: "analyze", label: "Analyze", Icon: TrendingUp },
 ];
 
-function TabBar({ tab, setTab }) {
+function TabBar({ tab, setTab, wide }) {
   return (
-    <nav style={S.tabBar}>
+    <nav style={{ ...S.tabBar, maxWidth: wide ? 1180 : 560 }}>
       {TABS.map(({ id, label, Icon }) => {
         const active = tab === id;
         return (
@@ -1028,9 +1069,10 @@ function Charts({ transactions, hideValues }) {
 // Transactions list
 // ===========================================================================
 
-function Transactions({ transactions, money, hideValues, onDelete, onUpdate, onDeleteSelected }) {
+function Transactions({ transactions, money, hideValues, isWide, onDelete, onUpdate, onDeleteSelected, onUpdateMany }) {
   const [catFilter, setCatFilter] = useState("All");
   const [acctFilter, setAcctFilter] = useState("All");
+  const [typeFilter, setTypeFilter] = useState("All");
   const [query, setQuery] = useState("");
   const [year, setYear] = useState("All");
   const [month, setMonth] = useState("All");
@@ -1038,11 +1080,15 @@ function Transactions({ transactions, money, hideValues, onDelete, onUpdate, onD
   const [to, setTo] = useState("");
   const [editing, setEditing] = useState(null);
 
-  // Bulk-select state
+  // Bulk-select state. On desktop the audit table always shows checkboxes;
+  // on mobile they're gated behind the Select toggle.
   const [selectMode, setSelectMode] = useState(false);
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [bulkCat, setBulkCat] = useState("");
+  const [bulkAcct, setBulkAcct] = useState("");
 
+  const selecting = isWide || selectMode;
   const years = useMemo(() => availableYears(transactions), [transactions]);
 
   const exportRows = (filteredArr) =>
@@ -1104,11 +1150,18 @@ function Transactions({ transactions, money, hideValues, onDelete, onUpdate, onD
     setConfirmDelete(false);
   };
 
+  // Bulk-apply category/account/transfer to the current selection (keeps it).
+  const applyBulk = (patch) => {
+    if (selectedIds.size === 0) return;
+    onUpdateMany([...selectedIds], patch);
+  };
+
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     return [...transactions]
       .filter((t) => (catFilter === "All" ? true : t.category === catFilter))
       .filter((t) => (acctFilter === "All" ? true : t.account === acctFilter))
+      .filter((t) => (typeFilter === "All" ? true : txnType(t.category) === typeFilter))
       .filter((t) => matchPeriod(t.date, year, month))
       .filter((t) => (from ? (t.date || "") >= from : true))
       .filter((t) => (to ? (t.date || "") <= to : true))
@@ -1120,11 +1173,24 @@ function Transactions({ transactions, money, hideValues, onDelete, onUpdate, onD
           : true
       )
       .sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));
-  }, [transactions, catFilter, acctFilter, query, year, month, from, to]);
+  }, [transactions, catFilter, acctFilter, typeFilter, query, year, month, from, to]);
+
+  // Audit summary for the filtered set.
+  const summary = useMemo(() => {
+    let income = 0, expenses = 0, transfer = 0;
+    for (const t of filtered) {
+      const amt = Math.abs(Number(t.amount) || 0);
+      if (isTransfer(t.category)) transfer += amt;
+      else if (isIncome(t.category)) income += amt;
+      else expenses += amt;
+    }
+    return { income, expenses, transfer };
+  }, [filtered]);
 
   const hasFilters =
     catFilter !== "All" ||
     acctFilter !== "All" ||
+    typeFilter !== "All" ||
     query ||
     year !== "All" ||
     month !== "All" ||
@@ -1134,6 +1200,7 @@ function Transactions({ transactions, money, hideValues, onDelete, onUpdate, onD
   const clearFilters = () => {
     setCatFilter("All");
     setAcctFilter("All");
+    setTypeFilter("All");
     setQuery("");
     setYear("All");
     setMonth("All");
@@ -1141,56 +1208,74 @@ function Transactions({ transactions, money, hideValues, onDelete, onUpdate, onD
     setTo("");
   };
 
+  const allSelected = filtered.length > 0 && filtered.every((t) => selectedIds.has(t.id));
+
   return (
     <div style={S.col}>
-      <div style={S.searchWrap}>
-        <Search size={16} color="#8b94a3" />
-        <input
-          type="text"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="Search description, category, account…"
-          style={S.searchInput}
-        />
-        {query ? (
-          <button onClick={() => setQuery("")} style={S.deleteBtn} title="Clear search">
-            <X size={15} />
-          </button>
-        ) : null}
-      </div>
+      {/* Filters — wrap horizontally on desktop, stack on mobile */}
+      <div style={S.filterBar}>
+        <div style={{ ...S.searchWrap, flex: "3 1 240px" }}>
+          <Search size={16} color="#8b94a3" />
+          <input
+            type="text"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search description, category, account…"
+            style={S.searchInput}
+          />
+          {query ? (
+            <button onClick={() => setQuery("")} style={S.deleteBtn} title="Clear search">
+              <X size={15} />
+            </button>
+          ) : null}
+        </div>
 
-      <div style={{ display: "flex", gap: 8 }}>
-        <select value={catFilter} onChange={(e) => setCatFilter(e.target.value)} style={S.select}>
+        <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)} style={{ ...S.select, flex: "1 1 120px" }}>
+          <option value="All">All types</option>
+          <option value="Income">Income</option>
+          <option value="Expense">Expense</option>
+          <option value="Transfer">Transfer</option>
+        </select>
+        <select value={catFilter} onChange={(e) => setCatFilter(e.target.value)} style={{ ...S.select, flex: "1 1 130px" }}>
           <option>All</option>
           {CATEGORIES.map((c) => (
             <option key={c}>{c}</option>
           ))}
         </select>
-        <select value={acctFilter} onChange={(e) => setAcctFilter(e.target.value)} style={S.select}>
+        <select value={acctFilter} onChange={(e) => setAcctFilter(e.target.value)} style={{ ...S.select, flex: "1 1 130px" }}>
           <option>All</option>
           {ACCOUNTS.map((a) => (
             <option key={a}>{a}</option>
           ))}
         </select>
+
+        <div style={{ flex: "1 1 180px" }}>
+          <PeriodFilter year={year} month={month} setYear={setYear} setMonth={setMonth} years={years} />
+        </div>
+
+        <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} title="From date" style={{ ...S.input, flex: "1 1 130px" }} />
+        <input type="date" value={to} onChange={(e) => setTo(e.target.value)} title="To date" style={{ ...S.input, flex: "1 1 130px" }} />
       </div>
 
-      <PeriodFilter year={year} month={month} setYear={setYear} setMonth={setMonth} years={years} />
-
-      <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-        <Field label="From" style={{ flex: 1 }}>
-          <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} style={S.input} />
-        </Field>
-        <Field label="To" style={{ flex: 1 }}>
-          <input type="date" value={to} onChange={(e) => setTo(e.target.value)} style={S.input} />
-        </Field>
+      {/* Audit summary for the filtered set */}
+      <div style={S.summaryBar}>
+        <span style={{ color: "#cbd5e1", fontWeight: 600 }}>{filtered.length} txns</span>
+        <span style={{ color: TYPE_COLOR.Income }}>Income {money(summary.income)}</span>
+        <span style={{ color: TYPE_COLOR.Expense }}>Expenses {money(summary.expenses)}</span>
+        <span style={{ color: "#e5e7eb" }}>Net {money(summary.income - summary.expenses)}</span>
+        <span style={{ color: TYPE_COLOR.Transfer }}>Transfer {money(summary.transfer)} · excluded</span>
       </div>
 
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-          <div style={{ color: "#8b94a3", fontSize: 12 }}>{filtered.length} transaction(s)</div>
+        <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
           {hasFilters ? (
             <button onClick={clearFilters} style={S.linkBtn}>
               Clear filters
+            </button>
+          ) : null}
+          {selecting && selectedIds.size > 0 ? (
+            <button onClick={() => setSelectedIds(new Set())} style={S.linkBtn}>
+              Clear selection ({selectedIds.size})
             </button>
           ) : null}
         </div>
@@ -1203,66 +1288,102 @@ function Transactions({ transactions, money, hideValues, onDelete, onUpdate, onD
           >
             CSV
           </button>
-          <button
-            onClick={toggleSelectMode}
-            title={selectMode ? "Cancel selection" : "Select transactions"}
-            style={S.exportBtn(false, selectMode)}
-          >
-            {selectMode ? "Cancel" : "Select"}
-          </button>
+          {!isWide && (
+            <button
+              onClick={toggleSelectMode}
+              title={selectMode ? "Cancel selection" : "Select transactions"}
+              style={S.exportBtn(false, selectMode)}
+            >
+              {selectMode ? "Cancel" : "Select"}
+            </button>
+          )}
         </div>
       </div>
 
-      {selectMode && (
-        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <label style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer", fontSize: 13, color: "#cbd5e1" }}>
-              <input
-                type="checkbox"
-                checked={filtered.length > 0 && filtered.every((t) => selectedIds.has(t.id))}
-                onChange={(e) => handleSelectAll(filtered, e.target.checked)}
-                style={S.checkbox}
-              />
-              Select all ({filtered.length})
-            </label>
+      {/* Bulk-edit bar: shown whenever there's a selection */}
+      {selecting && selectedIds.size > 0 && (
+        <div style={S.bulkBar}>
+          <span style={{ fontSize: 13, color: "#e5e7eb", fontWeight: 600 }}>
+            {selectedIds.size} selected
+          </span>
+
+          <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+            <select value={bulkCat} onChange={(e) => setBulkCat(e.target.value)} style={{ ...S.select, flex: "0 1 150px" }}>
+              <option value="">Set category…</option>
+              {CATEGORIES.map((c) => (
+                <option key={c}>{c}</option>
+              ))}
+            </select>
+            <button
+              disabled={!bulkCat}
+              onClick={() => { applyBulk({ category: bulkCat }); setBulkCat(""); }}
+              style={S.exportBtn(!bulkCat)}
+            >
+              Apply
+            </button>
           </div>
 
-          {selectedIds.size > 0 && !confirmDelete && (
+          <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+            <select value={bulkAcct} onChange={(e) => setBulkAcct(e.target.value)} style={{ ...S.select, flex: "0 1 150px" }}>
+              <option value="">Set account…</option>
+              {ACCOUNTS.map((a) => (
+                <option key={a}>{a}</option>
+              ))}
+            </select>
             <button
-              onClick={() => setConfirmDelete(true)}
-              style={S.deleteSelectedBtn}
+              disabled={!bulkAcct}
+              onClick={() => { applyBulk({ account: bulkAcct }); setBulkAcct(""); }}
+              style={S.exportBtn(!bulkAcct)}
             >
-              <Trash2 size={15} />
-              Delete selected ({selectedIds.size})
+              Apply
             </button>
-          )}
+          </div>
 
-          {confirmDelete && (
-            <div style={S.alertBanner}>
-              <div style={{ marginBottom: 8, fontWeight: 600 }}>
-                Delete {selectedIds.size} transaction{selectedIds.size !== 1 ? "s" : ""}? This cannot be undone.
-              </div>
-              <div style={{ display: "flex", gap: 8 }}>
-                <button
-                  onClick={handleConfirmDelete}
-                  style={{ background: "#7f1d1d", border: "1px solid #ef4444", color: "#fff", borderRadius: 8, padding: "6px 16px", cursor: "pointer", fontSize: 13, fontWeight: 600 }}
-                >
-                  Yes, delete
-                </button>
-                <button
-                  onClick={() => setConfirmDelete(false)}
-                  style={{ background: "transparent", border: "1px solid #4b5563", color: "#cbd5e1", borderRadius: 8, padding: "6px 16px", cursor: "pointer", fontSize: 13 }}
-                >
-                  Cancel
-                </button>
-              </div>
-            </div>
+          <button onClick={() => applyBulk({ category: TRANSFER_CATEGORY })} style={S.exportBtn(false)} title="Mark as account transfer / card payment (excluded from totals)">
+            Mark as Transfer
+          </button>
+
+          {!confirmDelete ? (
+            <button onClick={() => setConfirmDelete(true)} style={S.deleteSelectedBtn}>
+              <Trash2 size={15} />
+              Delete ({selectedIds.size})
+            </button>
+          ) : (
+            <span style={{ display: "flex", gap: 6, alignItems: "center" }}>
+              <span style={{ fontSize: 12, color: "#fca5a5" }}>Delete {selectedIds.size}?</span>
+              <button onClick={handleConfirmDelete} style={{ background: "#7f1d1d", border: "1px solid #ef4444", color: "#fff", borderRadius: 8, padding: "6px 12px", cursor: "pointer", fontSize: 12, fontWeight: 600 }}>
+                Yes
+              </button>
+              <button onClick={() => setConfirmDelete(false)} style={{ background: "transparent", border: "1px solid #4b5563", color: "#cbd5e1", borderRadius: 8, padding: "6px 12px", cursor: "pointer", fontSize: 12 }}>
+                No
+              </button>
+            </span>
           )}
         </div>
       )}
 
+      {/* Mobile select-all helper (desktop uses the table header checkbox) */}
+      {!isWide && selectMode && filtered.length > 0 && (
+        <label style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer", fontSize: 13, color: "#cbd5e1" }}>
+          <input type="checkbox" checked={allSelected} onChange={(e) => handleSelectAll(filtered, e.target.checked)} style={S.checkbox} />
+          Select all ({filtered.length})
+        </label>
+      )}
+
       {filtered.length === 0 ? (
         <Empty>{hasFilters ? "No transactions match your filters." : "Nothing here."}</Empty>
+      ) : isWide ? (
+        <TxnTable
+          rows={filtered}
+          money={money}
+          selectedIds={selectedIds}
+          allSelected={allSelected}
+          onToggleSelect={toggleRowSelect}
+          onSelectAll={(checked) => handleSelectAll(filtered, checked)}
+          onInlineChange={(t, patch) => onUpdate({ ...t, ...patch })}
+          onEdit={setEditing}
+          onDelete={onDelete}
+        />
       ) : (
         <div style={S.list}>
           {filtered.map((t) => (
@@ -1290,6 +1411,94 @@ function Transactions({ transactions, money, hideValues, onDelete, onUpdate, onD
           }}
         />
       ) : null}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Audit table (desktop) — inline-editable category/account, type badge,
+// row selection for bulk actions.
+// ---------------------------------------------------------------------------
+
+function TxnTable({ rows, money, selectedIds, allSelected, onToggleSelect, onSelectAll, onInlineChange, onEdit, onDelete }) {
+  return (
+    <div style={{ ...S.card, padding: 0, overflowX: "auto" }}>
+      <table style={S.table}>
+        <thead>
+          <tr>
+            <th style={{ ...S.th, width: 36, textAlign: "center" }}>
+              <input type="checkbox" checked={allSelected} onChange={(e) => onSelectAll(e.target.checked)} style={S.checkbox} />
+            </th>
+            <th style={S.th}>Date</th>
+            <th style={S.th}>Description</th>
+            <th style={S.th}>Account (source)</th>
+            <th style={S.th}>Type</th>
+            <th style={S.th}>Category</th>
+            <th style={{ ...S.th, textAlign: "right" }}>Amount</th>
+            <th style={{ ...S.th, width: 70, textAlign: "right" }}></th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((t) => {
+            const type = txnType(t.category);
+            const selected = selectedIds.has(t.id);
+            const amt = Math.abs(Number(t.amount) || 0);
+            const sign = type === "Transfer" ? "" : type === "Income" ? "+" : "−";
+            return (
+              <tr key={t.id} style={{ background: selected ? "#1a1f2e" : "transparent" }}>
+                <td style={{ ...S.td, textAlign: "center" }}>
+                  <input type="checkbox" checked={selected} onChange={() => onToggleSelect(t.id)} style={S.checkbox} />
+                </td>
+                <td style={{ ...S.td, color: "#cbd5e1", whiteSpace: "nowrap" }}>{t.date}</td>
+                <td style={{ ...S.td, color: "#e5e7eb", whiteSpace: "normal", maxWidth: 320 }}>
+                  {t.description || <span style={{ color: "#6b7280" }}>—</span>}
+                </td>
+                <td style={S.td}>
+                  <select
+                    value={ACCOUNTS.includes(t.account) ? t.account : ""}
+                    onChange={(e) => onInlineChange(t, { account: e.target.value })}
+                    style={S.cellSelect}
+                  >
+                    {!ACCOUNTS.includes(t.account) && (
+                      <option value="">{t.account ? `${t.account} (unmapped)` : "—"}</option>
+                    )}
+                    {ACCOUNTS.map((a) => (
+                      <option key={a}>{a}</option>
+                    ))}
+                  </select>
+                </td>
+                <td style={S.td}>
+                  <span style={{ ...S.badge, color: TYPE_COLOR[type], borderColor: TYPE_COLOR[type] }}>{type}</span>
+                </td>
+                <td style={S.td}>
+                  <select
+                    value={CATEGORIES.includes(t.category) ? t.category : "Other"}
+                    onChange={(e) => onInlineChange(t, { category: e.target.value })}
+                    style={S.cellSelect}
+                  >
+                    {CATEGORIES.map((c) => (
+                      <option key={c}>{c}</option>
+                    ))}
+                  </select>
+                </td>
+                <td style={{ ...S.td, textAlign: "right", color: TYPE_COLOR[type], fontWeight: 600, whiteSpace: "nowrap" }}>
+                  {sign}{money(amt)}
+                </td>
+                <td style={{ ...S.td, textAlign: "right", whiteSpace: "nowrap" }}>
+                  <button onClick={() => onEdit(t)} style={S.deleteBtn} title="Edit">
+                    <Pencil size={14} />
+                  </button>
+                  {onDelete ? (
+                    <button onClick={() => onDelete(t.id)} style={S.deleteBtn} title="Delete">
+                      <Trash2 size={14} />
+                    </button>
+                  ) : null}
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
     </div>
   );
 }
@@ -2615,5 +2824,50 @@ const S = {
     accentColor: "#3b82f6",
     cursor: "pointer",
     flexShrink: 0,
+  },
+  // Audit / table view
+  filterBar: {
+    display: "flex",
+    gap: 8,
+    flexWrap: "wrap",
+    alignItems: "center",
+  },
+  summaryBar: {
+    display: "flex",
+    gap: 16,
+    flexWrap: "wrap",
+    alignItems: "center",
+    fontSize: 13,
+    padding: "8px 12px",
+    background: "#14171c",
+    border: "1px solid #1f242c",
+    borderRadius: 10,
+  },
+  bulkBar: {
+    display: "flex",
+    gap: 10,
+    flexWrap: "wrap",
+    alignItems: "center",
+    padding: "10px 12px",
+    background: "#101826",
+    border: "1px solid #1e3a5f",
+    borderRadius: 10,
+  },
+  cellSelect: {
+    background: "#0f1216",
+    border: "1px solid #232a33",
+    borderRadius: 8,
+    padding: "5px 8px",
+    color: "#e5e7eb",
+    fontSize: 12,
+    maxWidth: 170,
+  },
+  badge: {
+    display: "inline-block",
+    border: "1px solid",
+    borderRadius: 999,
+    padding: "1px 8px",
+    fontSize: 11,
+    fontWeight: 600,
   },
 };
