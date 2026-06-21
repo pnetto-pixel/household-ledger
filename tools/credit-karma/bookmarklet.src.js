@@ -44,8 +44,12 @@
   function ymd(d) { return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()); }
   function normDate(s) { if (!s) return ''; if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10); const d = new Date(s); return isNaN(d.getTime()) ? '' : ymd(d); }
   function mapCat(name, type) {
-    if ((type || '').toUpperCase() === 'INCOME') return 'Other Income';
     const k = String(name || '').toUpperCase().replace(/&/g, 'AND').replace(/[^A-Z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+    const ty = (type || '').toUpperCase();
+    // Account transfers and credit-card payments -> Transfer (excluded from
+    // all ledger totals). Checked first so they never count as income/expense.
+    if (ty === 'TRANSFER' || ty === 'PAYMENT' || k.indexOf('TRANSFER') >= 0 || k.indexOf('CREDIT_CARD_PAYMENT') >= 0 || k === 'PAYMENT' || k === 'PAYMENTS' || k === 'CARD_PAYMENT') return 'Transfer';
+    if (ty === 'INCOME') return 'Other Income';
     return CAT[k] || 'Other';
   }
   function cell(v) { return '"' + String(v == null ? '' : v).replace(/"/g, '""') + '"'; }

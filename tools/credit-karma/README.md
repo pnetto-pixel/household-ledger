@@ -106,6 +106,10 @@ para a área de transferência como fallback.
   ledger (ex.: `FOOD_AND_DINING` → `Restaurant`, `PETS` → `Dog`). O que não
   reconhece vira `Other`. A coluna `ck_category` mostra o original para você
   conferir/ajustar.
+- **Transferências e pagamentos de cartão** (categoria/tipo `TRANSFER`,
+  `CREDIT_CARD_PAYMENT`, `PAYMENT`) viram a categoria especial **`Transfer`**,
+  que o ledger **exclui de todos os totais** — assim movimentação entre contas
+  e pagamento de fatura não contam como receita nem despesa.
 - **Conta**: a coluna `account` combina banco + nome + 4 últimos dígitos
   quando disponíveis (ex.: "Chase TOTAL CHECKING 1234"). Para algumas contas o
   Credit Karma só reporta o tipo do produto ("CREDIT CARD", "TOTAL CHECKING")

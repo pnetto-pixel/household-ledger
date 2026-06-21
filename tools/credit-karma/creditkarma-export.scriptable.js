@@ -139,12 +139,16 @@ const PAGE_CODE = `(async () => {
 
 // ---- Category mapping (Scriptable side) -----------------------------------
 function mapCategory(ckName, ckType) {
-  if ((ckType || '').toUpperCase() === 'INCOME') return 'Other Income';
   const key = String(ckName || '')
     .toUpperCase()
     .replace(/&/g, 'AND')
     .replace(/[^A-Z0-9]+/g, '_')
     .replace(/^_+|_+$/g, '');
+  const ty = (ckType || '').toUpperCase();
+  // Account transfers and credit-card payments -> Transfer (excluded from all
+  // ledger totals). Checked first so they never count as income/expense.
+  if (ty === 'TRANSFER' || ty === 'PAYMENT' || key.indexOf('TRANSFER') >= 0 || key.indexOf('CREDIT_CARD_PAYMENT') >= 0 || key === 'PAYMENT' || key === 'PAYMENTS' || key === 'CARD_PAYMENT') return 'Transfer';
+  if (ty === 'INCOME') return 'Other Income';
   return CATEGORY_MAP[key] || 'Other';
 }
 
