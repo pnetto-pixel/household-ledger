@@ -167,7 +167,8 @@
     btn.onclick = async function () {
       try {
         if (navigator.canShare && navigator.canShare({ files: [file] })) {
-          await navigator.share({ files: [file], title: name });
+          // Share ONLY the file — passing title/text makes iOS also save a .txt.
+          await navigator.share({ files: [file] });
         } else {
           await navigator.clipboard.writeText(csv);
           alert('Share de arquivo indisponivel; CSV copiado pra area de transferencia.');
