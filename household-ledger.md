@@ -86,13 +86,30 @@ Cada transação:
   "id": "lf3k9-ab12cd",       // gerado no cliente
   "date": "2026-06-19",        // YYYY-MM-DD
   "description": "Costco run",
-  "amount": 142.37,            // sempre positivo; o sinal vem da categoria
+  "amount": 142.37,            // sinalizado na direção natural da categoria
   "category": "Groceries",
-  "account": "Chase Reserve"
+  "account": "Chase Reserve",  // "" quando não classificada (Unassigned)
+  "srcAccount": "CHASE Sapphire Reserve 1234", // opcional — valor de origem (auditoria)
+  "ckCategory": "GROCERIES"    // opcional — categoria crua da fonte (auditoria)
 }
 ```
 
-Persistido no Redis como `{ transactions: [...], savedAt }`.
+Persistido no Redis como `{ transactions: [...], savedAt }`. Os campos
+`srcAccount` e `ckCategory` só existem quando a fonte do import os fornece;
+servem para auditar as decisões de classificação de conta e categoria.
+
+**Sinal do `amount`.** O valor é sinalizado na **direção natural da
+categoria**: positivo é uma despesa/receita normal; **negativo é uma
+reversão** — um refund numa categoria de despesa (reduz as despesas) ou um
+cashback/imposto clawback numa categoria de receita (reduz a receita). As
+agregações somam o valor sinalizado (`income += amount`, `expenses +=
+amount`, `net = income − expenses`), então um refund de despesa entra como
+crédito sem precisar trocar de categoria. Na UI o sinal/cor da linha segue
+o **fluxo de caixa**: entrada (refund de despesa ou receita) em verde com
+`+`, saída (despesa ou clawback de receita) em vermelho com `−`. O import
+ainda normaliza para positivo (`Math.abs`) — reversões são marcadas
+manualmente no `EditModal` (valor negativo). Transfer continua excluída de
+todos os totais.
 
 ### Orçamentos
 
@@ -128,6 +145,16 @@ Capital One, Chase Bela, Chase Preferred, Chase Reserve, Chime, Discover,
 Ink Biz Cash, Ink Unlimited, Jasper Card, Lowes Card, SoFi, Southwest,
 T-Mobile, United Explorer, Venmo, Venture X`.
 
+**Classificação de conta no import.** O valor de conta da fonte é
+classificado por `matchAccount`: match exato (normalizado) contra a lista
+acima e, se falhar, uma tabela de aliases/keywords (`ACCOUNT_ALIASES`) que
+casa fragmentos de marca ignorando maiúsculas, pontuação e os 4 dígitos
+finais — ex.: `"CHASE Sapphire Reserve 1234"` → **Chase Reserve**. A
+classificação usa **apenas** o campo de conta da fonte, nunca a descrição
+do merchant (a loja onde você comprou ≠ o cartão usado). Quando nada casa,
+a conta fica **vazia (Unassigned)** em vez de cair no primeiro item da
+lista — antes tudo sem match virava "ATT Reward".
+
 ---
 
 ## UI
@@ -150,10 +177,23 @@ Mobile-first, tema escuro iOS. Tab bar inferior fixa com 5 abas. A entrada de tr
    compartilhado (inicia em "All").
 3. **Transactions** — lista com busca textual livre, filtros por intervalo
    de datas (from/to), categoria e conta, botão "Clear filters" e contador
-   de resultados. Suporta edição via `EditModal` (PUT) e exclusão individual.
+   de resultados. O filtro de conta inclui um chip **"Unassigned"** que
+   agrupa as transações sem conta classificada. Suporta edição via
+   `EditModal` (PUT) e exclusão individual.
    Botão **CSV** exporta as transações filtradas (campos: `date, description,
    amount, category, account`); desabilitado quando o toggle do olho está
    ativo. O botão JSON foi removido (PR #14).
+
+   **Re-classify (auditoria de conta):** botão "Re-classify" abre o
+   `ReclassifyModal`, que re-roda `matchAccount` sobre as transações
+   existentes (usando `srcAccount`, ou o valor de conta cru ainda
+   não-mapeado) e lista **cada mudança proposta** (origem · conta atual →
+   conta proposta) com **checkbox por linha** e "Select/Deselect all".
+   Só as linhas marcadas são gravadas. Linhas legadas sem valor de origem
+   não geram candidato — o modal aponta para o re-import via profile
+   Credit Karma. A auditoria também aparece como tooltip na célula de conta
+   (desktop), linha "Source account (audit)" no `EditModal`, e `src:` no
+   card mobile das linhas não-mapeadas.
 
    **Modo de seleção (bulk delete):** botão "Select" alterna o modo de
    seleção; quando ativo, muda para "Cancel" e o botão de lixeira individual
@@ -167,6 +207,13 @@ Mobile-first, tema escuro iOS. Tab bar inferior fixa com 5 abas. A entrada de tr
 4. **Import** — importação de CSV (papaparse) com mapeamento de colunas
    configurável (`IMPORT_FIELDS`, `guessMapping`, selects por campo com
    hints de fallback) e contador "Showing 50 of N rows" na prévia.
+   **Bank profiles** (`BANK_PROFILES`) pré-configuram o mapeamento por
+   fonte: `Generic` (mapeamento manual), **`Credit Karma`** (auto-mapeia
+   `date,description,amount,category,account,ck_category` — a coluna
+   `account` passa por `matchAccount`), os profiles Chase (Bela/Preferred/
+   Reserve/Ink) que forçam a conta via `defaultAccount`, e Chase OFX/QFX.
+   Quando nenhum sinal de conta existe, a linha fica **Unassigned** (não
+   mais "ATT Reward").
 5. **Analyze** — análise aprofundada com três seções:
    - **Tendências mês a mês** — LineChart com top-5 categorias de despesa por
      volume nos últimos 12 meses; StackedBarChart com mix de todas as categorias
@@ -210,6 +257,7 @@ O app inicia com array vazio quando não há dados salvos (sem SEED).
 - [x] Save com debounce e indicador de estado mais rico
 - [x] Mapeamento de colunas configurável no import
 - [x] Entrada de transações exclusivamente via Import (tab Add e formulário manual removidos — PR #8)
+- [x] Valores sinalizados: reversões (refund de despesa / clawback de receita) entram como negativo dentro da própria categoria e abatem o total; sinal/cor por fluxo de caixa
 
 ### Fase 3 — Análise
 - [x] Orçamentos por categoria e alertas
@@ -221,8 +269,13 @@ O app inicia com array vazio quando não há dados salvos (sem SEED).
 - [x] Exportar CSV (export JSON removido no PR #14)
 - [x] Bulk delete de transações com confirmação inline (PR #14)
 - [x] Redesign iOS 26 "Liquid Glass": safe-area, tipografia SF Pro, backdrop-filter, paleta dark mode, cantos arredondados (PR #23)
+- [x] Classificação de conta por aliases (`ACCOUNT_ALIASES` / `matchAccount`):
+  sem match vira Unassigned em vez de "ATT Reward"; profile de import
+  Credit Karma; re-classificação revisável (`ReclassifyModal`) e trilha de
+  auditoria (`srcAccount`)
 - [ ] Multiusuário / household compartilhado
 - [ ] PWA offline-first
 - [~] Integrações de import (bancos, cartões) — exportador Credit Karma para
-  iPhone via Scriptable em `tools/credit-karma/` (gera CSV no formato do
-  Import: `date,description,amount,category,account`)
+  iPhone via Scriptable e bookmarklet de Safari em `tools/credit-karma/`
+  (gera CSV `date,description,amount,category,account,ck_account,provider,
+  ck_category,type`, consumido pelo profile Credit Karma do Import)

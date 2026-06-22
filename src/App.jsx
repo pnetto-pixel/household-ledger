@@ -87,6 +87,39 @@ const ACCOUNTS = [
   "Venture X",
 ];
 
+// Account classification (Option B): map each canonical account to the
+// keyword/alias fragments that identify it in a source's own account/card
+// field. Matched against the account-identifying value only (never the
+// merchant description — the card you paid with is not the store you paid).
+// Order matters: the first account with a matching alias wins, so keep the
+// more specific names ahead of weaker, collision-prone fragments.
+const ACCOUNT_ALIASES = [
+  ["Advancial", ["advancial"]],
+  ["Amazon Card", ["amazon", "amzn"]],
+  ["Apple", ["applecard", "applecash", "apple", "goldman"]],
+  ["Bank of America", ["bankofamerica", "bofa"]],
+  // Venture X before Capital One: the co-branded card is the more specific
+  // account, even though Capital One issues it.
+  ["Venture X", ["venturex", "venture"]],
+  ["Capital One", ["capitalone", "capone"]],
+  ["Chase Bela", ["chasebela", "bela"]],
+  ["Chase Preferred", ["sapphirepreferred", "chasepreferred", "preferred"]],
+  ["Chase Reserve", ["sapphirereserve", "chasereserve", "reserve"]],
+  ["Ink Biz Cash", ["inkbusinesscash", "inkbizcash", "inkcash"]],
+  ["Ink Unlimited", ["inkbusinessunlimited", "inkunlimited"]],
+  ["Jasper Card", ["jasper"]],
+  ["Lowes Card", ["lowes"]],
+  ["United Explorer", ["unitedexplorer", "mileageplus", "united"]],
+  ["Southwest", ["southwest", "rapidrewards"]],
+  ["T-Mobile", ["tmobile"]],
+  ["Alaska", ["alaska"]],
+  ["Discover", ["discover"]],
+  ["Chime", ["chime"]],
+  ["SoFi", ["sofi"]],
+  ["Venmo", ["venmo"]],
+  ["ATT Reward", ["attreward", "att"]],
+];
+
 // ---------------------------------------------------------------------------
 // Bank import profiles
 // ---------------------------------------------------------------------------
@@ -98,6 +131,18 @@ const BANK_PROFILES = [
     group: null,
     format: 'csv',
     columnMap: null,
+    defaultAccount: '',
+    normalizeAmount: null,
+  },
+  {
+    id: 'credit-karma',
+    label: 'Credit Karma',
+    group: null,
+    format: 'csv',
+    // CK export columns (see tools/credit-karma): date, description, amount,
+    // category, account, ck_account, provider, ck_category, type. The account
+    // column is run through matchAccount, and ck_category is kept for auditing.
+    columnMap: { date: 'date', description: 'description', amount: 'amount', category: 'category', account: 'account', ckCategory: 'ck_category' },
     defaultAccount: '',
     normalizeAmount: null,
   },
@@ -189,6 +234,23 @@ const txnType = (cat) =>
   isTransfer(cat) ? "Transfer" : isIncome(cat) ? "Income" : "Expense";
 
 const TYPE_COLOR = { Income: "#34d399", Expense: "#f87171", Transfer: "#8b94a3" };
+
+// Cash-flow presentation of a transaction's amount. The stored `amount` is
+// signed in the category's natural direction: positive is a normal income /
+// expense, negative is a reversal (a refund on an expense, a clawback/tax on
+// income). Income adds to cash flow, expense subtracts; a reversal flips the
+// shown sign and color. Transfer is shown as a plain magnitude.
+// Returns { sign, color, value } where value is the (positive) magnitude.
+function amountDisplay(t) {
+  const raw = Number(t.amount) || 0;
+  if (isTransfer(t.category)) return { sign: "", color: TYPE_COLOR.Transfer, value: Math.abs(raw) };
+  const cf = (isIncome(t.category) ? 1 : -1) * raw;
+  return {
+    sign: cf > 0 ? "+" : cf < 0 ? "−" : "",
+    color: cf >= 0 ? TYPE_COLOR.Income : TYPE_COLOR.Expense,
+    value: Math.abs(cf),
+  };
+}
 
 // Tracks whether the viewport is wide enough for the desktop audit layout.
 function useMediaWide(px = 900) {
@@ -486,6 +548,21 @@ export default function App() {
     [scheduleSave]
   );
 
+  // Apply a per-row account change (re-classification): [{ id, account }].
+  const reclassifyAccounts = useCallback(
+    (changes) => {
+      setTransactions((prev) => {
+        const byId = new Map(changes.map((c) => [c.id, c.account]));
+        const next = prev.map((t) =>
+          byId.has(t.id) ? { ...t, account: byId.get(t.id) } : t
+        );
+        scheduleSave(next);
+        return next;
+      });
+    },
+    [scheduleSave]
+  );
+
   // ---- Eye toggle ----------------------------------------------------------
   const toggleHide = useCallback(() => {
     setHideValues((v) => {
@@ -548,6 +625,7 @@ export default function App() {
             onUpdate={updateTransaction}
             onDeleteSelected={deleteSelected}
             onUpdateMany={updateMany}
+            onReclassify={reclassifyAccounts}
           />
         ) : tab === "import" ? (
           <ImportTransactions onImport={addTransactions} />
@@ -803,7 +881,7 @@ function computeTotals(rows) {
   let expenses = 0;
   for (const t of rows) {
     if (isTransfer(t.category)) continue; // Transfer excluded from all totals
-    const amt = Math.abs(Number(t.amount) || 0);
+    const amt = Number(t.amount) || 0; // signed: negatives are refunds/clawbacks
     if (isIncome(t.category)) income += amt;
     else expenses += amt;
   }
@@ -977,11 +1055,12 @@ function Charts({ transactions, hideValues }) {
     const map = new Map();
     for (const t of scoped) {
       if (isTransfer(t.category) || isIncome(t.category)) continue;
-      const amt = Math.abs(Number(t.amount) || 0);
+      const amt = Number(t.amount) || 0; // signed: refunds reduce the category
       map.set(t.category, (map.get(t.category) || 0) + amt);
     }
     return [...map.entries()]
       .map(([name, value]) => ({ name, value }))
+      .filter((e) => e.value > 0) // a net-refunded category isn't a pie slice
       .sort((a, b) => b.value - a.value);
   }, [scoped]);
 
@@ -992,7 +1071,7 @@ function Charts({ transactions, hideValues }) {
       const mk = monthKey(t.date);
       if (!mk) continue;
       const entry = map.get(mk) || { month: mk, income: 0, expenses: 0 };
-      const amt = Math.abs(Number(t.amount) || 0);
+      const amt = Number(t.amount) || 0; // signed: refunds/clawbacks net out
       if (isIncome(t.category)) entry.income += amt;
       else entry.expenses += amt;
       map.set(mk, entry);
@@ -1069,7 +1148,7 @@ function Charts({ transactions, hideValues }) {
 // Transactions list
 // ===========================================================================
 
-function Transactions({ transactions, money, hideValues, isWide, onDelete, onUpdate, onDeleteSelected, onUpdateMany }) {
+function Transactions({ transactions, money, hideValues, isWide, onDelete, onUpdate, onDeleteSelected, onUpdateMany, onReclassify }) {
   const [catFilter, setCatFilter] = useState([]);
   const [acctFilter, setAcctFilter] = useState([]);
   const [typeFilter, setTypeFilter] = useState([]);
@@ -1079,6 +1158,7 @@ function Transactions({ transactions, money, hideValues, isWide, onDelete, onUpd
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
   const [editing, setEditing] = useState(null);
+  const [reclassifying, setReclassifying] = useState(false);
 
   // Bulk-select state. Rows are always selectable via their checkbox on both
   // platforms; the bulk-edit bar appears once anything is selected.
@@ -1095,7 +1175,7 @@ function Transactions({ transactions, money, hideValues, isWide, onDelete, onUpd
 
   // Distinct values present in the data — drive the column-header filters.
   const acctOptions = useMemo(
-    () => [...new Set(transactions.map((t) => t.account).filter(Boolean))].sort(),
+    () => [...new Set(transactions.map((t) => t.account || "Unassigned"))].sort(),
     [transactions]
   );
   const catOptions = useMemo(
@@ -1160,7 +1240,7 @@ function Transactions({ transactions, money, hideValues, isWide, onDelete, onUpd
     const q = query.trim().toLowerCase();
     return [...transactions]
       .filter((t) => (catFilter.length === 0 ? true : catFilter.includes(t.category)))
-      .filter((t) => (acctFilter.length === 0 ? true : acctFilter.includes(t.account)))
+      .filter((t) => (acctFilter.length === 0 ? true : acctFilter.includes(t.account || "Unassigned")))
       .filter((t) => (typeFilter.length === 0 ? true : typeFilter.includes(txnType(t.category))))
       .filter((t) => matchPeriod(t.date, year, month))
       .filter((t) => {
@@ -1190,10 +1270,10 @@ function Transactions({ transactions, money, hideValues, isWide, onDelete, onUpd
   const summary = useMemo(() => {
     let income = 0, expenses = 0, transfer = 0;
     for (const t of filtered) {
-      const amt = Math.abs(Number(t.amount) || 0);
-      if (isTransfer(t.category)) transfer += amt;
-      else if (isIncome(t.category)) income += amt;
-      else expenses += amt;
+      const raw = Number(t.amount) || 0;
+      if (isTransfer(t.category)) transfer += Math.abs(raw);
+      else if (isIncome(t.category)) income += raw; // signed: refunds/clawbacks net out
+      else expenses += raw;
     }
     return { income, expenses, transfer };
   }, [filtered]);
@@ -1290,6 +1370,14 @@ function Transactions({ transactions, money, hideValues, isWide, onDelete, onUpd
           ) : null}
         </div>
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          <button
+            onClick={() => setReclassifying(true)}
+            title="Re-classify accounts from their source value"
+            style={S.exportBtn(false)}
+          >
+            <RefreshCw size={14} style={{ marginRight: 4, verticalAlign: "-2px" }} />
+            Re-classify
+          </button>
           <button
             onClick={() => handleExportCSV(filtered)}
             disabled={hideValues}
@@ -1423,6 +1511,13 @@ function Transactions({ transactions, money, hideValues, isWide, onDelete, onUpd
             onUpdate(updated);
             setEditing(null);
           }}
+        />
+      ) : null}
+      {reclassifying ? (
+        <ReclassifyModal
+          transactions={transactions}
+          onApply={onReclassify}
+          onClose={() => setReclassifying(false)}
         />
       ) : null}
     </div>
@@ -1568,8 +1663,7 @@ function TxnTable({ rows, money, selectedIds, allSelected, onToggleSelect, onSel
           {rows.map((t) => {
             const type = txnType(t.category);
             const selected = selectedIds.has(t.id);
-            const amt = Math.abs(Number(t.amount) || 0);
-            const sign = type === "Transfer" ? "" : type === "Income" ? "+" : "−";
+            const amt = amountDisplay(t);
             return (
               <tr key={t.id} style={{ background: selected ? "#1a1f2e" : "transparent" }}>
                 <td style={{ ...S.td, textAlign: "center" }}>
@@ -1579,7 +1673,7 @@ function TxnTable({ rows, money, selectedIds, allSelected, onToggleSelect, onSel
                 <td style={{ ...S.td, color: "#e5e7eb", whiteSpace: "normal", maxWidth: 320 }}>
                   {t.description || <span style={{ color: "#6b7280" }}>—</span>}
                 </td>
-                <td style={S.td}>
+                <td style={S.td} title={t.srcAccount ? `Classified from: ${t.srcAccount}` : undefined}>
                   <select
                     value={ACCOUNTS.includes(t.account) ? t.account : ""}
                     onChange={(e) => onInlineChange(t, { account: e.target.value })}
@@ -1610,8 +1704,8 @@ function TxnTable({ rows, money, selectedIds, allSelected, onToggleSelect, onSel
                     ))}
                   </select>
                 </td>
-                <td style={{ ...S.td, textAlign: "right", color: TYPE_COLOR[type], fontWeight: 600, whiteSpace: "nowrap" }}>
-                  {sign}{money(amt)}
+                <td style={{ ...S.td, textAlign: "right", color: amt.color, fontWeight: 600, whiteSpace: "nowrap" }}>
+                  {amt.sign}{money(amt.value)}
                 </td>
                 <td style={{ ...S.td, textAlign: "right", whiteSpace: "nowrap" }}>
                   <button onClick={() => onEdit(t)} style={S.deleteBtn} title="Edit">
@@ -1633,11 +1727,7 @@ function TxnTable({ rows, money, selectedIds, allSelected, onToggleSelect, onSel
 }
 
 function TxnRow({ t, money, onDelete, onEdit, selectMode = false, selected = false, onToggleSelect }) {
-  const income = isIncome(t.category);
-  const transfer = isTransfer(t.category);
-  const color = transfer ? "#8b94a3" : income ? "#34d399" : "#f87171";
-  const sign = transfer ? "" : income ? "+" : "−";
-  const amt = Math.abs(Number(t.amount) || 0);
+  const amt = amountDisplay(t);
 
   const handleRowClick = selectMode
     ? (e) => {
@@ -1676,9 +1766,9 @@ function TxnRow({ t, money, onDelete, onEdit, selectMode = false, selected = fal
         </div>
       </div>
       <div style={{ textAlign: "right", display: "flex", alignItems: "center", gap: 8 }}>
-        <span style={{ color, fontWeight: 600, fontSize: 14, whiteSpace: "nowrap" }}>
-          {sign}
-          {money(amt)}
+        <span style={{ color: amt.color, fontWeight: 600, fontSize: 14, whiteSpace: "nowrap" }}>
+          {amt.sign}
+          {money(amt.value)}
         </span>
         {onEdit ? (
           <button
@@ -1708,8 +1798,7 @@ function TxnRow({ t, money, onDelete, onEdit, selectMode = false, selected = fal
 // selection checkbox.
 function TxnAuditCard({ t, money, selected, onToggleSelect, onInlineChange, onEdit, onDelete }) {
   const type = txnType(t.category);
-  const amt = Math.abs(Number(t.amount) || 0);
-  const sign = type === "Transfer" ? "" : type === "Income" ? "+" : "−";
+  const amt = amountDisplay(t);
   return (
     <div
       style={{
@@ -1730,10 +1819,11 @@ function TxnAuditCard({ t, money, selected, onToggleSelect, onInlineChange, onEd
           <div style={{ fontSize: 11, color: "#8b94a3", marginTop: 2 }}>
             {t.date}
             {t.ckCategory ? ` · CK: ${t.ckCategory}` : ""}
+            {t.srcAccount && !ACCOUNTS.includes(t.account) ? ` · src: ${t.srcAccount}` : ""}
           </div>
         </div>
-        <span style={{ color: TYPE_COLOR[type], fontWeight: 600, fontSize: 14, whiteSpace: "nowrap" }}>
-          {sign}{money(amt)}
+        <span style={{ color: amt.color, fontWeight: 600, fontSize: 14, whiteSpace: "nowrap" }}>
+          {amt.sign}{money(amt.value)}
         </span>
         <button onClick={() => onEdit(t)} style={S.deleteBtn} title="Edit">
           <Pencil size={15} />
@@ -1789,12 +1879,12 @@ function Field({ label, children, style }) {
 function EditModal({ txn, onClose, onSave }) {
   const [date, setDate] = useState(txn.date || todayISO());
   const [description, setDescription] = useState(txn.description || "");
-  const [amount, setAmount] = useState(String(Math.abs(Number(txn.amount) || 0)));
+  const [amount, setAmount] = useState(String(Number(txn.amount) || 0));
   const [category, setCategory] = useState(
     CATEGORIES.includes(txn.category) ? txn.category : "Other"
   );
   const [account, setAccount] = useState(
-    ACCOUNTS.includes(txn.account) ? txn.account : ACCOUNTS[0]
+    ACCOUNTS.includes(txn.account) ? txn.account : ""
   );
   const [err, setErr] = useState("");
 
@@ -1809,7 +1899,7 @@ function EditModal({ txn, onClose, onSave }) {
       ...txn,
       date,
       description: description.trim(),
-      amount: Math.abs(amt),
+      amount: amt,
       category,
       account,
     });
@@ -1848,6 +1938,10 @@ function EditModal({ txn, onClose, onSave }) {
               placeholder="0.00"
               style={S.input}
             />
+            <div style={{ fontSize: 12, color: "#8b94a3", marginTop: 6 }}>
+              Use a negative value for a reversal — a refund on an expense or a
+              cashback/tax clawback on income — to net it out of that category.
+            </div>
           </Field>
           <Field label="Category">
             <select value={category} onChange={(e) => setCategory(e.target.value)} style={S.input}>
@@ -1863,11 +1957,17 @@ function EditModal({ txn, onClose, onSave }) {
           ) : null}
           <Field label="Account">
             <select value={account} onChange={(e) => setAccount(e.target.value)} style={S.input}>
+              <option value="">— Unassigned —</option>
               {ACCOUNTS.map((a) => (
                 <option key={a}>{a}</option>
               ))}
             </select>
           </Field>
+          {txn.srcAccount ? (
+            <div style={{ fontSize: 12, color: "#8b94a3", marginTop: -6 }}>
+              Source account (audit): <span style={{ color: "#cbd5e1" }}>{txn.srcAccount}</span>
+            </div>
+          ) : null}
           {err ? <div style={{ color: "#f87171", fontSize: 13 }}>{err}</div> : null}
           <div style={{ display: "flex", gap: 8 }}>
             <button type="button" onClick={onClose} style={S.secondaryBtn}>
@@ -1878,6 +1978,115 @@ function EditModal({ txn, onClose, onSave }) {
             </button>
           </div>
         </form>
+      </div>
+    </div>
+  );
+}
+
+// Re-classify existing transactions' accounts through the alias table. Shows a
+// preview of every proposed change with a per-row checkbox so nothing is
+// applied without review; only checked rows are written.
+function ReclassifyModal({ transactions, onApply, onClose }) {
+  const candidates = useMemo(() => reclassifyCandidates(transactions), [transactions]);
+  const [selected, setSelected] = useState(() => new Set(candidates.map((c) => c.id)));
+
+  const toggle = (id) =>
+    setSelected((prev) => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  const allOn = candidates.length > 0 && candidates.every((c) => selected.has(c.id));
+  const toggleAll = () =>
+    setSelected(allOn ? new Set() : new Set(candidates.map((c) => c.id)));
+
+  const apply = () => {
+    const changes = candidates
+      .filter((c) => selected.has(c.id))
+      .map((c) => ({ id: c.id, account: c.to }));
+    if (changes.length) onApply(changes);
+    onClose();
+  };
+
+  return (
+    <div style={S.modalOverlay} onClick={onClose} role="dialog" aria-modal="true">
+      <div
+        style={{ ...S.modalCard, maxWidth: 720, width: "92vw" }}
+        onClick={(e) => e.stopPropagation()}
+        aria-label="Re-classify accounts"
+      >
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
+          <h3 style={{ ...S.sectionTitle, margin: 0 }}>Re-classify accounts</h3>
+          <button onClick={onClose} style={S.deleteBtn} title="Close">
+            <X size={18} />
+          </button>
+        </div>
+
+        {candidates.length === 0 ? (
+          <p style={{ color: "#8b94a3", fontSize: 14, lineHeight: 1.5 }}>
+            No account changes proposed. Rows imported before account auditing
+            existed carry no source value to re-classify from — re-import those
+            via the Credit Karma profile, or fix them by hand.
+          </p>
+        ) : (
+          <>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, margin: "4px 0 8px" }}>
+              <span style={{ fontSize: 13, color: "#cbd5e1" }}>
+                {selected.size} of {candidates.length} change{candidates.length === 1 ? "" : "s"} selected
+              </span>
+              <button onClick={toggleAll} style={S.linkBtn}>
+                {allOn ? "Deselect all" : "Select all"}
+              </button>
+            </div>
+
+            <div style={{ maxHeight: "55vh", overflowY: "auto", display: "flex", flexDirection: "column", gap: 6 }}>
+              {candidates.map((c) => (
+                <label
+                  key={c.id}
+                  style={{
+                    display: "flex", gap: 10, alignItems: "flex-start", cursor: "pointer",
+                    padding: "8px 10px", borderRadius: 10, background: "#161a20",
+                    opacity: selected.has(c.id) ? 1 : 0.5,
+                  }}
+                >
+                  <input
+                    type="checkbox"
+                    checked={selected.has(c.id)}
+                    onChange={() => toggle(c.id)}
+                    style={{ marginTop: 3 }}
+                  />
+                  <div style={{ minWidth: 0, flex: 1 }}>
+                    <div style={{ fontSize: 13, color: "#e5e7eb", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      {c.description || "—"}
+                    </div>
+                    <div style={{ fontSize: 11, color: "#8b94a3", marginTop: 2 }}>
+                      {c.date} · src: <span style={{ color: "#cbd5e1" }}>{c.src}</span>
+                    </div>
+                    <div style={{ fontSize: 12, marginTop: 3 }}>
+                      <span style={{ color: "#f87171" }}>{c.from || "Unassigned"}</span>
+                      <span style={{ color: "#8b94a3" }}> → </span>
+                      <span style={{ color: "#34d399" }}>{c.to}</span>
+                    </div>
+                  </div>
+                </label>
+              ))}
+            </div>
+          </>
+        )}
+
+        <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
+          <button type="button" onClick={onClose} style={S.secondaryBtn}>
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={apply}
+            disabled={selected.size === 0}
+            style={{ ...S.primaryBtn, opacity: selected.size === 0 ? 0.5 : 1 }}
+          >
+            Apply {selected.size} change{selected.size === 1 ? "" : "s"}
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -1938,9 +2147,12 @@ function buildRow(raw, mapping, profile) {
   if (!date) date = todayISO();
 
   const rawAccount = (mapping.account && val("account")) || "";
+  // Classify by alias when the source names an account; otherwise fall back to
+  // the profile's account. Never default to ACCOUNTS[0] — leave it unmapped so
+  // it can be filtered and fixed instead of silently labeled "ATT Reward".
   const account = rawAccount
-    ? matchOption(rawAccount, ACCOUNTS, profile?.defaultAccount || ACCOUNTS[0])
-    : (profile?.defaultAccount || ACCOUNTS[0]);
+    ? (matchAccount(rawAccount) || profile?.defaultAccount || "")
+    : (profile?.defaultAccount || "");
 
   const row = {
     id: uid(),
@@ -1954,6 +2166,9 @@ function buildRow(raw, mapping, profile) {
   // category-mapping decisions. Optional — only present when the column maps.
   const ckCategory = mapping.ckCategory ? val("ckCategory") : "";
   if (ckCategory) row.ckCategory = ckCategory;
+  // Keep the raw source account string for auditing the classification: lets
+  // you see what each row was classified from (or why it stayed unmapped).
+  if (rawAccount) row.srcAccount = rawAccount;
   return row;
 }
 
@@ -2154,7 +2369,7 @@ function ImportTransactions({ onImport }) {
                     f.key === "category"
                       ? "— use default: Other —"
                       : f.key === "account"
-                      ? `— use default: ${profile.defaultAccount || ACCOUNTS[0]} —`
+                      ? `— use default: ${profile.defaultAccount || "Unassigned"} —`
                       : "— skip —";
                   return (
                     <Field key={f.key} label={f.required ? `${f.label} *` : f.label}>
@@ -2224,6 +2439,45 @@ function matchOption(value, options, fallback) {
   return hit || fallback;
 }
 
+// Normalize an account-ish string for matching: lowercase, strip everything
+// that isn't a letter or digit ("T-Mobile" / "t mobile" / "AT&T" all collapse).
+function normAccount(s) {
+  return String(s || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
+// Classify a source account/card value into a canonical account name.
+// Tries an exact (normalized) match first, then the alias keyword table.
+// Returns "" when nothing matches — we deliberately do NOT guess an account,
+// so unrecognized rows surface as unmapped instead of hiding under ATT Reward.
+function matchAccount(rawValue) {
+  const n = normAccount(rawValue);
+  if (!n) return "";
+  const exact = ACCOUNTS.find((a) => normAccount(a) === n);
+  if (exact) return exact;
+  for (const [account, aliases] of ACCOUNT_ALIASES) {
+    if (aliases.some((al) => n.includes(al))) return account;
+  }
+  return "";
+}
+
+// Re-classification candidates for existing transactions. The only trustworthy
+// signal is the raw source value: srcAccount (kept on import) or, for rows that
+// still hold an unmapped raw account string, the current account itself. We
+// never infer the account from the merchant description. Rows whose source no
+// longer exists (legacy imports) simply produce no candidate.
+function reclassifyCandidates(transactions) {
+  const out = [];
+  for (const t of transactions) {
+    const src = (t.srcAccount || t.account || "").trim();
+    if (!src) continue;
+    const proposed = matchAccount(src);
+    if (proposed && proposed !== t.account) {
+      out.push({ id: t.id, date: t.date, description: t.description, src, from: t.account, to: proposed });
+    }
+  }
+  return out;
+}
+
 // ===========================================================================
 // Analyze tab — 4 sections
 // ===========================================================================
@@ -2248,7 +2502,7 @@ function Trends({ transactions, hideValues, money }) {
       if (isTransfer(t.category) || isIncome(t.category)) continue;
       const mk = monthKey(t.date);
       if (!mk) continue;
-      const amt = Math.abs(Number(t.amount) || 0);
+      const amt = Number(t.amount) || 0; // signed: refunds reduce the category
       const entry = monthCatMap.get(mk) || {};
       entry[t.category] = (entry[t.category] || 0) + amt;
       monthCatMap.set(mk, entry);
@@ -2449,7 +2703,7 @@ function Budgets({ transactions, budgets, onUpdateBudget, budgetSaving, money })
       if (isTransfer(t.category) || isIncome(t.category)) continue;
       const mk = monthKey(t.date);
       if (mk !== currentMK) continue;
-      const amt = Math.abs(Number(t.amount) || 0);
+      const amt = Number(t.amount) || 0; // signed: refunds reduce spend vs budget
       map[t.category] = (map[t.category] || 0) + amt;
     }
     return map;
@@ -2510,7 +2764,8 @@ function Budgets({ transactions, budgets, onUpdateBudget, budgetSaving, money })
         {EXPENSE_CATEGORIES.map((cat, idx) => {
           const limit = budgets[cat] || 0;
           const spent = spendMap[cat] || 0;
-          const pct = limit > 0 ? Math.min((spent / limit) * 100, 100) : 0;
+          // Clamp to 0–100: a category net-refunded below zero shows an empty bar.
+          const pct = limit > 0 ? Math.max(0, Math.min((spent / limit) * 100, 100)) : 0;
           const barColor =
             pct >= 100 ? "#f87171" : pct >= 80 ? "#fbbf24" : "#34d399";
           const isEditing = editCat === cat;
@@ -2630,7 +2885,8 @@ function Recurrents({ transactions, money }) {
       const months = new Set(txns.map((t) => monthKey(t.date)));
       if (months.size < 2) continue;
 
-      const amounts = txns.map((t) => Math.abs(Number(t.amount) || 0)).sort((a, b) => a - b);
+      // Signed amounts so a refund (negative) doesn't cluster with the charge.
+      const amounts = txns.map((t) => Number(t.amount) || 0).sort((a, b) => a - b);
       const mid = Math.floor(amounts.length / 2);
       const median =
         amounts.length % 2 === 0
@@ -2641,8 +2897,8 @@ function Recurrents({ transactions, money }) {
 
       // Filter to amounts within ±10% of median
       const inRange = txns.filter((t) => {
-        const a = Math.abs(Number(t.amount) || 0);
-        return Math.abs(a - median) / median <= 0.1;
+        const a = Number(t.amount) || 0;
+        return Math.abs(a - median) / Math.abs(median) <= 0.1;
       });
 
       // Still need 2+ distinct months after filtering
