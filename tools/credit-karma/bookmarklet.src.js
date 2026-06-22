@@ -117,13 +117,38 @@
       await new Promise(function (res) { setTimeout(res, 400); });
     }
 
+    // Reversal detection (refund on an expense / clawback on income). CK carries
+    // a signed amount, but the absolute convention isn't documented, so we
+    // calibrate it from the batch: income and expense should carry opposite
+    // signs. The minority sign within a categoryType marks a reversal. We emit
+    // the amount in the category's *natural direction* (normal positive,
+    // reversal negative); the ledger sums these signed values. If the signs are
+    // not reliably opposite (e.g. already abs'd), we fall back to magnitude.
+    function isInc(t) { return (t.categoryType || '').toUpperCase() === 'INCOME'; }
+    let incPos = 0, incNeg = 0, expPos = 0, expNeg = 0;
+    for (const t of all) {
+      const v = Number(t.amount) || 0; if (!v) continue;
+      if (isInc(t)) { v > 0 ? incPos++ : incNeg++; } else { v > 0 ? expPos++ : expNeg++; }
+    }
+    const incSign = incPos === incNeg ? 0 : (incPos > incNeg ? 1 : -1);
+    const expSign = expPos === expNeg ? 0 : (expPos > expNeg ? 1 : -1);
+    const signsReliable = incSign !== 0 && expSign !== 0 && incSign !== expSign;
+    function naturalAmount(t) {
+      const raw = Number(t.amount) || 0;
+      const mag = Math.abs(raw);
+      if (!signsReliable) return mag;
+      const rs = raw > 0 ? 1 : raw < 0 ? -1 : 0;
+      const reversal = isInc(t) ? (rs !== incSign) : (rs === incSign);
+      return reversal ? -mag : mag;
+    }
+
     // Build rows within the window
     const rows = [];
     for (const t of all) {
       const date = normDate(t.date);
       if (!date) continue;
       if (new Date(date).getTime() < START_MS) continue;
-      rows.push({ date: date, description: t.description || '', amount: Math.abs(Number(t.amount) || 0), category: mapCat(t.category, t.categoryType), account: acctLabel(t.provider, t.account, t.mask), ck_account: t.account || '', provider: t.provider || '', ck_category: t.category || '', type: (t.categoryType || '').toUpperCase() === 'INCOME' ? 'income' : 'expense' });
+      rows.push({ date: date, description: t.description || '', amount: naturalAmount(t), category: mapCat(t.category, t.categoryType), account: acctLabel(t.provider, t.account, t.mask), ck_account: t.account || '', provider: t.provider || '', ck_category: t.category || '', type: isInc(t) ? 'income' : 'expense' });
     }
     rows.sort(function (a, b) { return a.date < b.date ? 1 : a.date > b.date ? -1 : 0; });
     if (rows.length === 0) {

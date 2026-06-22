@@ -278,4 +278,8 @@ O app inicia com array vazio quando não há dados salvos (sem SEED).
 - [~] Integrações de import (bancos, cartões) — exportador Credit Karma para
   iPhone via Scriptable e bookmarklet de Safari em `tools/credit-karma/`
   (gera CSV `date,description,amount,category,account,ck_account,provider,
-  ck_category,type`, consumido pelo profile Credit Karma do Import)
+  ck_category,type`, consumido pelo profile Credit Karma do Import). O export
+  detecta reversões (refund de despesa / clawback de receita) auto-calibrando
+  a convenção de sinal do CK e emite o `amount` na direção natural da
+  categoria (normal positivo, reversão negativo); o profile Credit Karma
+  preserva esse sinal no import
