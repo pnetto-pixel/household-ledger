@@ -89,7 +89,9 @@ Cada transação:
   "amount": 142.37,            // sinalizado na direção natural da categoria
   "category": "Groceries",
   "account": "Chase Reserve",  // "" quando não classificada (Unassigned)
-  "srcAccount": "CHASE Sapphire Reserve 1234", // opcional — valor de origem (auditoria)
+  "srcAccount": "Chase CREDIT CARD 7612", // opcional — rótulo de origem (auditoria)
+  "accountUrn": "urn:account:fdp::accountid:81f7bbd0-…", // opcional — id estável do cartão
+  "last4": "7612",             // opcional — últimos 4 do cartão (rótulo)
   "ckCategory": "GROCERIES"    // opcional — categoria crua da fonte (auditoria)
 }
 ```
@@ -106,10 +108,11 @@ agregações somam o valor sinalizado (`income += amount`, `expenses +=
 amount`, `net = income − expenses`), então um refund de despesa entra como
 crédito sem precisar trocar de categoria. Na UI o sinal/cor da linha segue
 o **fluxo de caixa**: entrada (refund de despesa ou receita) em verde com
-`+`, saída (despesa ou clawback de receita) em vermelho com `−`. O import
-ainda normaliza para positivo (`Math.abs`) — reversões são marcadas
-manualmente no `EditModal` (valor negativo). Transfer continua excluída de
-todos os totais.
+`+`, saída (despesa ou clawback de receita) em vermelho com `−`. O profile
+Credit Karma preserva o sinal vindo do export (que detecta reversões); os
+demais profiles normalizam para positivo (`Math.abs`) e reversões são
+marcadas à mão no `EditModal` (valor negativo). Transfer continua excluída
+de todos os totais.
 
 ### Orçamentos
 
@@ -126,6 +129,13 @@ Endpoint `api/budgets.js`:
 | ------ | -------------- | ------------------------------------------- |
 | GET    | `/api/budgets` | Retorna `{ budgets: {...}, savedAt }`        |
 | PUT    | `/api/budgets` | Body `{ budgets: {...} }` → `{ ok: true, savedAt }` |
+
+### Tabela de/para de contas
+
+Mapa `{ [accountURN]: "Conta amigável" }` persistido no Redis em
+`household:USERID:accountmap` via `api/account-map.js` (GET/PUT, mesmo
+padrão dos orçamentos). Alimenta `classifyAccount` no import e é editável
+pelo `AccountMapModal`.
 
 ### Categorias
 
@@ -145,15 +155,22 @@ Capital One, Chase Bela, Chase Preferred, Chase Reserve, Chime, Discover,
 Ink Biz Cash, Ink Unlimited, Jasper Card, Lowes Card, SoFi, Southwest,
 T-Mobile, United Explorer, Venmo, Venture X`.
 
-**Classificação de conta no import.** O valor de conta da fonte é
-classificado por `matchAccount`: match exato (normalizado) contra a lista
-acima e, se falhar, uma tabela de aliases/keywords (`ACCOUNT_ALIASES`) que
-casa fragmentos de marca ignorando maiúsculas, pontuação e os 4 dígitos
-finais — ex.: `"CHASE Sapphire Reserve 1234"` → **Chase Reserve**. A
-classificação usa **apenas** o campo de conta da fonte, nunca a descrição
-do merchant (a loja onde você comprou ≠ o cartão usado). Quando nada casa,
-a conta fica **vazia (Unassigned)** em vez de cair no primeiro item da
-lista — antes tudo sem match virava "ATT Reward".
+**Classificação de conta no import.** Ordem (`classifyAccount`): (1) a
+**tabela de/para** keyed no `accountUrn` da fonte — id estável e único por
+cartão, persistida em `/api/account-map`; (2) se não houver mapping, o
+`matchAccount` por aliases — match exato normalizado contra a lista acima
+e, senão, fragmentos de marca (`ACCOUNT_ALIASES`) ignorando maiúsculas,
+pontuação e dígitos. A classificação usa **apenas** o campo de conta da
+fonte, nunca a descrição do merchant. Sem match → **Unassigned** (nunca o
+primeiro da lista).
+
+A tabela de/para por URN existe porque o Credit Karma rotula vários cartões
+com o mesmo nome genérico (cinco Chase como `"CREDIT CARD"`); o URN os
+separa, e o último-4 (`last4`, extraído de `accountTypeAndNumberDisplay`) é
+o rótulo legível. A UI fica no botão **Accounts** da aba Transactions
+(`AccountMapModal`): lista os cartões vistos (emissor · ••últimos-4 ·
+contagem), você atribui uma conta a cada um, e ao salvar aplica nas
+transações existentes (por URN) e em todos os imports futuros.
 
 ---
 
@@ -273,12 +290,17 @@ O app inicia com array vazio quando não há dados salvos (sem SEED).
   sem match vira Unassigned em vez de "ATT Reward"; profile de import
   Credit Karma; re-classificação revisável (`ReclassifyModal`) e trilha de
   auditoria (`srcAccount`)
+- [x] Tabela de/para de contas por `accountURN` (estável) + último-4
+  (`AccountMapModal`, `/api/account-map`): separa cartões que a fonte rotula
+  igual (5 Chase) e identifica o Venture X; export do CK passa a emitir
+  `account_urn` e `last4`
 - [ ] Multiusuário / household compartilhado
 - [ ] PWA offline-first
 - [~] Integrações de import (bancos, cartões) — exportador Credit Karma para
   iPhone via Scriptable e bookmarklet de Safari em `tools/credit-karma/`
   (gera CSV `date,description,amount,category,account,ck_account,provider,
-  ck_category,type`, consumido pelo profile Credit Karma do Import). O export
+  ck_category,type,account_urn,last4`, consumido pelo profile Credit Karma do
+  Import). O export
   detecta reversões (refund de despesa / clawback de receita) auto-calibrando
   a convenção de sinal do CK e emite o `amount` na direção natural da
   categoria (normal positivo, reversão negativo); o profile Credit Karma
