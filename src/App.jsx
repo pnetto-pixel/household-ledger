@@ -2234,10 +2234,10 @@ function AccountMapModal({ transactions, accountMap, onSave, onClose }) {
               {cards.map((c) => (
                 <div
                   key={c.urn}
-                  style={{ display: "flex", gap: 10, alignItems: "center", padding: "8px 10px", borderRadius: 10, background: "#161a20" }}
+                  style={{ display: "flex", gap: 10, alignItems: "flex-start", padding: "8px 10px", borderRadius: 10, background: "#161a20" }}
                 >
                   <div style={{ minWidth: 0, flex: 1 }}>
-                    <div style={{ fontSize: 13, color: "#e5e7eb", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    <div style={{ fontSize: 13, color: "#e5e7eb", overflowWrap: "anywhere", lineHeight: 1.35 }}>
                       {c.label || "—"} {c.last4 ? <span style={{ color: "#8b94a3" }}>· ••{c.last4}</span> : null}
                     </div>
                     <div style={{ fontSize: 11, color: "#8b94a3", marginTop: 2 }}>
