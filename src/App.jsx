@@ -135,6 +135,18 @@ const BANK_PROFILES = [
     normalizeAmount: null,
   },
   {
+    id: 'credit-karma',
+    label: 'Credit Karma',
+    group: null,
+    format: 'csv',
+    // CK export columns (see tools/credit-karma): date, description, amount,
+    // category, account, ck_account, provider, ck_category, type. The account
+    // column is run through matchAccount, and ck_category is kept for auditing.
+    columnMap: { date: 'date', description: 'description', amount: 'amount', category: 'category', account: 'account', ckCategory: 'ck_category' },
+    defaultAccount: '',
+    normalizeAmount: null,
+  },
+  {
     id: 'chase-bela',
     label: 'Chase Bela',
     group: 'Chase',
@@ -1128,7 +1140,7 @@ function Transactions({ transactions, money, hideValues, isWide, onDelete, onUpd
 
   // Distinct values present in the data — drive the column-header filters.
   const acctOptions = useMemo(
-    () => [...new Set(transactions.map((t) => t.account).filter(Boolean))].sort(),
+    () => [...new Set(transactions.map((t) => t.account || "Unassigned"))].sort(),
     [transactions]
   );
   const catOptions = useMemo(
@@ -1193,7 +1205,7 @@ function Transactions({ transactions, money, hideValues, isWide, onDelete, onUpd
     const q = query.trim().toLowerCase();
     return [...transactions]
       .filter((t) => (catFilter.length === 0 ? true : catFilter.includes(t.category)))
-      .filter((t) => (acctFilter.length === 0 ? true : acctFilter.includes(t.account)))
+      .filter((t) => (acctFilter.length === 0 ? true : acctFilter.includes(t.account || "Unassigned")))
       .filter((t) => (typeFilter.length === 0 ? true : typeFilter.includes(txnType(t.category))))
       .filter((t) => matchPeriod(t.date, year, month))
       .filter((t) => {
@@ -1612,7 +1624,7 @@ function TxnTable({ rows, money, selectedIds, allSelected, onToggleSelect, onSel
                 <td style={{ ...S.td, color: "#e5e7eb", whiteSpace: "normal", maxWidth: 320 }}>
                   {t.description || <span style={{ color: "#6b7280" }}>—</span>}
                 </td>
-                <td style={S.td}>
+                <td style={S.td} title={t.srcAccount ? `Classified from: ${t.srcAccount}` : undefined}>
                   <select
                     value={ACCOUNTS.includes(t.account) ? t.account : ""}
                     onChange={(e) => onInlineChange(t, { account: e.target.value })}
@@ -1763,6 +1775,7 @@ function TxnAuditCard({ t, money, selected, onToggleSelect, onInlineChange, onEd
           <div style={{ fontSize: 11, color: "#8b94a3", marginTop: 2 }}>
             {t.date}
             {t.ckCategory ? ` · CK: ${t.ckCategory}` : ""}
+            {t.srcAccount && !ACCOUNTS.includes(t.account) ? ` · src: ${t.srcAccount}` : ""}
           </div>
         </div>
         <span style={{ color: TYPE_COLOR[type], fontWeight: 600, fontSize: 14, whiteSpace: "nowrap" }}>
@@ -1902,6 +1915,11 @@ function EditModal({ txn, onClose, onSave }) {
               ))}
             </select>
           </Field>
+          {txn.srcAccount ? (
+            <div style={{ fontSize: 12, color: "#8b94a3", marginTop: -6 }}>
+              Source account (audit): <span style={{ color: "#cbd5e1" }}>{txn.srcAccount}</span>
+            </div>
+          ) : null}
           {err ? <div style={{ color: "#f87171", fontSize: 13 }}>{err}</div> : null}
           <div style={{ display: "flex", gap: 8 }}>
             <button type="button" onClick={onClose} style={S.secondaryBtn}>
@@ -1991,6 +2009,9 @@ function buildRow(raw, mapping, profile) {
   // category-mapping decisions. Optional — only present when the column maps.
   const ckCategory = mapping.ckCategory ? val("ckCategory") : "";
   if (ckCategory) row.ckCategory = ckCategory;
+  // Keep the raw source account string for auditing the classification: lets
+  // you see what each row was classified from (or why it stayed unmapped).
+  if (rawAccount) row.srcAccount = rawAccount;
   return row;
 }
 
