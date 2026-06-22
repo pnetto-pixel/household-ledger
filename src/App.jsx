@@ -142,7 +142,7 @@ const BANK_PROFILES = [
     // CK export columns (see tools/credit-karma): date, description, amount,
     // category, account, ck_account, provider, ck_category, type. The account
     // column is run through matchAccount, and ck_category is kept for auditing.
-    columnMap: { date: 'date', description: 'description', amount: 'amount', category: 'category', account: 'account', ckCategory: 'ck_category' },
+    columnMap: { date: 'date', description: 'description', amount: 'amount', category: 'category', account: 'account', ckCategory: 'ck_category', accountUrn: 'account_urn', last4: 'last4' },
     defaultAccount: '',
     // Preserve the sign: the CK export writes the amount in the category's
     // natural direction, so a refund/clawback arrives negative and nets out.
@@ -346,6 +346,8 @@ export default function App() {
   // Budgets: { [category]: number } — loaded from /api/budgets on mount.
   const [budgets, setBudgets] = useState({});
   const [budgetSaving, setBudgetSaving] = useState(false);
+  // Account map: { [accountURN]: "Friendly Account" } — loaded from /api/account-map.
+  const [accountMap, setAccountMap] = useState({});
 
   // Format a money value, respecting the global eye toggle.
   const money = useCallback(
@@ -491,6 +493,38 @@ export default function App() {
     if (authed) loadBudgets();
   }, [authed, loadBudgets]);
 
+  // ---- Account map load / save ---------------------------------------------
+  const loadAccountMap = useCallback(async () => {
+    try {
+      const res = await fetch("/api/account-map", {
+        method: "GET",
+        headers: buildAuthHeaders(),
+      });
+      if (!res.ok) return;
+      const data = await res.json();
+      if (data.map && typeof data.map === "object") setAccountMap(data.map);
+    } catch {
+      // Silently ignore — the map is non-critical.
+    }
+  }, []);
+
+  const saveAccountMap = useCallback(async (next) => {
+    setAccountMap(next);
+    try {
+      await fetch("/api/account-map", {
+        method: "PUT",
+        headers: buildAuthHeaders(),
+        body: JSON.stringify({ map: next }),
+      });
+    } catch {
+      // Silently ignore.
+    }
+  }, []);
+
+  useEffect(() => {
+    if (authed) loadAccountMap();
+  }, [authed, loadAccountMap]);
+
   // ---- Mutations -----------------------------------------------------------
   const addTransactions = useCallback(
     (rows) => {
@@ -565,6 +599,27 @@ export default function App() {
     [scheduleSave]
   );
 
+  // Persist the account map and apply it to existing transactions by URN.
+  const saveAndApplyAccountMap = useCallback(
+    (nextMap) => {
+      saveAccountMap(nextMap);
+      setTransactions((prev) => {
+        let changed = false;
+        const next = prev.map((t) => {
+          const mapped = t.accountUrn && nextMap[t.accountUrn];
+          if (mapped && mapped !== t.account) {
+            changed = true;
+            return { ...t, account: mapped };
+          }
+          return t;
+        });
+        if (changed) scheduleSave(next);
+        return changed ? next : prev;
+      });
+    },
+    [saveAccountMap, scheduleSave]
+  );
+
   // ---- Eye toggle ----------------------------------------------------------
   const toggleHide = useCallback(() => {
     setHideValues((v) => {
@@ -628,9 +683,11 @@ export default function App() {
             onDeleteSelected={deleteSelected}
             onUpdateMany={updateMany}
             onReclassify={reclassifyAccounts}
+            accountMap={accountMap}
+            onSaveAccountMap={saveAndApplyAccountMap}
           />
         ) : tab === "import" ? (
-          <ImportTransactions onImport={addTransactions} />
+          <ImportTransactions onImport={addTransactions} accountMap={accountMap} />
         ) : (
           <Analyze
             transactions={transactions}
@@ -1150,7 +1207,7 @@ function Charts({ transactions, hideValues }) {
 // Transactions list
 // ===========================================================================
 
-function Transactions({ transactions, money, hideValues, isWide, onDelete, onUpdate, onDeleteSelected, onUpdateMany, onReclassify }) {
+function Transactions({ transactions, money, hideValues, isWide, onDelete, onUpdate, onDeleteSelected, onUpdateMany, onReclassify, accountMap, onSaveAccountMap }) {
   const [catFilter, setCatFilter] = useState([]);
   const [acctFilter, setAcctFilter] = useState([]);
   const [typeFilter, setTypeFilter] = useState([]);
@@ -1161,6 +1218,7 @@ function Transactions({ transactions, money, hideValues, isWide, onDelete, onUpd
   const [to, setTo] = useState("");
   const [editing, setEditing] = useState(null);
   const [reclassifying, setReclassifying] = useState(false);
+  const [mappingOpen, setMappingOpen] = useState(false);
 
   // Bulk-select state. Rows are always selectable via their checkbox on both
   // platforms; the bulk-edit bar appears once anything is selected.
@@ -1373,6 +1431,13 @@ function Transactions({ transactions, money, hideValues, isWide, onDelete, onUpd
         </div>
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
           <button
+            onClick={() => setMappingOpen(true)}
+            title="Map each source card (by issuer + last 4) to an account"
+            style={S.exportBtn(false)}
+          >
+            Accounts
+          </button>
+          <button
             onClick={() => setReclassifying(true)}
             title="Re-classify accounts from their source value"
             style={S.exportBtn(false)}
@@ -1520,6 +1585,14 @@ function Transactions({ transactions, money, hideValues, isWide, onDelete, onUpd
           transactions={transactions}
           onApply={onReclassify}
           onClose={() => setReclassifying(false)}
+        />
+      ) : null}
+      {mappingOpen ? (
+        <AccountMapModal
+          transactions={transactions}
+          accountMap={accountMap}
+          onSave={onSaveAccountMap}
+          onClose={() => setMappingOpen(false)}
         />
       ) : null}
     </div>
@@ -2094,6 +2167,115 @@ function ReclassifyModal({ transactions, onApply, onClose }) {
   );
 }
 
+// Map each source card to an account. Cards are keyed on the source's stable
+// account URN (so five Chase "CREDIT CARD"s are told apart by their last-4),
+// labeled by issuer + last-4. Saving persists the map and re-applies it to
+// existing transactions; future imports classify by it automatically.
+function AccountMapModal({ transactions, accountMap, onSave, onClose }) {
+  const cards = useMemo(() => {
+    const m = new Map();
+    for (const t of transactions) {
+      const urn = t.accountUrn;
+      if (!urn) continue;
+      const e = m.get(urn) || { urn, label: "", last4: t.last4 || "", count: 0 };
+      e.count++;
+      if (!e.label && t.srcAccount) e.label = t.srcAccount;
+      if (!e.last4 && t.last4) e.last4 = t.last4;
+      m.set(urn, e);
+    }
+    return [...m.values()]
+      .map((c) => ({ ...c, suggested: matchAccount(c.label) }))
+      .sort((a, b) => b.count - a.count);
+  }, [transactions]);
+
+  const [draft, setDraft] = useState(accountMap || {});
+  const setOne = (urn, account) =>
+    setDraft((prev) => {
+      const next = { ...prev };
+      if (account) next[urn] = account;
+      else delete next[urn];
+      return next;
+    });
+
+  const save = () => {
+    onSave(draft);
+    onClose();
+  };
+
+  const unmapped = cards.filter((c) => !draft[c.urn]).length;
+
+  return (
+    <div style={S.modalOverlay} onClick={onClose} role="dialog" aria-modal="true">
+      <div
+        style={{ ...S.modalCard, maxWidth: 720, width: "92vw" }}
+        onClick={(e) => e.stopPropagation()}
+        aria-label="Account mapping"
+      >
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
+          <h3 style={{ ...S.sectionTitle, margin: 0 }}>Account mapping</h3>
+          <button onClick={onClose} style={S.deleteBtn} title="Close">
+            <X size={18} />
+          </button>
+        </div>
+
+        {cards.length === 0 ? (
+          <p style={{ color: "#8b94a3", fontSize: 14, lineHeight: 1.5 }}>
+            No card identities found. Re-export with the updated Credit Karma
+            bookmarklet (it now includes the account URN + last 4) and re-import
+            via the Credit Karma profile, then map each card here.
+          </p>
+        ) : (
+          <>
+            <div style={{ fontSize: 13, color: "#8b94a3", margin: "4px 0 10px" }}>
+              {cards.length} card{cards.length === 1 ? "" : "s"} · {unmapped} unmapped.
+              Assign each to an account; saving applies it to existing rows and all future imports.
+            </div>
+            <div style={{ maxHeight: "55vh", overflowY: "auto", display: "flex", flexDirection: "column", gap: 6 }}>
+              {cards.map((c) => (
+                <div
+                  key={c.urn}
+                  style={{ display: "flex", gap: 10, alignItems: "center", padding: "8px 10px", borderRadius: 10, background: "#161a20" }}
+                >
+                  <div style={{ minWidth: 0, flex: 1 }}>
+                    <div style={{ fontSize: 13, color: "#e5e7eb", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      {c.label || "—"} {c.last4 ? <span style={{ color: "#8b94a3" }}>· ••{c.last4}</span> : null}
+                    </div>
+                    <div style={{ fontSize: 11, color: "#8b94a3", marginTop: 2 }}>
+                      {c.count} txn{c.count === 1 ? "" : "s"}
+                      {c.suggested ? ` · alias: ${c.suggested}` : ""}
+                    </div>
+                  </div>
+                  <select
+                    value={draft[c.urn] || ""}
+                    onChange={(e) => setOne(c.urn, e.target.value)}
+                    style={{ ...S.cellSelect, minWidth: 150 }}
+                  >
+                    <option value="">— Unassigned —</option>
+                    {ACCOUNTS.map((a) => (
+                      <option key={a}>{a}</option>
+                    ))}
+                  </select>
+                </div>
+              ))}
+            </div>
+          </>
+        )}
+
+        <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
+          <button type="button" onClick={onClose} style={S.secondaryBtn}>
+            Cancel
+          </button>
+          {cards.length > 0 ? (
+            <button type="button" onClick={save} style={S.primaryBtn}>
+              Save &amp; apply
+            </button>
+          ) : null}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ===========================================================================
 // Import (CSV)
 // ===========================================================================
@@ -2107,6 +2289,8 @@ const IMPORT_FIELDS = [
   { key: "category", label: "Category", aliases: ["category", "type"] },
   { key: "account", label: "Account", aliases: ["account", "card"] },
   { key: "ckCategory", label: "Source category (audit)", aliases: ["ck_category", "ck category", "source category", "original category"] },
+  { key: "accountUrn", label: "Account ID (URN)", aliases: ["account_urn", "account urn", "urn", "account id"] },
+  { key: "last4", label: "Card last 4", aliases: ["last4", "last 4", "last_four", "card last 4"] },
 ];
 
 // Best-guess header for a field from its aliases (case-insensitive).
@@ -2127,7 +2311,7 @@ function guessMapping(headers) {
 
 // Build a canonical transaction from a raw CSV record using the column mapping.
 // profile is optional; when provided, its normalizeAmount and defaultAccount are used.
-function buildRow(raw, mapping, profile) {
+function buildRow(raw, mapping, profile, accountMap) {
   const val = (key) => {
     const col = mapping[key];
     return col ? String(raw[col] ?? "").trim() : "";
@@ -2149,11 +2333,13 @@ function buildRow(raw, mapping, profile) {
   if (!date) date = todayISO();
 
   const rawAccount = (mapping.account && val("account")) || "";
-  // Classify by alias when the source names an account; otherwise fall back to
-  // the profile's account. Never default to ACCOUNTS[0] — leave it unmapped so
-  // it can be filtered and fixed instead of silently labeled "ATT Reward".
-  const account = rawAccount
-    ? (matchAccount(rawAccount) || profile?.defaultAccount || "")
+  const accountUrn = mapping.accountUrn ? val("accountUrn") : "";
+  const last4 = mapping.last4 ? val("last4") : "";
+  // Classify by URN map first (separates same-named cards), then by alias;
+  // otherwise the profile's account. Never default to ACCOUNTS[0] — leave it
+  // unmapped so it can be filtered and fixed instead of labeled "ATT Reward".
+  const account = (rawAccount || accountUrn)
+    ? (classifyAccount(rawAccount, accountUrn, accountMap) || profile?.defaultAccount || "")
     : (profile?.defaultAccount || "");
 
   const row = {
@@ -2171,6 +2357,9 @@ function buildRow(raw, mapping, profile) {
   // Keep the raw source account string for auditing the classification: lets
   // you see what each row was classified from (or why it stayed unmapped).
   if (rawAccount) row.srcAccount = rawAccount;
+  // Stable per-card identity from the source, used by the account map UI.
+  if (accountUrn) row.accountUrn = accountUrn;
+  if (last4) row.last4 = last4;
   return row;
 }
 
@@ -2200,7 +2389,7 @@ function parseOFX(text) {
   return transactions;
 }
 
-function ImportTransactions({ onImport }) {
+function ImportTransactions({ onImport, accountMap }) {
   const [profileId, setProfileId] = useState('generic');
   const profile = BANK_PROFILES.find((p) => p.id === profileId) || BANK_PROFILES[0];
 
@@ -2294,8 +2483,8 @@ function ImportTransactions({ onImport }) {
   // Live preview for CSV: reflect current column mapping.
   const csvRows = useMemo(() => {
     if (rawRows.length === 0) return [];
-    return rawRows.map((r) => buildRow(r, mapping, profile)).filter(Boolean);
-  }, [rawRows, mapping, profile]);
+    return rawRows.map((r) => buildRow(r, mapping, profile, accountMap)).filter(Boolean);
+  }, [rawRows, mapping, profile, accountMap]);
 
   // All ready rows: OFX or CSV depending on format.
   const rows = profile.format === 'ofx' ? ofxRows : csvRows;
@@ -2463,6 +2652,14 @@ function matchAccount(rawValue) {
     if (aliases.some((al) => n.includes(al))) return account;
   }
   return "";
+}
+
+// Resolve a transaction's account. The user-maintained map keyed on the source
+// account's stable URN wins (it can tell apart cards the source labels the same,
+// e.g. five Chase "CREDIT CARD"s); otherwise fall back to the alias matcher.
+function classifyAccount(rawAccount, accountUrn, accountMap) {
+  if (accountUrn && accountMap && accountMap[accountUrn]) return accountMap[accountUrn];
+  return matchAccount(rawAccount);
 }
 
 // Re-classification candidates for existing transactions. The only trustworthy

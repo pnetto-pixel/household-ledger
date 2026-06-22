@@ -1,5 +1,6 @@
-// Generates tools/credit-karma/bookmarklet.txt (the pasteable javascript:
-// one-liner) from bookmarklet.src.js. Run: node tools/credit-karma/build-bookmarklet.js
+// Generates the pasteable javascript: one-liner from a readable *.src.js.
+// Run: node tools/credit-karma/build-bookmarklet.js [input.src.js] [output.txt]
+// Defaults to bookmarklet.src.js -> bookmarklet.txt.
 //
 // Minification here is intentionally conservative: it strips the leading
 // license/comment block and full-line // comments, then collapses runs of
@@ -11,7 +12,9 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const dir = path.dirname(fileURLToPath(import.meta.url));
-const src = fs.readFileSync(path.join(dir, 'bookmarklet.src.js'), 'utf8');
+const inFile = process.argv[2] || 'bookmarklet.src.js';
+const outFile = process.argv[3] || inFile.replace(/\.src\.js$/, '.txt');
+const src = fs.readFileSync(path.join(dir, inFile), 'utf8');
 
 const body = src
   .split('\n')
@@ -21,5 +24,5 @@ const body = src
   .trim();
 
 const bookmarklet = 'javascript:' + encodeURIComponent(body);
-fs.writeFileSync(path.join(dir, 'bookmarklet.txt'), bookmarklet + '\n');
-console.log('Wrote bookmarklet.txt (' + bookmarklet.length + ' chars)');
+fs.writeFileSync(path.join(dir, outFile), bookmarklet + '\n');
+console.log('Wrote ' + outFile + ' (' + bookmarklet.length + ' chars)');

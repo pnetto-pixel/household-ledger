@@ -85,8 +85,8 @@ const PAGE_CODE = `(async () => {
     return null;
   }
   function traceId(){return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g,function(c){var r=Math.random()*16|0,v=c==='x'?r:(r&0x3|0x8);return v.toString(16);});}
-  function acctMask(a){if(!a)return '';return String(a.mask||a.lastFour||a.last4||a.accountNumberMask||a.partialAccountNumber||a.maskedAccountNumber||'').replace(/[^0-9]/g,'').slice(-4);}
-  function norm(t){return {id:t.id,date:t.date,description:(t.description||(t.merchant&&t.merchant.name)||''),category:(t.category&&t.category.name)||'',categoryType:(t.category&&t.category.type)||'',amount:(t.amount&&t.amount.value)||0,account:(t.account&&t.account.name)||'',accountType:(t.account&&t.account.type)||'',provider:(t.account&&t.account.providerName)||'',mask:acctMask(t.account)};}
+  function acctMask(a){if(!a)return '';var direct=String(a.mask||a.lastFour||a.last4||a.accountNumberMask||a.partialAccountNumber||a.maskedAccountNumber||'').replace(/[^0-9]/g,'').slice(-4);if(direct)return direct;var m=String(a.accountTypeAndNumberDisplay||'').match(/\(\D*([0-9]{4})\)/);return m?m[1]:'';}
+  function norm(t){return {id:t.id,date:t.date,description:(t.description||(t.merchant&&t.merchant.name)||''),category:(t.category&&t.category.name)||'',categoryType:(t.category&&t.category.type)||'',amount:(t.amount&&t.amount.value)||0,account:(t.account&&t.account.name)||'',accountType:(t.account&&t.account.type)||'',provider:(t.account&&t.account.providerName)||'',mask:acctMask(t.account),urn:(t.account&&t.account.accountURN)||''};}
   try {
     var ENDPOINT='https://api.creditkarma.com/graphql';
     var LIST_HASH='__LIST_HASH__';
@@ -167,11 +167,11 @@ function acctLabel(provider, name, mask) {
   return m ? (base + ' ' + m).trim() : base;
 }
 function toCSV(rows) {
-  const header = ['date', 'description', 'amount', 'category', 'account', 'ck_account', 'provider', 'ck_category', 'type'];
+  const header = ['date', 'description', 'amount', 'category', 'account', 'ck_account', 'provider', 'ck_category', 'type', 'account_urn', 'last4'];
   const lines = [header.join(',')];
   for (const r of rows) {
     lines.push(
-      [r.date, r.description, r.amount, r.category, r.account, r.ck_account, r.provider, r.ck_category, r.type]
+      [r.date, r.description, r.amount, r.category, r.account, r.ck_account, r.provider, r.ck_category, r.type, r.account_urn, r.last4]
         .map(csvCell)
         .join(',')
     );
@@ -266,6 +266,8 @@ async function main() {
       provider: t.provider || '',
       ck_category: t.category || '',
       type: isInc(t) ? 'income' : 'expense',
+      account_urn: t.urn || '',
+      last4: t.mask || '',
     });
   }
   rows.sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));
