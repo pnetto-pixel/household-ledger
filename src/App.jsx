@@ -782,7 +782,7 @@ function TabBar({ tab, setTab, wide }) {
             onClick={() => setTab(id)}
             style={{
               ...S.tabBtn,
-              color: active ? "#60a5fa" : "#8b94a3",
+              color: active ? "#0A84FF" : "#8b94a3",
             }}
           >
             <Icon size={22} />
@@ -1653,7 +1653,7 @@ function TxnRow({ t, money, onDelete, onEdit, selectMode = false, selected = fal
         ...S.txnRow,
         cursor: selectMode ? "pointer" : "default",
         outline: selected ? "1px solid #3b82f6" : undefined,
-        background: selected ? "#1a1f2e" : "#14171c",
+        background: selected ? "#1a1f2e" : "#161a20",
       }}
       onClick={handleRowClick}
     >
@@ -1717,7 +1717,7 @@ function TxnAuditCard({ t, money, selected, onToggleSelect, onInlineChange, onEd
         flexDirection: "column",
         alignItems: "stretch",
         gap: 10,
-        background: selected ? "#1a1f2e" : "#14171c",
+        background: selected ? "#1a1f2e" : "#161a20",
         outline: selected ? "1px solid #3b82f6" : undefined,
       }}
     >
