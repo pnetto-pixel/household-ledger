@@ -87,6 +87,39 @@ const ACCOUNTS = [
   "Venture X",
 ];
 
+// Account classification (Option B): map each canonical account to the
+// keyword/alias fragments that identify it in a source's own account/card
+// field. Matched against the account-identifying value only (never the
+// merchant description — the card you paid with is not the store you paid).
+// Order matters: the first account with a matching alias wins, so keep the
+// more specific names ahead of weaker, collision-prone fragments.
+const ACCOUNT_ALIASES = [
+  ["Advancial", ["advancial"]],
+  ["Amazon Card", ["amazon", "amzn"]],
+  ["Apple", ["applecard", "applecash", "apple", "goldman"]],
+  ["Bank of America", ["bankofamerica", "bofa"]],
+  // Venture X before Capital One: the co-branded card is the more specific
+  // account, even though Capital One issues it.
+  ["Venture X", ["venturex", "venture"]],
+  ["Capital One", ["capitalone", "capone"]],
+  ["Chase Bela", ["chasebela", "bela"]],
+  ["Chase Preferred", ["sapphirepreferred", "chasepreferred", "preferred"]],
+  ["Chase Reserve", ["sapphirereserve", "chasereserve", "reserve"]],
+  ["Ink Biz Cash", ["inkbusinesscash", "inkbizcash", "inkcash"]],
+  ["Ink Unlimited", ["inkbusinessunlimited", "inkunlimited"]],
+  ["Jasper Card", ["jasper"]],
+  ["Lowes Card", ["lowes"]],
+  ["United Explorer", ["unitedexplorer", "mileageplus", "united"]],
+  ["Southwest", ["southwest", "rapidrewards"]],
+  ["T-Mobile", ["tmobile"]],
+  ["Alaska", ["alaska"]],
+  ["Discover", ["discover"]],
+  ["Chime", ["chime"]],
+  ["SoFi", ["sofi"]],
+  ["Venmo", ["venmo"]],
+  ["ATT Reward", ["attreward", "att"]],
+];
+
 // ---------------------------------------------------------------------------
 // Bank import profiles
 // ---------------------------------------------------------------------------
@@ -1794,7 +1827,7 @@ function EditModal({ txn, onClose, onSave }) {
     CATEGORIES.includes(txn.category) ? txn.category : "Other"
   );
   const [account, setAccount] = useState(
-    ACCOUNTS.includes(txn.account) ? txn.account : ACCOUNTS[0]
+    ACCOUNTS.includes(txn.account) ? txn.account : ""
   );
   const [err, setErr] = useState("");
 
@@ -1863,6 +1896,7 @@ function EditModal({ txn, onClose, onSave }) {
           ) : null}
           <Field label="Account">
             <select value={account} onChange={(e) => setAccount(e.target.value)} style={S.input}>
+              <option value="">— Unassigned —</option>
               {ACCOUNTS.map((a) => (
                 <option key={a}>{a}</option>
               ))}
@@ -1938,9 +1972,12 @@ function buildRow(raw, mapping, profile) {
   if (!date) date = todayISO();
 
   const rawAccount = (mapping.account && val("account")) || "";
+  // Classify by alias when the source names an account; otherwise fall back to
+  // the profile's account. Never default to ACCOUNTS[0] — leave it unmapped so
+  // it can be filtered and fixed instead of silently labeled "ATT Reward".
   const account = rawAccount
-    ? matchOption(rawAccount, ACCOUNTS, profile?.defaultAccount || ACCOUNTS[0])
-    : (profile?.defaultAccount || ACCOUNTS[0]);
+    ? (matchAccount(rawAccount) || profile?.defaultAccount || "")
+    : (profile?.defaultAccount || "");
 
   const row = {
     id: uid(),
@@ -2154,7 +2191,7 @@ function ImportTransactions({ onImport }) {
                     f.key === "category"
                       ? "— use default: Other —"
                       : f.key === "account"
-                      ? `— use default: ${profile.defaultAccount || ACCOUNTS[0]} —`
+                      ? `— use default: ${profile.defaultAccount || "Unassigned"} —`
                       : "— skip —";
                   return (
                     <Field key={f.key} label={f.required ? `${f.label} *` : f.label}>
@@ -2222,6 +2259,27 @@ function matchOption(value, options, fallback) {
   const v = value.toLowerCase();
   const hit = options.find((o) => o.toLowerCase() === v);
   return hit || fallback;
+}
+
+// Normalize an account-ish string for matching: lowercase, strip everything
+// that isn't a letter or digit ("T-Mobile" / "t mobile" / "AT&T" all collapse).
+function normAccount(s) {
+  return String(s || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
+// Classify a source account/card value into a canonical account name.
+// Tries an exact (normalized) match first, then the alias keyword table.
+// Returns "" when nothing matches — we deliberately do NOT guess an account,
+// so unrecognized rows surface as unmapped instead of hiding under ATT Reward.
+function matchAccount(rawValue) {
+  const n = normAccount(rawValue);
+  if (!n) return "";
+  const exact = ACCOUNTS.find((a) => normAccount(a) === n);
+  if (exact) return exact;
+  for (const [account, aliases] of ACCOUNT_ALIASES) {
+    if (aliases.some((al) => n.includes(al))) return account;
+  }
+  return "";
 }
 
 // ===========================================================================
