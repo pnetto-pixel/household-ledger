@@ -235,6 +235,23 @@ const txnType = (cat) =>
 
 const TYPE_COLOR = { Income: "#34d399", Expense: "#f87171", Transfer: "#8b94a3" };
 
+// Cash-flow presentation of a transaction's amount. The stored `amount` is
+// signed in the category's natural direction: positive is a normal income /
+// expense, negative is a reversal (a refund on an expense, a clawback/tax on
+// income). Income adds to cash flow, expense subtracts; a reversal flips the
+// shown sign and color. Transfer is shown as a plain magnitude.
+// Returns { sign, color, value } where value is the (positive) magnitude.
+function amountDisplay(t) {
+  const raw = Number(t.amount) || 0;
+  if (isTransfer(t.category)) return { sign: "", color: TYPE_COLOR.Transfer, value: Math.abs(raw) };
+  const cf = (isIncome(t.category) ? 1 : -1) * raw;
+  return {
+    sign: cf > 0 ? "+" : cf < 0 ? "−" : "",
+    color: cf >= 0 ? TYPE_COLOR.Income : TYPE_COLOR.Expense,
+    value: Math.abs(cf),
+  };
+}
+
 // Tracks whether the viewport is wide enough for the desktop audit layout.
 function useMediaWide(px = 900) {
   const [wide, setWide] = useState(
@@ -864,7 +881,7 @@ function computeTotals(rows) {
   let expenses = 0;
   for (const t of rows) {
     if (isTransfer(t.category)) continue; // Transfer excluded from all totals
-    const amt = Math.abs(Number(t.amount) || 0);
+    const amt = Number(t.amount) || 0; // signed: negatives are refunds/clawbacks
     if (isIncome(t.category)) income += amt;
     else expenses += amt;
   }
@@ -1038,11 +1055,12 @@ function Charts({ transactions, hideValues }) {
     const map = new Map();
     for (const t of scoped) {
       if (isTransfer(t.category) || isIncome(t.category)) continue;
-      const amt = Math.abs(Number(t.amount) || 0);
+      const amt = Number(t.amount) || 0; // signed: refunds reduce the category
       map.set(t.category, (map.get(t.category) || 0) + amt);
     }
     return [...map.entries()]
       .map(([name, value]) => ({ name, value }))
+      .filter((e) => e.value > 0) // a net-refunded category isn't a pie slice
       .sort((a, b) => b.value - a.value);
   }, [scoped]);
 
@@ -1053,7 +1071,7 @@ function Charts({ transactions, hideValues }) {
       const mk = monthKey(t.date);
       if (!mk) continue;
       const entry = map.get(mk) || { month: mk, income: 0, expenses: 0 };
-      const amt = Math.abs(Number(t.amount) || 0);
+      const amt = Number(t.amount) || 0; // signed: refunds/clawbacks net out
       if (isIncome(t.category)) entry.income += amt;
       else entry.expenses += amt;
       map.set(mk, entry);
@@ -1252,10 +1270,10 @@ function Transactions({ transactions, money, hideValues, isWide, onDelete, onUpd
   const summary = useMemo(() => {
     let income = 0, expenses = 0, transfer = 0;
     for (const t of filtered) {
-      const amt = Math.abs(Number(t.amount) || 0);
-      if (isTransfer(t.category)) transfer += amt;
-      else if (isIncome(t.category)) income += amt;
-      else expenses += amt;
+      const raw = Number(t.amount) || 0;
+      if (isTransfer(t.category)) transfer += Math.abs(raw);
+      else if (isIncome(t.category)) income += raw; // signed: refunds/clawbacks net out
+      else expenses += raw;
     }
     return { income, expenses, transfer };
   }, [filtered]);
@@ -1645,8 +1663,7 @@ function TxnTable({ rows, money, selectedIds, allSelected, onToggleSelect, onSel
           {rows.map((t) => {
             const type = txnType(t.category);
             const selected = selectedIds.has(t.id);
-            const amt = Math.abs(Number(t.amount) || 0);
-            const sign = type === "Transfer" ? "" : type === "Income" ? "+" : "−";
+            const amt = amountDisplay(t);
             return (
               <tr key={t.id} style={{ background: selected ? "#1a1f2e" : "transparent" }}>
                 <td style={{ ...S.td, textAlign: "center" }}>
@@ -1687,8 +1704,8 @@ function TxnTable({ rows, money, selectedIds, allSelected, onToggleSelect, onSel
                     ))}
                   </select>
                 </td>
-                <td style={{ ...S.td, textAlign: "right", color: TYPE_COLOR[type], fontWeight: 600, whiteSpace: "nowrap" }}>
-                  {sign}{money(amt)}
+                <td style={{ ...S.td, textAlign: "right", color: amt.color, fontWeight: 600, whiteSpace: "nowrap" }}>
+                  {amt.sign}{money(amt.value)}
                 </td>
                 <td style={{ ...S.td, textAlign: "right", whiteSpace: "nowrap" }}>
                   <button onClick={() => onEdit(t)} style={S.deleteBtn} title="Edit">
@@ -1710,11 +1727,7 @@ function TxnTable({ rows, money, selectedIds, allSelected, onToggleSelect, onSel
 }
 
 function TxnRow({ t, money, onDelete, onEdit, selectMode = false, selected = false, onToggleSelect }) {
-  const income = isIncome(t.category);
-  const transfer = isTransfer(t.category);
-  const color = transfer ? "#8b94a3" : income ? "#34d399" : "#f87171";
-  const sign = transfer ? "" : income ? "+" : "−";
-  const amt = Math.abs(Number(t.amount) || 0);
+  const amt = amountDisplay(t);
 
   const handleRowClick = selectMode
     ? (e) => {
@@ -1753,9 +1766,9 @@ function TxnRow({ t, money, onDelete, onEdit, selectMode = false, selected = fal
         </div>
       </div>
       <div style={{ textAlign: "right", display: "flex", alignItems: "center", gap: 8 }}>
-        <span style={{ color, fontWeight: 600, fontSize: 14, whiteSpace: "nowrap" }}>
-          {sign}
-          {money(amt)}
+        <span style={{ color: amt.color, fontWeight: 600, fontSize: 14, whiteSpace: "nowrap" }}>
+          {amt.sign}
+          {money(amt.value)}
         </span>
         {onEdit ? (
           <button
@@ -1785,8 +1798,7 @@ function TxnRow({ t, money, onDelete, onEdit, selectMode = false, selected = fal
 // selection checkbox.
 function TxnAuditCard({ t, money, selected, onToggleSelect, onInlineChange, onEdit, onDelete }) {
   const type = txnType(t.category);
-  const amt = Math.abs(Number(t.amount) || 0);
-  const sign = type === "Transfer" ? "" : type === "Income" ? "+" : "−";
+  const amt = amountDisplay(t);
   return (
     <div
       style={{
@@ -1810,8 +1822,8 @@ function TxnAuditCard({ t, money, selected, onToggleSelect, onInlineChange, onEd
             {t.srcAccount && !ACCOUNTS.includes(t.account) ? ` · src: ${t.srcAccount}` : ""}
           </div>
         </div>
-        <span style={{ color: TYPE_COLOR[type], fontWeight: 600, fontSize: 14, whiteSpace: "nowrap" }}>
-          {sign}{money(amt)}
+        <span style={{ color: amt.color, fontWeight: 600, fontSize: 14, whiteSpace: "nowrap" }}>
+          {amt.sign}{money(amt.value)}
         </span>
         <button onClick={() => onEdit(t)} style={S.deleteBtn} title="Edit">
           <Pencil size={15} />
@@ -1867,7 +1879,7 @@ function Field({ label, children, style }) {
 function EditModal({ txn, onClose, onSave }) {
   const [date, setDate] = useState(txn.date || todayISO());
   const [description, setDescription] = useState(txn.description || "");
-  const [amount, setAmount] = useState(String(Math.abs(Number(txn.amount) || 0)));
+  const [amount, setAmount] = useState(String(Number(txn.amount) || 0));
   const [category, setCategory] = useState(
     CATEGORIES.includes(txn.category) ? txn.category : "Other"
   );
@@ -1887,7 +1899,7 @@ function EditModal({ txn, onClose, onSave }) {
       ...txn,
       date,
       description: description.trim(),
-      amount: Math.abs(amt),
+      amount: amt,
       category,
       account,
     });
@@ -1926,6 +1938,10 @@ function EditModal({ txn, onClose, onSave }) {
               placeholder="0.00"
               style={S.input}
             />
+            <div style={{ fontSize: 12, color: "#8b94a3", marginTop: 6 }}>
+              Use a negative value for a reversal — a refund on an expense or a
+              cashback/tax clawback on income — to net it out of that category.
+            </div>
           </Field>
           <Field label="Category">
             <select value={category} onChange={(e) => setCategory(e.target.value)} style={S.input}>
@@ -2486,7 +2502,7 @@ function Trends({ transactions, hideValues, money }) {
       if (isTransfer(t.category) || isIncome(t.category)) continue;
       const mk = monthKey(t.date);
       if (!mk) continue;
-      const amt = Math.abs(Number(t.amount) || 0);
+      const amt = Number(t.amount) || 0; // signed: refunds reduce the category
       const entry = monthCatMap.get(mk) || {};
       entry[t.category] = (entry[t.category] || 0) + amt;
       monthCatMap.set(mk, entry);
@@ -2687,7 +2703,7 @@ function Budgets({ transactions, budgets, onUpdateBudget, budgetSaving, money })
       if (isTransfer(t.category) || isIncome(t.category)) continue;
       const mk = monthKey(t.date);
       if (mk !== currentMK) continue;
-      const amt = Math.abs(Number(t.amount) || 0);
+      const amt = Number(t.amount) || 0; // signed: refunds reduce spend vs budget
       map[t.category] = (map[t.category] || 0) + amt;
     }
     return map;
@@ -2748,7 +2764,8 @@ function Budgets({ transactions, budgets, onUpdateBudget, budgetSaving, money })
         {EXPENSE_CATEGORIES.map((cat, idx) => {
           const limit = budgets[cat] || 0;
           const spent = spendMap[cat] || 0;
-          const pct = limit > 0 ? Math.min((spent / limit) * 100, 100) : 0;
+          // Clamp to 0–100: a category net-refunded below zero shows an empty bar.
+          const pct = limit > 0 ? Math.max(0, Math.min((spent / limit) * 100, 100)) : 0;
           const barColor =
             pct >= 100 ? "#f87171" : pct >= 80 ? "#fbbf24" : "#34d399";
           const isEditing = editCat === cat;
@@ -2868,7 +2885,8 @@ function Recurrents({ transactions, money }) {
       const months = new Set(txns.map((t) => monthKey(t.date)));
       if (months.size < 2) continue;
 
-      const amounts = txns.map((t) => Math.abs(Number(t.amount) || 0)).sort((a, b) => a - b);
+      // Signed amounts so a refund (negative) doesn't cluster with the charge.
+      const amounts = txns.map((t) => Number(t.amount) || 0).sort((a, b) => a - b);
       const mid = Math.floor(amounts.length / 2);
       const median =
         amounts.length % 2 === 0
@@ -2879,8 +2897,8 @@ function Recurrents({ transactions, money }) {
 
       // Filter to amounts within ±10% of median
       const inRange = txns.filter((t) => {
-        const a = Math.abs(Number(t.amount) || 0);
-        return Math.abs(a - median) / median <= 0.1;
+        const a = Number(t.amount) || 0;
+        return Math.abs(a - median) / Math.abs(median) <= 0.1;
       });
 
       // Still need 2+ distinct months after filtering

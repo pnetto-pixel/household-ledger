@@ -86,7 +86,7 @@ Cada transação:
   "id": "lf3k9-ab12cd",       // gerado no cliente
   "date": "2026-06-19",        // YYYY-MM-DD
   "description": "Costco run",
-  "amount": 142.37,            // sempre positivo; o sinal vem da categoria
+  "amount": 142.37,            // sinalizado na direção natural da categoria
   "category": "Groceries",
   "account": "Chase Reserve",  // "" quando não classificada (Unassigned)
   "srcAccount": "CHASE Sapphire Reserve 1234", // opcional — valor de origem (auditoria)
@@ -97,6 +97,19 @@ Cada transação:
 Persistido no Redis como `{ transactions: [...], savedAt }`. Os campos
 `srcAccount` e `ckCategory` só existem quando a fonte do import os fornece;
 servem para auditar as decisões de classificação de conta e categoria.
+
+**Sinal do `amount`.** O valor é sinalizado na **direção natural da
+categoria**: positivo é uma despesa/receita normal; **negativo é uma
+reversão** — um refund numa categoria de despesa (reduz as despesas) ou um
+cashback/imposto clawback numa categoria de receita (reduz a receita). As
+agregações somam o valor sinalizado (`income += amount`, `expenses +=
+amount`, `net = income − expenses`), então um refund de despesa entra como
+crédito sem precisar trocar de categoria. Na UI o sinal/cor da linha segue
+o **fluxo de caixa**: entrada (refund de despesa ou receita) em verde com
+`+`, saída (despesa ou clawback de receita) em vermelho com `−`. O import
+ainda normaliza para positivo (`Math.abs`) — reversões são marcadas
+manualmente no `EditModal` (valor negativo). Transfer continua excluída de
+todos os totais.
 
 ### Orçamentos
 
@@ -244,6 +257,7 @@ O app inicia com array vazio quando não há dados salvos (sem SEED).
 - [x] Save com debounce e indicador de estado mais rico
 - [x] Mapeamento de colunas configurável no import
 - [x] Entrada de transações exclusivamente via Import (tab Add e formulário manual removidos — PR #8)
+- [x] Valores sinalizados: reversões (refund de despesa / clawback de receita) entram como negativo dentro da própria categoria e abatem o total; sinal/cor por fluxo de caixa
 
 ### Fase 3 — Análise
 - [x] Orçamentos por categoria e alertas
