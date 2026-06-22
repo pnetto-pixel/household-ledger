@@ -725,7 +725,7 @@ function Header({ hideValues, onToggleHide, onRefresh, onLogout, saving, savedAt
     <header style={S.header}>
       <style>{`@keyframes hl-spin { 0%,100%{opacity:1} 50%{opacity:0.2} }`}</style>
       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-        <span style={{ fontWeight: 700, fontSize: 17 }}>Household Ledger</span>
+        <span style={{ fontWeight: 600, fontSize: 17, letterSpacing: -0.4 }}>Household Ledger</span>
         <SaveIndicator saving={saving} dirty={dirty} savedAt={savedAt} saveError={saveError} />
       </div>
       <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
@@ -786,7 +786,7 @@ function TabBar({ tab, setTab, wide }) {
             }}
           >
             <Icon size={22} />
-            <span style={{ fontSize: 10, marginTop: 2 }}>{label}</span>
+            <span style={{ fontSize: 10, marginTop: 2, fontWeight: 500 }}>{label}</span>
           </button>
         );
       })}
@@ -2763,7 +2763,9 @@ const S = {
     background: "#0b0d10",
     color: "#e5e7eb",
     fontFamily:
-      "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif",
+      '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", system-ui, "Segoe UI", Roboto, Helvetica, Arial, sans-serif',
+    WebkitFontSmoothing: "antialiased",
+    fontFeatureSettings: '"kern" 1',
     display: "flex",
     flexDirection: "column",
     maxWidth: 560,
@@ -2776,10 +2778,11 @@ const S = {
     display: "flex",
     alignItems: "center",
     justifyContent: "space-between",
-    padding: "12px 16px",
-    background: "rgba(11,13,16,0.92)",
-    backdropFilter: "blur(8px)",
-    borderBottom: "1px solid #1a1d23",
+    padding: "max(12px, env(safe-area-inset-top)) 16px 12px",
+    background: "rgba(11,13,16,0.85)",
+    backdropFilter: "blur(20px) saturate(180%)",
+    WebkitBackdropFilter: "blur(20px) saturate(180%)",
+    borderBottom: "1px solid rgba(255,255,255,0.08)",
   },
   main: {
     flex: 1,
@@ -2796,27 +2799,28 @@ const S = {
   col: { display: "flex", flexDirection: "column", gap: 14 },
   cardRow: { display: "flex", gap: 12 },
   card: {
-    background: "#14171c",
-    border: "1px solid #1f242c",
-    borderRadius: 14,
+    background: "#161a20",
+    border: "1px solid #1e2530",
+    borderRadius: 16,
     padding: 16,
   },
-  sectionTitle: { margin: "8px 0 0", fontSize: 14, color: "#cbd5e1", fontWeight: 600 },
+  sectionTitle: { margin: "8px 0 0", fontSize: 13, color: "#cbd5e1", fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.3 },
   list: { display: "flex", flexDirection: "column", gap: 8 },
   txnRow: {
     display: "flex",
     alignItems: "center",
     justifyContent: "space-between",
     gap: 12,
-    background: "#14171c",
-    border: "1px solid #1f242c",
-    borderRadius: 12,
+    background: "#161a20",
+    border: "1px solid #1e2530",
+    borderRadius: 14,
     padding: "10px 12px",
+    lineHeight: 1.4,
   },
   deleteBtn: {
     background: "transparent",
     border: "none",
-    color: "#6b7280",
+    color: "#636366",
     cursor: "pointer",
     padding: 4,
     display: "grid",
@@ -2831,9 +2835,10 @@ const S = {
     margin: "0 auto",
     display: "flex",
     justifyContent: "space-around",
-    background: "rgba(11,13,16,0.96)",
-    backdropFilter: "blur(8px)",
-    borderTop: "1px solid #1a1d23",
+    background: "rgba(11,13,16,0.88)",
+    backdropFilter: "blur(20px) saturate(180%)",
+    WebkitBackdropFilter: "blur(20px) saturate(180%)",
+    borderTop: "1px solid rgba(255,255,255,0.08)",
     padding: "8px 0 max(8px, env(safe-area-inset-bottom))",
     zIndex: 10,
   },
@@ -2852,7 +2857,7 @@ const S = {
     boxSizing: "border-box",
     background: "#0f1216",
     border: "1px solid #232a33",
-    borderRadius: 10,
+    borderRadius: 12,
     padding: "12px 14px",
     color: "#e5e7eb",
     fontSize: 15,
@@ -2862,16 +2867,16 @@ const S = {
     flex: 1,
     background: "#0f1216",
     border: "1px solid #232a33",
-    borderRadius: 10,
+    borderRadius: 12,
     padding: "10px 12px",
     color: "#e5e7eb",
     fontSize: 14,
   },
   primaryBtn: {
     width: "100%",
-    background: "#2563eb",
+    background: "#0A84FF",
     border: "none",
-    borderRadius: 10,
+    borderRadius: 12,
     padding: "13px 16px",
     color: "#fff",
     fontSize: 15,
@@ -2882,7 +2887,7 @@ const S = {
     width: "100%",
     background: "transparent",
     border: "1px solid #232a33",
-    borderRadius: 10,
+    borderRadius: 12,
     padding: "13px 16px",
     color: "#cbd5e1",
     fontSize: 15,
@@ -2892,7 +2897,7 @@ const S = {
   linkBtn: {
     background: "transparent",
     border: "none",
-    color: "#60a5fa",
+    color: "#0A84FF",
     fontSize: 12,
     cursor: "pointer",
     padding: 0,
@@ -2930,16 +2935,16 @@ const S = {
     maxWidth: 536,
     maxHeight: "90vh",
     overflowY: "auto",
-    background: "#14171c",
-    border: "1px solid #1f242c",
-    borderRadius: 16,
+    background: "#161a20",
+    border: "1px solid #1e2530",
+    borderRadius: 20,
     padding: 16,
     marginBottom: "max(12px, env(safe-area-inset-bottom))",
   },
   loginCard: {
-    background: "#14171c",
-    border: "1px solid #1f242c",
-    borderRadius: 16,
+    background: "#161a20",
+    border: "1px solid #1e2530",
+    borderRadius: 20,
     padding: 24,
     margin: 16,
   },
@@ -3049,8 +3054,8 @@ const S = {
     alignItems: "center",
     fontSize: 13,
     padding: "8px 12px",
-    background: "#14171c",
-    border: "1px solid #1f242c",
+    background: "#161a20",
+    border: "1px solid #1e2530",
     borderRadius: 10,
   },
   bulkBar: {
@@ -3100,7 +3105,7 @@ const S = {
     minWidth: 160,
     maxHeight: 280,
     overflowY: "auto",
-    background: "#14171c",
+    background: "#161a20",
     border: "1px solid #2a3340",
     borderRadius: 10,
     padding: 4,
