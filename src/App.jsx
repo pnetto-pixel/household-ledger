@@ -531,6 +531,21 @@ export default function App() {
     [scheduleSave]
   );
 
+  // Apply a per-row account change (re-classification): [{ id, account }].
+  const reclassifyAccounts = useCallback(
+    (changes) => {
+      setTransactions((prev) => {
+        const byId = new Map(changes.map((c) => [c.id, c.account]));
+        const next = prev.map((t) =>
+          byId.has(t.id) ? { ...t, account: byId.get(t.id) } : t
+        );
+        scheduleSave(next);
+        return next;
+      });
+    },
+    [scheduleSave]
+  );
+
   // ---- Eye toggle ----------------------------------------------------------
   const toggleHide = useCallback(() => {
     setHideValues((v) => {
@@ -593,6 +608,7 @@ export default function App() {
             onUpdate={updateTransaction}
             onDeleteSelected={deleteSelected}
             onUpdateMany={updateMany}
+            onReclassify={reclassifyAccounts}
           />
         ) : tab === "import" ? (
           <ImportTransactions onImport={addTransactions} />
@@ -1114,7 +1130,7 @@ function Charts({ transactions, hideValues }) {
 // Transactions list
 // ===========================================================================
 
-function Transactions({ transactions, money, hideValues, isWide, onDelete, onUpdate, onDeleteSelected, onUpdateMany }) {
+function Transactions({ transactions, money, hideValues, isWide, onDelete, onUpdate, onDeleteSelected, onUpdateMany, onReclassify }) {
   const [catFilter, setCatFilter] = useState([]);
   const [acctFilter, setAcctFilter] = useState([]);
   const [typeFilter, setTypeFilter] = useState([]);
@@ -1124,6 +1140,7 @@ function Transactions({ transactions, money, hideValues, isWide, onDelete, onUpd
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
   const [editing, setEditing] = useState(null);
+  const [reclassifying, setReclassifying] = useState(false);
 
   // Bulk-select state. Rows are always selectable via their checkbox on both
   // platforms; the bulk-edit bar appears once anything is selected.
@@ -1336,6 +1353,14 @@ function Transactions({ transactions, money, hideValues, isWide, onDelete, onUpd
         </div>
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
           <button
+            onClick={() => setReclassifying(true)}
+            title="Re-classify accounts from their source value"
+            style={S.exportBtn(false)}
+          >
+            <RefreshCw size={14} style={{ marginRight: 4, verticalAlign: "-2px" }} />
+            Re-classify
+          </button>
+          <button
             onClick={() => handleExportCSV(filtered)}
             disabled={hideValues}
             title={hideValues ? "Show values to export" : "Export CSV"}
@@ -1468,6 +1493,13 @@ function Transactions({ transactions, money, hideValues, isWide, onDelete, onUpd
             onUpdate(updated);
             setEditing(null);
           }}
+        />
+      ) : null}
+      {reclassifying ? (
+        <ReclassifyModal
+          transactions={transactions}
+          onApply={onReclassify}
+          onClose={() => setReclassifying(false)}
         />
       ) : null}
     </div>
@@ -1935,6 +1967,115 @@ function EditModal({ txn, onClose, onSave }) {
   );
 }
 
+// Re-classify existing transactions' accounts through the alias table. Shows a
+// preview of every proposed change with a per-row checkbox so nothing is
+// applied without review; only checked rows are written.
+function ReclassifyModal({ transactions, onApply, onClose }) {
+  const candidates = useMemo(() => reclassifyCandidates(transactions), [transactions]);
+  const [selected, setSelected] = useState(() => new Set(candidates.map((c) => c.id)));
+
+  const toggle = (id) =>
+    setSelected((prev) => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  const allOn = candidates.length > 0 && candidates.every((c) => selected.has(c.id));
+  const toggleAll = () =>
+    setSelected(allOn ? new Set() : new Set(candidates.map((c) => c.id)));
+
+  const apply = () => {
+    const changes = candidates
+      .filter((c) => selected.has(c.id))
+      .map((c) => ({ id: c.id, account: c.to }));
+    if (changes.length) onApply(changes);
+    onClose();
+  };
+
+  return (
+    <div style={S.modalOverlay} onClick={onClose} role="dialog" aria-modal="true">
+      <div
+        style={{ ...S.modalCard, maxWidth: 720, width: "92vw" }}
+        onClick={(e) => e.stopPropagation()}
+        aria-label="Re-classify accounts"
+      >
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
+          <h3 style={{ ...S.sectionTitle, margin: 0 }}>Re-classify accounts</h3>
+          <button onClick={onClose} style={S.deleteBtn} title="Close">
+            <X size={18} />
+          </button>
+        </div>
+
+        {candidates.length === 0 ? (
+          <p style={{ color: "#8b94a3", fontSize: 14, lineHeight: 1.5 }}>
+            No account changes proposed. Rows imported before account auditing
+            existed carry no source value to re-classify from — re-import those
+            via the Credit Karma profile, or fix them by hand.
+          </p>
+        ) : (
+          <>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, margin: "4px 0 8px" }}>
+              <span style={{ fontSize: 13, color: "#cbd5e1" }}>
+                {selected.size} of {candidates.length} change{candidates.length === 1 ? "" : "s"} selected
+              </span>
+              <button onClick={toggleAll} style={S.linkBtn}>
+                {allOn ? "Deselect all" : "Select all"}
+              </button>
+            </div>
+
+            <div style={{ maxHeight: "55vh", overflowY: "auto", display: "flex", flexDirection: "column", gap: 6 }}>
+              {candidates.map((c) => (
+                <label
+                  key={c.id}
+                  style={{
+                    display: "flex", gap: 10, alignItems: "flex-start", cursor: "pointer",
+                    padding: "8px 10px", borderRadius: 10, background: "#161a20",
+                    opacity: selected.has(c.id) ? 1 : 0.5,
+                  }}
+                >
+                  <input
+                    type="checkbox"
+                    checked={selected.has(c.id)}
+                    onChange={() => toggle(c.id)}
+                    style={{ marginTop: 3 }}
+                  />
+                  <div style={{ minWidth: 0, flex: 1 }}>
+                    <div style={{ fontSize: 13, color: "#e5e7eb", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      {c.description || "—"}
+                    </div>
+                    <div style={{ fontSize: 11, color: "#8b94a3", marginTop: 2 }}>
+                      {c.date} · src: <span style={{ color: "#cbd5e1" }}>{c.src}</span>
+                    </div>
+                    <div style={{ fontSize: 12, marginTop: 3 }}>
+                      <span style={{ color: "#f87171" }}>{c.from || "Unassigned"}</span>
+                      <span style={{ color: "#8b94a3" }}> → </span>
+                      <span style={{ color: "#34d399" }}>{c.to}</span>
+                    </div>
+                  </div>
+                </label>
+              ))}
+            </div>
+          </>
+        )}
+
+        <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
+          <button type="button" onClick={onClose} style={S.secondaryBtn}>
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={apply}
+            disabled={selected.size === 0}
+            style={{ ...S.primaryBtn, opacity: selected.size === 0 ? 0.5 : 1 }}
+          >
+            Apply {selected.size} change{selected.size === 1 ? "" : "s"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ===========================================================================
 // Import (CSV)
 // ===========================================================================
@@ -2301,6 +2442,24 @@ function matchAccount(rawValue) {
     if (aliases.some((al) => n.includes(al))) return account;
   }
   return "";
+}
+
+// Re-classification candidates for existing transactions. The only trustworthy
+// signal is the raw source value: srcAccount (kept on import) or, for rows that
+// still hold an unmapped raw account string, the current account itself. We
+// never infer the account from the merchant description. Rows whose source no
+// longer exists (legacy imports) simply produce no candidate.
+function reclassifyCandidates(transactions) {
+  const out = [];
+  for (const t of transactions) {
+    const src = (t.srcAccount || t.account || "").trim();
+    if (!src) continue;
+    const proposed = matchAccount(src);
+    if (proposed && proposed !== t.account) {
+      out.push({ id: t.id, date: t.date, description: t.description, src, from: t.account, to: proposed });
+    }
+  }
+  return out;
 }
 
 // ===========================================================================
