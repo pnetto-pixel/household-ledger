@@ -137,23 +137,40 @@ Mapa `{ [accountURN]: "Conta amigável" }` persistido no Redis em
 padrão dos orçamentos). Alimenta `classifyAccount` no import e é editável
 pelo `AccountMapModal`.
 
+### Listas gerenciáveis (contas + categorias)
+
+As listas `ACCOUNTS`, `EXPENSE_CATEGORIES` e `INCOME_CATEGORIES` deixaram de
+ser fixas no código: são variáveis de módulo (mutáveis) semeadas pelos
+`DEFAULT_*` e substituídas em runtime por `applyConfig()` a partir de
+`api/config.js` (GET/PUT em `household:USERID:config`, sanitiza strings
+não-vazias e deduplicadas). As funções puras (`matchAccount`, `isIncome`,
+`buildRow`) leem os valores correntes; os componentes React re-renderizam
+via o `config` state no App (`Transfer` continua fixo). A UI é o
+`SettingsModal` (engrenagem no header): adiciona/renomeia/exclui nas três
+listas. **Renomear faz cascata** — conta atualiza transações + valores do
+mapa de contas; categoria atualiza transações + chaves de orçamento. Itens
+em uso por transações não podem ser excluídos (renomear, sim).
+
 ### Categorias
 
-Despesas: `Car, Dog, Entertainment, Fuel, Groceries, Home, Medical,
-Mobile Phone, Mortgage, Other, Restaurant, Services, Shopping, Transport,
-Travel, Utilities`.
+Defaults de despesa (`DEFAULT_EXPENSE_CATEGORIES`): `Car, Dog,
+Entertainment, Fuel, Groceries, Home, Medical, Mobile Phone, Mortgage,
+Other, Restaurant, Services, Shopping, Transport, Travel, Utilities`.
 
-Receitas: `Salary, Bonus, Bela Income, Other Income`.
+Defaults de receita (`DEFAULT_INCOME_CATEGORIES`): `Salary, Bonus, Bela
+Income, Other Income`. Ambas as listas são editáveis em runtime (ver
+"Listas gerenciáveis").
 
 Especial: `Transfer` — **excluída de todos os totais** (saldo, receitas,
 despesas e gráficos). Serve apenas para movimentações entre contas.
 
 ### Contas
 
-`ATT Reward, Advancial, Alaska, Amazon Card, Apple, Bank of America,
-Capital One, Chase Bela, Chase Preferred, Chase Reserve, Chime, Discover,
-Ink Biz Cash, Ink Unlimited, Jasper Card, Lowes Card, SoFi, Southwest,
-T-Mobile, United Explorer, Venmo, Venture X`.
+Defaults (`DEFAULT_ACCOUNTS`, editáveis em runtime): `ATT Reward, Advancial,
+Alaska, Amazon Card, Apple, Bank of America, Capital One, Chase Bela, Chase
+Preferred, Chase Reserve, Chime, Discover, Ink Biz Cash, Ink Unlimited,
+Jasper Card, Lowes Card, SoFi, Southwest, T-Mobile, United Explorer, Venmo,
+Venture X`.
 
 **Classificação de conta no import.** Ordem (`classifyAccount`): (1) a
 **tabela de/para** keyed no `accountUrn` da fonte — id estável e único por
@@ -294,6 +311,9 @@ O app inicia com array vazio quando não há dados salvos (sem SEED).
   (`AccountMapModal`, `/api/account-map`): separa cartões que a fonte rotula
   igual (5 Chase) e identifica o Venture X; export do CK passa a emitir
   `account_urn` e `last4`
+- [x] Listas de contas e categorias gerenciáveis pela UI (`SettingsModal`,
+  `/api/config`): add/rename/delete com cascata nos dados; antes eram
+  constantes fixas no código
 - [ ] Multiusuário / household compartilhado
 - [ ] PWA offline-first
 - [~] Integrações de import (bancos, cartões) — exportador Credit Karma para
