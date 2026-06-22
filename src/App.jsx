@@ -1070,9 +1070,9 @@ function Charts({ transactions, hideValues }) {
 // ===========================================================================
 
 function Transactions({ transactions, money, hideValues, isWide, onDelete, onUpdate, onDeleteSelected, onUpdateMany }) {
-  const [catFilter, setCatFilter] = useState("All");
-  const [acctFilter, setAcctFilter] = useState("All");
-  const [typeFilter, setTypeFilter] = useState("All");
+  const [catFilter, setCatFilter] = useState([]);
+  const [acctFilter, setAcctFilter] = useState([]);
+  const [typeFilter, setTypeFilter] = useState([]);
   const [query, setQuery] = useState("");
   const [year, setYear] = useState("All");
   const [month, setMonth] = useState("All");
@@ -1087,9 +1087,10 @@ function Transactions({ transactions, money, hideValues, isWide, onDelete, onUpd
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [bulkCat, setBulkCat] = useState("");
   const [bulkAcct, setBulkAcct] = useState("");
-  // Desktop date range is month-granular (YYYY-MM); mobile keeps from/to days.
-  const [fromMonth, setFromMonth] = useState("");
-  const [toMonth, setToMonth] = useState("");
+  // Desktop Date column-header filter: multi-select years and/or months.
+  // From/To (day-level) stay above the table for both platforms.
+  const [dateYears, setDateYears] = useState([]);
+  const [dateMonths, setDateMonths] = useState([]);
 
   const selecting = isWide || selectMode;
   const years = useMemo(() => availableYears(transactions), [transactions]);
@@ -1172,19 +1173,21 @@ function Transactions({ transactions, money, hideValues, isWide, onDelete, onUpd
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     return [...transactions]
-      .filter((t) => (catFilter === "All" ? true : t.category === catFilter))
-      .filter((t) => (acctFilter === "All" ? true : t.account === acctFilter))
-      .filter((t) => (typeFilter === "All" ? true : txnType(t.category) === typeFilter))
+      .filter((t) => (catFilter.length === 0 ? true : catFilter.includes(t.category)))
+      .filter((t) => (acctFilter.length === 0 ? true : acctFilter.includes(t.account)))
+      .filter((t) => (typeFilter.length === 0 ? true : typeFilter.includes(txnType(t.category))))
       .filter((t) => matchPeriod(t.date, year, month))
       .filter((t) => {
-        if (isWide) {
-          const mk = monthKey(t.date);
-          if (fromMonth && mk < fromMonth) return false;
-          if (toMonth && mk > toMonth) return false;
-          return true;
-        }
+        // From/To filter by day on both platforms.
         if (from && (t.date || "") < from) return false;
         if (to && (t.date || "") > to) return false;
+        // Desktop Date-header filter: year(s) and/or month(s).
+        if (isWide) {
+          const y = (t.date || "").slice(0, 4);
+          const m = (t.date || "").slice(5, 7);
+          if (dateYears.length && !dateYears.includes(y)) return false;
+          if (dateMonths.length && !dateMonths.includes(m)) return false;
+        }
         return true;
       })
       .filter((t) =>
@@ -1195,7 +1198,7 @@ function Transactions({ transactions, money, hideValues, isWide, onDelete, onUpd
           : true
       )
       .sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));
-  }, [transactions, catFilter, acctFilter, typeFilter, query, year, month, from, to, fromMonth, toMonth, isWide]);
+  }, [transactions, catFilter, acctFilter, typeFilter, query, year, month, from, to, dateYears, dateMonths, isWide]);
 
   // Audit summary for the filtered set.
   const summary = useMemo(() => {
@@ -1210,28 +1213,28 @@ function Transactions({ transactions, money, hideValues, isWide, onDelete, onUpd
   }, [filtered]);
 
   const hasFilters =
-    catFilter !== "All" ||
-    acctFilter !== "All" ||
-    typeFilter !== "All" ||
+    catFilter.length > 0 ||
+    acctFilter.length > 0 ||
+    typeFilter.length > 0 ||
     query ||
     year !== "All" ||
     month !== "All" ||
     from ||
     to ||
-    fromMonth ||
-    toMonth;
+    dateYears.length > 0 ||
+    dateMonths.length > 0;
 
   const clearFilters = () => {
-    setCatFilter("All");
-    setAcctFilter("All");
-    setTypeFilter("All");
+    setCatFilter([]);
+    setAcctFilter([]);
+    setTypeFilter([]);
     setQuery("");
     setYear("All");
     setMonth("All");
     setFrom("");
     setTo("");
-    setFromMonth("");
-    setToMonth("");
+    setDateYears([]);
+    setDateMonths([]);
   };
 
   const allSelected = filtered.length > 0 && filtered.every((t) => selectedIds.has(t.id));
@@ -1256,35 +1259,35 @@ function Transactions({ transactions, money, hideValues, isWide, onDelete, onUpd
       </div>
 
       {isWide ? (
-        /* Desktop: only a month-granular From/To here; type/category/account
-           are filtered from the column headers. */
+        /* Desktop: day-level From/To here; type/category/account/date are
+           filtered from the column headers. */
         <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
           <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, color: "#8b94a3" }}>
             From
-            <input type="month" value={fromMonth} onChange={(e) => setFromMonth(e.target.value)} style={{ ...S.input, width: "auto", padding: "8px 10px", fontSize: 13 }} />
+            <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} style={{ ...S.input, width: "auto", padding: "8px 10px", fontSize: 13 }} />
           </label>
           <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, color: "#8b94a3" }}>
             To
-            <input type="month" value={toMonth} onChange={(e) => setToMonth(e.target.value)} style={{ ...S.input, width: "auto", padding: "8px 10px", fontSize: 13 }} />
+            <input type="date" value={to} onChange={(e) => setTo(e.target.value)} style={{ ...S.input, width: "auto", padding: "8px 10px", fontSize: 13 }} />
           </label>
         </div>
       ) : (
-        /* Mobile: keep the stacked select filters */
+        /* Mobile: keep the stacked select filters (single-select) */
         <div style={S.filterBar}>
-          <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)} style={{ ...S.select, flex: "1 1 120px" }}>
+          <select value={typeFilter[0] || "All"} onChange={(e) => setTypeFilter(e.target.value === "All" ? [] : [e.target.value])} style={{ ...S.select, flex: "1 1 120px" }}>
             <option value="All">All types</option>
             <option value="Income">Income</option>
             <option value="Expense">Expense</option>
             <option value="Transfer">Transfer</option>
           </select>
-          <select value={catFilter} onChange={(e) => setCatFilter(e.target.value)} style={{ ...S.select, flex: "1 1 130px" }}>
-            <option>All</option>
+          <select value={catFilter[0] || "All"} onChange={(e) => setCatFilter(e.target.value === "All" ? [] : [e.target.value])} style={{ ...S.select, flex: "1 1 130px" }}>
+            <option value="All">All</option>
             {CATEGORIES.map((c) => (
               <option key={c}>{c}</option>
             ))}
           </select>
-          <select value={acctFilter} onChange={(e) => setAcctFilter(e.target.value)} style={{ ...S.select, flex: "1 1 130px" }}>
-            <option>All</option>
+          <select value={acctFilter[0] || "All"} onChange={(e) => setAcctFilter(e.target.value === "All" ? [] : [e.target.value])} style={{ ...S.select, flex: "1 1 130px" }}>
+            <option value="All">All</option>
             {ACCOUNTS.map((a) => (
               <option key={a}>{a}</option>
             ))}
@@ -1431,6 +1434,11 @@ function Transactions({ transactions, money, hideValues, isWide, onDelete, onUpd
           setCatFilter={setCatFilter}
           acctOptions={acctOptions}
           catOptions={catOptions}
+          years={years}
+          dateYears={dateYears}
+          setDateYears={setDateYears}
+          dateMonths={dateMonths}
+          setDateMonths={setDateMonths}
         />
       ) : (
         <div style={S.list}>
@@ -1463,12 +1471,8 @@ function Transactions({ transactions, money, hideValues, isWide, onDelete, onUpd
   );
 }
 
-// Clickable column-header filter: a popover with a single-select option list
-// ("All" + the given options). Highlights when a filter is active.
-function HeaderFilter({ label, value, options, onChange }) {
-  const [open, setOpen] = useState(false);
-  const ref = useRef(null);
-  const active = value && value !== "All";
+// Hook: close a popover when clicking outside its ref.
+function useOutsideClose(ref, open, setOpen) {
   useEffect(() => {
     if (!open) return;
     const onDoc = (e) => {
@@ -1476,23 +1480,94 @@ function HeaderFilter({ label, value, options, onChange }) {
     };
     document.addEventListener("mousedown", onDoc);
     return () => document.removeEventListener("mousedown", onDoc);
-  }, [open]);
+  }, [open, ref, setOpen]);
+}
+
+// Clickable column-header filter with MULTI-select (checkbox list). `value` is
+// an array of selected options; empty = no filter (all). Highlights when active.
+function HeaderFilter({ label, value, options, onChange }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+  const active = value.length > 0;
+  useOutsideClose(ref, open, setOpen);
+  const toggle = (o) =>
+    onChange(value.includes(o) ? value.filter((x) => x !== o) : [...value, o]);
+  const labelText = !active
+    ? label
+    : value.length === 1
+    ? `${label}: ${value[0]}`
+    : `${label} (${value.length})`;
   return (
     <div ref={ref} style={{ position: "relative" }}>
       <button onClick={() => setOpen((o) => !o)} style={S.thBtn(active)} title="Filter">
-        <span>{label}{active ? `: ${value}` : ""}</span>
+        <span>{labelText}</span>
         <span style={{ fontSize: 9, opacity: 0.7 }}>▼</span>
       </button>
       {open && (
         <div style={S.headerPop}>
-          <button onClick={() => { onChange("All"); setOpen(false); }} style={S.popItem(value === "All" || !value)}>
+          <button onClick={() => onChange([])} style={S.popItem(!active)}>
+            <span style={{ display: "inline-block", width: 14 }}>{!active ? "✓" : ""}</span>
             All
           </button>
-          {options.map((o) => (
-            <button key={o} onClick={() => { onChange(o); setOpen(false); }} style={S.popItem(value === o)}>
-              {o}
-            </button>
-          ))}
+          {options.map((o) => {
+            const sel = value.includes(o);
+            return (
+              <button key={o} onClick={() => toggle(o)} style={S.popItem(sel)}>
+                <span style={{ display: "inline-block", width: 14 }}>{sel ? "✓" : ""}</span>
+                {o}
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Date column-header filter: multi-select years and/or months (no days).
+function DateHeaderFilter({ years, dateYears, setDateYears, dateMonths, setDateMonths }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+  const active = dateYears.length > 0 || dateMonths.length > 0;
+  useOutsideClose(ref, open, setOpen);
+  const toggle = (arr, set, v) =>
+    set(arr.includes(v) ? arr.filter((x) => x !== v) : [...arr, v]);
+  const labelText = !active
+    ? "Date"
+    : `Date (${[...dateYears, ...dateMonths.map((m) => (MONTHS.find((x) => x.v === m) || {}).l)].join(", ")})`;
+  return (
+    <div ref={ref} style={{ position: "relative" }}>
+      <button onClick={() => setOpen((o) => !o)} style={S.thBtn(active)} title="Filter by year / month">
+        <span>{labelText}</span>
+        <span style={{ fontSize: 9, opacity: 0.7 }}>▼</span>
+      </button>
+      {open && (
+        <div style={{ ...S.headerPop, display: "flex", gap: 8, minWidth: 220 }}>
+          <div style={{ flex: 1 }}>
+            <div style={S.popHead}>Year</div>
+            {years.length === 0 ? <div style={{ ...S.popItem(false), color: "#6b7280" }}>—</div> : null}
+            {years.map((y) => {
+              const sel = dateYears.includes(y);
+              return (
+                <button key={y} onClick={() => toggle(dateYears, setDateYears, y)} style={S.popItem(sel)}>
+                  <span style={{ display: "inline-block", width: 14 }}>{sel ? "✓" : ""}</span>
+                  {y}
+                </button>
+              );
+            })}
+          </div>
+          <div style={{ flex: 1 }}>
+            <div style={S.popHead}>Month</div>
+            {MONTHS.map((m) => {
+              const sel = dateMonths.includes(m.v);
+              return (
+                <button key={m.v} onClick={() => toggle(dateMonths, setDateMonths, m.v)} style={S.popItem(sel)}>
+                  <span style={{ display: "inline-block", width: 14 }}>{sel ? "✓" : ""}</span>
+                  {m.l}
+                </button>
+              );
+            })}
+          </div>
         </div>
       )}
     </div>
@@ -1504,7 +1579,7 @@ function HeaderFilter({ label, value, options, onChange }) {
 // row selection for bulk actions.
 // ---------------------------------------------------------------------------
 
-function TxnTable({ rows, money, selectedIds, allSelected, onToggleSelect, onSelectAll, onInlineChange, onEdit, onDelete, typeFilter, setTypeFilter, acctFilter, setAcctFilter, catFilter, setCatFilter, acctOptions, catOptions }) {
+function TxnTable({ rows, money, selectedIds, allSelected, onToggleSelect, onSelectAll, onInlineChange, onEdit, onDelete, typeFilter, setTypeFilter, acctFilter, setAcctFilter, catFilter, setCatFilter, acctOptions, catOptions, years, dateYears, setDateYears, dateMonths, setDateMonths }) {
   return (
     <div style={{ ...S.card, padding: 0, overflow: "visible" }}>
       <table style={S.table}>
@@ -1513,7 +1588,9 @@ function TxnTable({ rows, money, selectedIds, allSelected, onToggleSelect, onSel
             <th style={{ ...S.th, width: 36, textAlign: "center" }}>
               <input type="checkbox" checked={allSelected} onChange={(e) => onSelectAll(e.target.checked)} style={S.checkbox} />
             </th>
-            <th style={S.th}>Date</th>
+            <th style={S.th}>
+              <DateHeaderFilter years={years} dateYears={dateYears} setDateYears={setDateYears} dateMonths={dateMonths} setDateMonths={setDateMonths} />
+            </th>
             <th style={S.th}>Description</th>
             <th style={S.th}>
               <HeaderFilter label="Account (source)" value={acctFilter} options={acctOptions} onChange={setAcctFilter} />
@@ -3016,4 +3093,12 @@ const S = {
     cursor: "pointer",
     whiteSpace: "nowrap",
   }),
+  popHead: {
+    fontSize: 11,
+    fontWeight: 600,
+    color: "#8b94a3",
+    padding: "2px 10px 4px",
+    textTransform: "uppercase",
+    letterSpacing: 0.4,
+  },
 };
