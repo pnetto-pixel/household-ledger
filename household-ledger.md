@@ -132,7 +132,15 @@ T-Mobile, United Explorer, Venmo, Venture X`.
 
 ## UI
 
-Mobile-first, tema escuro (`#0b0d10`). Tab bar inferior fixa com 5 abas. A entrada de transações é exclusivamente via Import — não há formulário manual de adição.
+Mobile-first, tema escuro iOS. Tab bar inferior fixa com 5 abas. A entrada de transações é exclusivamente via Import — não há formulário manual de adição.
+
+**Identidade visual (PR #23 — iOS 26 "Liquid Glass")**
+
+- **Safe-area**: header usa `padding-top: env(safe-area-inset-top)` para não sobrepor a Dynamic Island; tab bar e modais usam `env(safe-area-inset-bottom)` para o home indicator.
+- **Tipografia**: font stack `SF Pro Display, SF Pro Text, system-ui`; antialiasing ligado; título do app peso 600 com `letter-spacing` negativo; section titles uppercase estilo headline iOS; tab labels peso 500.
+- **Liquid Glass**: header e tab bar com `backdrop-filter: blur(20px) saturate(180%)` (superfície translúcida); borders `rgba(255,255,255,0.08)`.
+- **Cantos arredondados**: cards 16 px, modais 20 px, inputs/botões 12 px, linhas de transação 14 px.
+- **Paleta dark mode iOS**: superfícies `#161a20`, borders `#1e2530`, system blue `#0A84FF` em botões primários e links, cinza `#636366` no botão de exclusão. (Background anterior `#0b0d10` substituído.)
 
 1. **Dashboard** — saldo líquido, receitas/despesas totais, resumo do mês
    corrente e transações recentes. Filtrável por mês/ano via `PeriodFilter`
@@ -212,6 +220,7 @@ O app inicia com array vazio quando não há dados salvos (sem SEED).
 ### Fase 4 — Plataforma
 - [x] Exportar CSV (export JSON removido no PR #14)
 - [x] Bulk delete de transações com confirmação inline (PR #14)
+- [x] Redesign iOS 26 "Liquid Glass": safe-area, tipografia SF Pro, backdrop-filter, paleta dark mode, cantos arredondados (PR #23)
 - [ ] Multiusuário / household compartilhado
 - [ ] PWA offline-first
 - [~] Integrações de import (bancos, cartões) — exportador Credit Karma para
