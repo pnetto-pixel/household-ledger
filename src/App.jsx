@@ -144,7 +144,9 @@ const BANK_PROFILES = [
     // column is run through matchAccount, and ck_category is kept for auditing.
     columnMap: { date: 'date', description: 'description', amount: 'amount', category: 'category', account: 'account', ckCategory: 'ck_category' },
     defaultAccount: '',
-    normalizeAmount: null,
+    // Preserve the sign: the CK export writes the amount in the category's
+    // natural direction, so a refund/clawback arrives negative and nets out.
+    normalizeAmount: (raw) => parseFloat(String(raw).replace(/[$,]/g, '')) || 0,
   },
   {
     id: 'chase-bela',
@@ -2334,6 +2336,9 @@ function ImportTransactions({ onImport }) {
           style={{ background: "#1e2328", border: "1px solid #3a3f4a", color: "#e0e6f0", borderRadius: 6, padding: "7px 10px", fontSize: 14, width: "100%" }}
         >
           <option value="generic">Generic (manual mapping)</option>
+          {BANK_PROFILES.filter((p) => p.group == null && p.id !== 'generic').map((p) => (
+            <option key={p.id} value={p.id}>{p.label}</option>
+          ))}
           <optgroup label="Chase">
             {BANK_PROFILES.filter((p) => p.group === 'Chase' && p.format === 'csv').map((p) => (
               <option key={p.id} value={p.id}>{p.label}</option>

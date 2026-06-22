@@ -222,6 +222,33 @@ async function main() {
   if (res.error) return showError('Erro: ' + res.error + ' ' + (res.detail || ''));
 
   const txns = res.transactions || [];
+  // Reversal detection (refund on an expense / clawback on income). CK carries
+  // a signed amount, but its absolute convention isn't documented, so we
+  // calibrate it from the batch: income and expense should carry opposite
+  // signs, and the minority sign within a categoryType marks a reversal. The
+  // amount is emitted in the category's natural direction (normal positive,
+  // reversal negative); the ledger sums these signed values. If the signs are
+  // not reliably opposite (e.g. already abs'd), we fall back to magnitude.
+  const isInc = (t) => (t.categoryType || '').toUpperCase() === 'INCOME';
+  let incPos = 0, incNeg = 0, expPos = 0, expNeg = 0;
+  for (const t of txns) {
+    const v = Number(t.amount) || 0;
+    if (!v) continue;
+    if (isInc(t)) v > 0 ? incPos++ : incNeg++;
+    else v > 0 ? expPos++ : expNeg++;
+  }
+  const incSign = incPos === incNeg ? 0 : incPos > incNeg ? 1 : -1;
+  const expSign = expPos === expNeg ? 0 : expPos > expNeg ? 1 : -1;
+  const signsReliable = incSign !== 0 && expSign !== 0 && incSign !== expSign;
+  const naturalAmount = (t) => {
+    const raw = Number(t.amount) || 0;
+    const mag = Math.abs(raw);
+    if (!signsReliable) return mag;
+    const rs = raw > 0 ? 1 : raw < 0 ? -1 : 0;
+    const reversal = isInc(t) ? rs !== incSign : rs === incSign;
+    return reversal ? -mag : mag;
+  };
+
   // Filter to the requested window + normalize to ledger rows.
   const rows = [];
   for (const t of txns) {
@@ -232,13 +259,13 @@ async function main() {
     rows.push({
       date,
       description: t.description || '',
-      amount: Math.abs(Number(t.amount) || 0),
+      amount: naturalAmount(t),
       category: mapCategory(t.category, t.categoryType),
       account: acctLabel(t.provider, t.account, t.mask),
       ck_account: t.account || '',
       provider: t.provider || '',
       ck_category: t.category || '',
-      type: (t.categoryType || '').toUpperCase() === 'INCOME' ? 'income' : 'expense',
+      type: isInc(t) ? 'income' : 'expense',
     });
   }
   rows.sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));
