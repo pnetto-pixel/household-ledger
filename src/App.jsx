@@ -13,6 +13,8 @@ import {
   LogOut,
   RefreshCw,
   TrendingUp,
+  Settings,
+  Plus,
 } from "lucide-react";
 import {
   ResponsiveContainer,
@@ -35,10 +37,9 @@ import Papa from "papaparse";
 // Domain constants
 // ---------------------------------------------------------------------------
 
-const INCOME_CATEGORIES = ["Salary", "Bonus", "Bela Income", "Other Income"];
 const TRANSFER_CATEGORY = "Transfer";
 
-const CATEGORIES = [
+const DEFAULT_EXPENSE_CATEGORIES = [
   "Car",
   "Dog",
   "Entertainment",
@@ -55,14 +56,9 @@ const CATEGORIES = [
   "Transport",
   "Travel",
   "Utilities",
-  "Salary",
-  "Bonus",
-  "Bela Income",
-  "Other Income",
-  "Transfer",
 ];
-
-const ACCOUNTS = [
+const DEFAULT_INCOME_CATEGORIES = ["Salary", "Bonus", "Bela Income", "Other Income"];
+const DEFAULT_ACCOUNTS = [
   "ATT Reward",
   "Advancial",
   "Alaska",
@@ -86,6 +82,32 @@ const ACCOUNTS = [
   "Venmo",
   "Venture X",
 ];
+
+// Runtime config — seeded with the defaults above, then replaced by
+// applyConfig() from /api/config so accounts and categories can be managed
+// from the UI without code changes. These are mutable (let) so the pure
+// helpers below read current values at call time; React components re-render
+// via the `config` state in App (which also calls applyConfig).
+let ACCOUNTS = [...DEFAULT_ACCOUNTS];
+let EXPENSE_CATEGORIES = [...DEFAULT_EXPENSE_CATEGORIES];
+let INCOME_CATEGORIES = [...DEFAULT_INCOME_CATEGORIES];
+let CATEGORIES = [...EXPENSE_CATEGORIES, ...INCOME_CATEGORIES, TRANSFER_CATEGORY];
+
+function applyConfig(cfg) {
+  if (Array.isArray(cfg?.accounts) && cfg.accounts.length) ACCOUNTS = [...cfg.accounts];
+  if (Array.isArray(cfg?.expenseCategories) && cfg.expenseCategories.length) EXPENSE_CATEGORIES = [...cfg.expenseCategories];
+  if (Array.isArray(cfg?.incomeCategories) && cfg.incomeCategories.length) INCOME_CATEGORIES = [...cfg.incomeCategories];
+  CATEGORIES = [...EXPENSE_CATEGORIES, ...INCOME_CATEGORIES, TRANSFER_CATEGORY];
+}
+
+// The current runtime config as a plain object (for seeding React state).
+function currentConfig() {
+  return {
+    accounts: [...ACCOUNTS],
+    expenseCategories: [...EXPENSE_CATEGORIES],
+    incomeCategories: [...INCOME_CATEGORIES],
+  };
+}
 
 // Account classification (Option B): map each canonical account to the
 // keyword/alias fragments that identify it in a source's own account/card
@@ -348,6 +370,10 @@ export default function App() {
   const [budgetSaving, setBudgetSaving] = useState(false);
   // Account map: { [accountURN]: "Friendly Account" } — loaded from /api/account-map.
   const [accountMap, setAccountMap] = useState({});
+  // User-managed lists (accounts + categories) — loaded from /api/config.
+  // Seeded from the module defaults so the UI has values before the fetch.
+  const [config, setConfig] = useState(() => currentConfig());
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   // Format a money value, respecting the global eye toggle.
   const money = useCallback(
@@ -525,6 +551,40 @@ export default function App() {
     if (authed) loadAccountMap();
   }, [authed, loadAccountMap]);
 
+  // ---- Config (accounts + categories) load / save --------------------------
+  const loadConfig = useCallback(async () => {
+    try {
+      const res = await fetch("/api/config", {
+        method: "GET",
+        headers: buildAuthHeaders(),
+      });
+      if (!res.ok) return;
+      const data = await res.json();
+      if (data.config && typeof data.config === "object") {
+        applyConfig(data.config); // update module lists for the pure helpers
+        setConfig(currentConfig()); // re-render components with the merged result
+      }
+    } catch {
+      // Silently ignore — defaults already seeded.
+    }
+  }, []);
+
+  // Persist a partial config patch (one or more lists), merged over current.
+  const saveConfig = useCallback((patch) => {
+    const next = { ...currentConfig(), ...patch };
+    applyConfig(next);
+    setConfig(currentConfig());
+    fetch("/api/config", {
+      method: "PUT",
+      headers: buildAuthHeaders(),
+      body: JSON.stringify({ config: next }),
+    }).catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    if (authed) loadConfig();
+  }, [authed, loadConfig]);
+
   // ---- Mutations -----------------------------------------------------------
   const addTransactions = useCallback(
     (rows) => {
@@ -620,6 +680,82 @@ export default function App() {
     [saveAccountMap, scheduleSave]
   );
 
+  // ---- Manage accounts / categories ----------------------------------------
+  // Adds/renames/deletes cascade into existing data so nothing is orphaned:
+  // renaming an account updates its transactions and account-map values;
+  // renaming a category updates its transactions and budget keys.
+  const sortNames = (arr) => [...arr].sort((a, b) => a.localeCompare(b));
+
+  const addAccount = useCallback((name) => {
+    const n = (name || "").trim();
+    if (!n || ACCOUNTS.includes(n)) return;
+    saveConfig({ accounts: sortNames([...ACCOUNTS, n]) });
+  }, [saveConfig]);
+
+  const renameAccount = useCallback((oldName, newName) => {
+    const nn = (newName || "").trim();
+    if (!nn || nn === oldName || ACCOUNTS.includes(nn) || !ACCOUNTS.includes(oldName)) return;
+    saveConfig({ accounts: sortNames(ACCOUNTS.map((a) => (a === oldName ? nn : a))) });
+    setTransactions((prev) => {
+      let ch = false;
+      const next = prev.map((t) => (t.account === oldName ? ((ch = true), { ...t, account: nn }) : t));
+      if (ch) scheduleSave(next);
+      return ch ? next : prev;
+    });
+    setAccountMap((prevMap) => {
+      let ch = false;
+      const am = {};
+      for (const [k, v] of Object.entries(prevMap)) {
+        if (v === oldName) { am[k] = nn; ch = true; } else am[k] = v;
+      }
+      if (ch) {
+        fetch("/api/account-map", { method: "PUT", headers: buildAuthHeaders(), body: JSON.stringify({ map: am }) }).catch(() => {});
+        return am;
+      }
+      return prevMap;
+    });
+  }, [saveConfig, scheduleSave]);
+
+  const deleteAccount = useCallback((name) => {
+    if (!ACCOUNTS.includes(name)) return;
+    saveConfig({ accounts: ACCOUNTS.filter((a) => a !== name) });
+  }, [saveConfig]);
+
+  const addCategory = useCallback((kind, name) => {
+    const n = (name || "").trim();
+    if (!n || CATEGORIES.includes(n)) return;
+    if (kind === "income") saveConfig({ incomeCategories: [...INCOME_CATEGORIES, n] });
+    else saveConfig({ expenseCategories: sortNames([...EXPENSE_CATEGORIES, n]) });
+  }, [saveConfig]);
+
+  const renameCategory = useCallback((oldName, newName) => {
+    const nn = (newName || "").trim();
+    if (!nn || nn === oldName || CATEGORIES.includes(nn)) return;
+    if (EXPENSE_CATEGORIES.includes(oldName)) {
+      saveConfig({ expenseCategories: sortNames(EXPENSE_CATEGORIES.map((c) => (c === oldName ? nn : c))) });
+    } else if (INCOME_CATEGORIES.includes(oldName)) {
+      saveConfig({ incomeCategories: INCOME_CATEGORIES.map((c) => (c === oldName ? nn : c)) });
+    } else return;
+    setTransactions((prev) => {
+      let ch = false;
+      const next = prev.map((t) => (t.category === oldName ? ((ch = true), { ...t, category: nn }) : t));
+      if (ch) scheduleSave(next);
+      return ch ? next : prev;
+    });
+    setBudgets((prev) => {
+      if (!(oldName in prev)) return prev;
+      const nb = {};
+      for (const [k, v] of Object.entries(prev)) nb[k === oldName ? nn : k] = v;
+      saveBudgets(nb);
+      return nb;
+    });
+  }, [saveConfig, scheduleSave, saveBudgets]);
+
+  const deleteCategory = useCallback((name) => {
+    if (EXPENSE_CATEGORIES.includes(name)) saveConfig({ expenseCategories: EXPENSE_CATEGORIES.filter((c) => c !== name) });
+    else if (INCOME_CATEGORIES.includes(name)) saveConfig({ incomeCategories: INCOME_CATEGORIES.filter((c) => c !== name) });
+  }, [saveConfig]);
+
   // ---- Eye toggle ----------------------------------------------------------
   const toggleHide = useCallback(() => {
     setHideValues((v) => {
@@ -651,6 +787,7 @@ export default function App() {
         onToggleHide={toggleHide}
         onRefresh={load}
         onLogout={logout}
+        onOpenSettings={() => setSettingsOpen(true)}
         saving={saving}
         savedAt={savedAt}
         dirty={dirty}
@@ -687,7 +824,7 @@ export default function App() {
             onSaveAccountMap={saveAndApplyAccountMap}
           />
         ) : tab === "import" ? (
-          <ImportTransactions onImport={addTransactions} accountMap={accountMap} />
+          <ImportTransactions onImport={addTransactions} accountMap={accountMap} config={config} />
         ) : (
           <Analyze
             transactions={transactions}
@@ -696,11 +833,26 @@ export default function App() {
             budgets={budgets}
             onUpdateBudget={updateBudget}
             budgetSaving={budgetSaving}
+            config={config}
           />
         )}
       </main>
 
       <TabBar tab={tab} setTab={setTab} wide={isWide} />
+
+      {settingsOpen ? (
+        <SettingsModal
+          config={config}
+          transactions={transactions}
+          onClose={() => setSettingsOpen(false)}
+          onAddAccount={addAccount}
+          onRenameAccount={renameAccount}
+          onDeleteAccount={deleteAccount}
+          onAddCategory={addCategory}
+          onRenameCategory={renameCategory}
+          onDeleteCategory={deleteCategory}
+        />
+      ) : null}
     </div>
   );
 }
@@ -857,7 +1009,7 @@ function SaveIndicator({ saving, dirty, savedAt, saveError }) {
   return null;
 }
 
-function Header({ hideValues, onToggleHide, onRefresh, onLogout, saving, savedAt, dirty, saveError }) {
+function Header({ hideValues, onToggleHide, onRefresh, onLogout, onOpenSettings, saving, savedAt, dirty, saveError }) {
   return (
     <header style={S.header}>
       <style>{`@keyframes hl-spin { 0%,100%{opacity:1} 50%{opacity:0.2} }`}</style>
@@ -871,6 +1023,9 @@ function Header({ hideValues, onToggleHide, onRefresh, onLogout, saving, savedAt
         </IconButton>
         <IconButton onClick={onToggleHide} title={hideValues ? "Show values" : "Hide values"}>
           {hideValues ? <EyeOff size={18} /> : <Eye size={18} />}
+        </IconButton>
+        <IconButton onClick={onOpenSettings} title="Manage accounts & categories">
+          <Settings size={18} />
         </IconButton>
         <IconButton onClick={onLogout} title="Log out">
           <LogOut size={18} />
@@ -2276,6 +2431,147 @@ function AccountMapModal({ transactions, accountMap, onSave, onClose }) {
   );
 }
 
+// Manage the user-editable lists (accounts + categories), persisted in Redis
+// via /api/config. Renames cascade into existing data (handled in App), and
+// items currently used by transactions can't be deleted (only renamed).
+function ManagedList({ title, items, usage, onAdd, onRename, onDelete }) {
+  const [adding, setAdding] = useState("");
+  const [editName, setEditName] = useState(null);
+  const [editVal, setEditVal] = useState("");
+
+  const startEdit = (name) => { setEditName(name); setEditVal(name); };
+  const commitEdit = () => {
+    const v = editVal.trim();
+    if (v && v !== editName) onRename(editName, v);
+    setEditName(null);
+    setEditVal("");
+  };
+  const commitAdd = () => {
+    const v = adding.trim();
+    if (v) onAdd(v);
+    setAdding("");
+  };
+
+  const inputStyle = { flex: 1, minWidth: 0, background: "#0f1216", color: "#e5e7eb", border: "1px solid #2a313c", borderRadius: 8, padding: "7px 9px", fontSize: 13 };
+
+  return (
+    <div style={{ marginBottom: 16 }}>
+      <h4 style={{ ...S.sectionTitle, margin: "0 0 8px" }}>{title}</h4>
+      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+        {items.map((name) => {
+          const used = usage[name] || 0;
+          const editingThis = editName === name;
+          return (
+            <div key={name} style={{ display: "flex", gap: 8, alignItems: "center" }}>
+              {editingThis ? (
+                <>
+                  <input
+                    autoFocus
+                    value={editVal}
+                    onChange={(e) => setEditVal(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === "Enter") commitEdit(); if (e.key === "Escape") setEditName(null); }}
+                    style={inputStyle}
+                  />
+                  <button onClick={commitEdit} style={S.primaryBtn}>Save</button>
+                  <button onClick={() => setEditName(null)} style={S.secondaryBtn}>Cancel</button>
+                </>
+              ) : (
+                <>
+                  <div style={{ flex: 1, minWidth: 0, fontSize: 13, color: "#e5e7eb", overflowWrap: "anywhere" }}>
+                    {name}
+                    {used ? <span style={{ color: "#8b94a3", fontSize: 11 }}> · {used} txn{used === 1 ? "" : "s"}</span> : null}
+                  </div>
+                  <button onClick={() => startEdit(name)} title="Rename" style={S.iconMiniBtn}>
+                    <Pencil size={14} />
+                  </button>
+                  <button
+                    onClick={() => { if (!used) onDelete(name); }}
+                    disabled={!!used}
+                    title={used ? `In use by ${used} transaction(s) — rename instead` : "Delete"}
+                    style={{ ...S.iconMiniBtn, opacity: used ? 0.35 : 1, cursor: used ? "not-allowed" : "pointer" }}
+                  >
+                    <Trash2 size={14} />
+                  </button>
+                </>
+              )}
+            </div>
+          );
+        })}
+      </div>
+      <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 8 }}>
+        <input
+          value={adding}
+          onChange={(e) => setAdding(e.target.value)}
+          onKeyDown={(e) => { if (e.key === "Enter") commitAdd(); }}
+          placeholder={`Add ${title.toLowerCase()}…`}
+          style={inputStyle}
+        />
+        <button onClick={commitAdd} disabled={!adding.trim()} style={{ ...S.primaryBtn, opacity: adding.trim() ? 1 : 0.4 }}>
+          <Plus size={14} style={{ verticalAlign: "-2px" }} /> Add
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function SettingsModal({ config, transactions, onClose, onAddAccount, onRenameAccount, onDeleteAccount, onAddCategory, onRenameCategory, onDeleteCategory }) {
+  const usage = useMemo(() => {
+    const acc = {}, cat = {};
+    for (const t of transactions) {
+      if (t.account) acc[t.account] = (acc[t.account] || 0) + 1;
+      if (t.category) cat[t.category] = (cat[t.category] || 0) + 1;
+    }
+    return { acc, cat };
+  }, [transactions]);
+
+  return (
+    <div style={S.modalOverlay} onClick={onClose} role="dialog" aria-modal="true">
+      <div
+        style={{ ...S.modalCard, maxWidth: 560, width: "92vw", maxHeight: "88vh", display: "flex", flexDirection: "column" }}
+        onClick={(e) => e.stopPropagation()}
+        aria-label="Manage accounts and categories"
+      >
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+          <h3 style={{ ...S.sectionTitle, margin: 0 }}>Accounts &amp; categories</h3>
+          <button onClick={onClose} style={S.deleteBtn} title="Close">
+            <X size={18} />
+          </button>
+        </div>
+        <div style={{ fontSize: 12, color: "#8b94a3", marginBottom: 12, lineHeight: 1.5 }}>
+          Renaming updates every transaction (and budget/account-map) using the
+          old name. Items in use can't be deleted — rename them instead.
+        </div>
+        <div style={{ overflowY: "auto", paddingRight: 4 }}>
+          <ManagedList
+            title="Accounts"
+            items={config.accounts}
+            usage={usage.acc}
+            onAdd={onAddAccount}
+            onRename={onRenameAccount}
+            onDelete={onDeleteAccount}
+          />
+          <ManagedList
+            title="Expense categories"
+            items={config.expenseCategories}
+            usage={usage.cat}
+            onAdd={(n) => onAddCategory("expense", n)}
+            onRename={onRenameCategory}
+            onDelete={onDeleteCategory}
+          />
+          <ManagedList
+            title="Income categories"
+            items={config.incomeCategories}
+            usage={usage.cat}
+            onAdd={(n) => onAddCategory("income", n)}
+            onRename={onRenameCategory}
+            onDelete={onDeleteCategory}
+          />
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ===========================================================================
 // Import (CSV)
 // ===========================================================================
@@ -2389,7 +2685,7 @@ function parseOFX(text) {
   return transactions;
 }
 
-function ImportTransactions({ onImport, accountMap }) {
+function ImportTransactions({ onImport, accountMap, config }) {
   const [profileId, setProfileId] = useState('generic');
   const profile = BANK_PROFILES.find((p) => p.id === profileId) || BANK_PROFILES[0];
 
@@ -2484,7 +2780,7 @@ function ImportTransactions({ onImport, accountMap }) {
   const csvRows = useMemo(() => {
     if (rawRows.length === 0) return [];
     return rawRows.map((r) => buildRow(r, mapping, profile, accountMap)).filter(Boolean);
-  }, [rawRows, mapping, profile, accountMap]);
+  }, [rawRows, mapping, profile, accountMap, config]);
 
   // All ready rows: OFX or CSV depending on format.
   const rows = profile.format === 'ofx' ? ofxRows : csvRows;
@@ -2685,10 +2981,6 @@ function reclassifyCandidates(transactions) {
 // ===========================================================================
 
 // Expense categories only (no income, no transfer)
-const EXPENSE_CATEGORIES = CATEGORIES.filter(
-  (c) => !isIncome(c) && !isTransfer(c)
-);
-
 // ---- Section 2: Trends — line chart top-5 + stacked bars + comparison table
 
 function Trends({ transactions, hideValues, money }) {
@@ -2895,7 +3187,7 @@ function Trends({ transactions, hideValues, money }) {
 
 // ---- Section 3: Budgets ----------------------------------------------------
 
-function Budgets({ transactions, budgets, onUpdateBudget, budgetSaving, money }) {
+function Budgets({ transactions, budgets, onUpdateBudget, budgetSaving, money, config }) {
   // Current month expenses by expense category
   const currentMK = todayISO().slice(0, 7);
 
@@ -2918,7 +3210,7 @@ function Budgets({ transactions, budgets, onUpdateBudget, budgetSaving, money })
       ...Object.keys(spendMap),
     ]);
     return EXPENSE_CATEGORIES.filter((c) => cats.has(c));
-  }, [budgets, spendMap]);
+  }, [budgets, spendMap, config]);
 
   // Over-budget categories
   const overBudget = useMemo(
@@ -3165,7 +3457,7 @@ function Recurrents({ transactions, money }) {
 
 // ---- Analyze (container) ---------------------------------------------------
 
-function Analyze({ transactions, money, hideValues, budgets, onUpdateBudget, budgetSaving }) {
+function Analyze({ transactions, money, hideValues, budgets, onUpdateBudget, budgetSaving, config }) {
   return (
     <div style={S.col}>
       <h2 style={{ margin: "4px 0 0", fontSize: 16, color: "#e5e7eb", fontWeight: 600 }}>
@@ -3190,6 +3482,7 @@ function Analyze({ transactions, money, hideValues, budgets, onUpdateBudget, bud
         onUpdateBudget={onUpdateBudget}
         budgetSaving={budgetSaving}
         money={money}
+        config={config}
       />
 
       {/* ---- Section 4: Recurrents ---- */}
@@ -3281,6 +3574,16 @@ const S = {
     color: "#636366",
     cursor: "pointer",
     padding: 4,
+    display: "grid",
+    placeItems: "center",
+  },
+  iconMiniBtn: {
+    background: "#161a20",
+    border: "1px solid #2a313c",
+    color: "#cbd5e1",
+    cursor: "pointer",
+    borderRadius: 8,
+    padding: "6px 8px",
     display: "grid",
     placeItems: "center",
   },
