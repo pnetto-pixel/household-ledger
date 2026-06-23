@@ -146,24 +146,18 @@ const ACCOUNT_ALIASES = [
 // Bank import profiles
 // ---------------------------------------------------------------------------
 
+// Two import methods only. Credit Karma is the day-to-day path (auto-mapped
+// from the bookmarklet/Scriptable export); generic CSV is the one-time path
+// for backfilling history with manual column mapping.
 const BANK_PROFILES = [
-  {
-    id: 'generic',
-    label: 'Generic (manual mapping)',
-    group: null,
-    format: 'csv',
-    columnMap: null,
-    defaultAccount: '',
-    normalizeAmount: null,
-  },
   {
     id: 'credit-karma',
     label: 'Credit Karma',
-    group: null,
     format: 'csv',
     // CK export columns (see tools/credit-karma): date, description, amount,
-    // category, account, ck_account, provider, ck_category, type. The account
-    // column is run through matchAccount, and ck_category is kept for auditing.
+    // category, account, ck_account, provider, ck_category, type, account_urn,
+    // last4. The account column is run through matchAccount, and ck_category is
+    // kept for auditing.
     columnMap: { date: 'date', description: 'description', amount: 'amount', category: 'category', account: 'account', ckCategory: 'ck_category', accountUrn: 'account_urn', last4: 'last4' },
     defaultAccount: '',
     // Preserve the sign: the CK export writes the amount in the category's
@@ -171,55 +165,9 @@ const BANK_PROFILES = [
     normalizeAmount: (raw) => parseFloat(String(raw).replace(/[$,]/g, '')) || 0,
   },
   {
-    id: 'chase-bela',
-    label: 'Chase Bela',
-    group: 'Chase',
+    id: 'generic',
+    label: 'CSV (manual mapping)',
     format: 'csv',
-    columnMap: { date: 'Transaction Date', description: 'Description', amount: 'Amount', category: 'Category', account: null },
-    defaultAccount: 'Chase Bela',
-    normalizeAmount: (raw) => Math.abs(parseFloat(String(raw).replace(/[$,]/g, '')) || 0),
-  },
-  {
-    id: 'chase-preferred',
-    label: 'Chase Preferred',
-    group: 'Chase',
-    format: 'csv',
-    columnMap: { date: 'Transaction Date', description: 'Description', amount: 'Amount', category: 'Category', account: null },
-    defaultAccount: 'Chase Preferred',
-    normalizeAmount: (raw) => Math.abs(parseFloat(String(raw).replace(/[$,]/g, '')) || 0),
-  },
-  {
-    id: 'chase-reserve',
-    label: 'Chase Reserve',
-    group: 'Chase',
-    format: 'csv',
-    columnMap: { date: 'Transaction Date', description: 'Description', amount: 'Amount', category: 'Category', account: null },
-    defaultAccount: 'Chase Reserve',
-    normalizeAmount: (raw) => Math.abs(parseFloat(String(raw).replace(/[$,]/g, '')) || 0),
-  },
-  {
-    id: 'ink-biz-cash',
-    label: 'Ink Biz Cash',
-    group: 'Chase',
-    format: 'csv',
-    columnMap: { date: 'Transaction Date', description: 'Description', amount: 'Amount', category: 'Category', account: null },
-    defaultAccount: 'Ink Biz Cash',
-    normalizeAmount: (raw) => Math.abs(parseFloat(String(raw).replace(/[$,]/g, '')) || 0),
-  },
-  {
-    id: 'ink-unlimited',
-    label: 'Ink Unlimited',
-    group: 'Chase',
-    format: 'csv',
-    columnMap: { date: 'Transaction Date', description: 'Description', amount: 'Amount', category: 'Category', account: null },
-    defaultAccount: 'Ink Unlimited',
-    normalizeAmount: (raw) => Math.abs(parseFloat(String(raw).replace(/[$,]/g, '')) || 0),
-  },
-  {
-    id: 'chase-ofx',
-    label: 'Chase (OFX/QFX)',
-    group: 'Chase',
-    format: 'ofx',
     columnMap: null,
     defaultAccount: '',
     normalizeAmount: null,
@@ -2526,227 +2474,182 @@ function buildRow(raw, mapping, profile, accountMap) {
   return row;
 }
 
-// Parse OFX/QFX text format into canonical transaction objects.
-function parseOFX(text) {
-  const transactions = [];
-  const txnRegex = /<STMTTRN>([\s\S]*?)<\/STMTTRN>/gi;
-  let match;
-  while ((match = txnRegex.exec(text)) !== null) {
-    const block = match[1];
-    const get = (tag) => {
-      const m = new RegExp(`<${tag}>([^<\r\n]+)`, 'i').exec(block);
-      return m ? m[1].trim() : '';
-    };
-    const rawDate = get('DTPOSTED') || get('DTUSER');
-    // OFX date: YYYYMMDD[HHmmss[...]] -> YYYY-MM-DD
-    const date = rawDate.length >= 8
-      ? `${rawDate.slice(0, 4)}-${rawDate.slice(4, 6)}-${rawDate.slice(6, 8)}`
-      : '';
-    const rawAmount = get('TRNAMT');
-    const amount = Math.abs(parseFloat(rawAmount) || 0);
-    const description = get('NAME') || get('MEMO') || '';
-    if (date && amount > 0) {
-      transactions.push({ date, description, amount, category: 'Other', account: '' });
-    }
-  }
-  return transactions;
-}
-
 function ImportTransactions({ onImport, accountMap, config }) {
-  const [profileId, setProfileId] = useState('generic');
-  const profile = BANK_PROFILES.find((p) => p.id === profileId) || BANK_PROFILES[0];
+  // Two methods: Credit Karma (auto-mapped, day-to-day) and CSV (manual
+  // mapping, one-time history backfill).
+  const [method, setMethod] = useState("ck");
+  const profile = BANK_PROFILES.find((p) => p.id === (method === "ck" ? "credit-karma" : "generic"));
 
-  // CSV state
   const [rawRows, setRawRows] = useState([]);
   const [headers, setHeaders] = useState([]);
   const [mapping, setMapping] = useState({});
-
-  // OFX state — parsed rows already in canonical form
-  const [ofxRows, setOfxRows] = useState([]);
-
+  const [fileName, setFileName] = useState("");
+  const [dragOver, setDragOver] = useState(false);
   const [error, setError] = useState("");
   const [done, setDone] = useState("");
 
-  // When profile changes, reset everything.
   const resetAll = () => {
     setRawRows([]);
     setHeaders([]);
     setMapping({});
-    setOfxRows([]);
+    setFileName("");
     setError("");
     setDone("");
   };
 
-  // Auto-apply column mapping whenever rows/headers/profile change.
+  const selectMethod = (m) => {
+    if (m === method) return;
+    setMethod(m);
+    resetAll();
+  };
+
+  // Auto-apply column mapping whenever rows/headers/method change.
   useEffect(() => {
     if (!rawRows.length || !headers.length) return;
     if (profile.columnMap) {
-      // Profile with fixed mapping: apply directly, only for headers that exist.
       const auto = {};
       for (const [field, col] of Object.entries(profile.columnMap)) {
         if (col && headers.includes(col)) auto[field] = col;
       }
-      setMapping((prev) => ({ ...auto, ...prev }));
+      setMapping(auto);
     } else {
       setMapping(guessMapping(headers));
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rawRows, headers, profileId]);
+  }, [rawRows, headers, method]);
 
-  const onFile = (e) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+  const parseFile = (file) => {
     setError("");
     setDone("");
     setRawRows([]);
     setHeaders([]);
     setMapping({});
-    setOfxRows([]);
-
-    if (profile.format === 'ofx') {
-      const reader = new FileReader();
-      reader.onload = (ev) => {
-        try {
-          const parsed = parseOFX(ev.target.result);
-          if (parsed.length === 0) {
-            setError("No transactions found in this OFX/QFX file.");
-            return;
-          }
-          // Apply defaultAccount if the profile has one.
-          const withAccount = parsed.map((t) => ({
-            ...t,
-            id: uid(),
-            account: profile.defaultAccount || t.account,
-          }));
-          setOfxRows(withAccount);
-        } catch (err) {
-          setError("Failed to parse OFX/QFX file: " + err.message);
+    setFileName(file.name || "");
+    Papa.parse(file, {
+      header: true,
+      skipEmptyLines: true,
+      complete: (result) => {
+        const cols = (result.meta?.fields || []).filter(Boolean);
+        if (cols.length === 0) {
+          setError("No columns detected in this CSV.");
+          return;
         }
-      };
-      reader.onerror = () => setError("Could not read file.");
-      reader.readAsText(file);
-    } else {
-      Papa.parse(file, {
-        header: true,
-        skipEmptyLines: true,
-        complete: (result) => {
-          const cols = (result.meta?.fields || []).filter(Boolean);
-          if (cols.length === 0) {
-            setError("No columns detected in this CSV.");
-            return;
-          }
-          setHeaders(cols);
-          setRawRows(result.data);
-        },
-        error: (err) => setError(err.message),
-      });
-    }
+        if (method === "ck" && !cols.includes("date")) {
+          setError("This doesn't look like a Credit Karma export. Use the bookmarklet/Scriptable export, or switch to CSV (manual mapping).");
+          return;
+        }
+        setHeaders(cols);
+        setRawRows(result.data);
+      },
+      error: (err) => setError(err.message),
+    });
   };
 
-  // Live preview for CSV: reflect current column mapping.
+  const onFile = (e) => {
+    const file = e.target.files?.[0];
+    if (file) parseFile(file);
+  };
+  const onDrop = (e) => {
+    e.preventDefault();
+    setDragOver(false);
+    const file = e.dataTransfer.files?.[0];
+    if (file) parseFile(file);
+  };
+
   const csvRows = useMemo(() => {
     if (rawRows.length === 0) return [];
     return rawRows.map((r) => buildRow(r, mapping, profile, accountMap)).filter(Boolean);
   }, [rawRows, mapping, profile, accountMap, config]);
 
-  // All ready rows: OFX or CSV depending on format.
-  const rows = profile.format === 'ofx' ? ofxRows : csvRows;
-
-  const missingRequired = profile.format === 'ofx'
-    ? []
-    : IMPORT_FIELDS.filter((f) => f.required && !mapping[f.key]);
+  const missingRequired = method === "csv"
+    ? IMPORT_FIELDS.filter((f) => f.required && !mapping[f.key])
+    : [];
 
   const setColumn = (key, col) => setMapping((prev) => ({ ...prev, [key]: col }));
 
   const confirm = () => {
-    if (rows.length === 0 || missingRequired.length > 0) return;
-    onImport(rows);
-    setDone(`Imported ${rows.length} transactions.`);
+    if (csvRows.length === 0 || missingRequired.length > 0) return;
+    onImport(csvRows);
+    setDone(`Imported ${csvRows.length} transactions.`);
     resetAll();
   };
 
-  const hasData = profile.format === 'ofx' ? ofxRows.length > 0 : headers.length > 0;
+  const methodCard = (active) => ({
+    flex: 1,
+    textAlign: "left",
+    cursor: "pointer",
+    background: active ? "#13233b" : "#161a20",
+    border: `1px solid ${active ? "#0A84FF" : "#2a313c"}`,
+    borderRadius: 14,
+    padding: "12px 14px",
+  });
+
+  const methods = [
+    { id: "ck", title: "Credit Karma", desc: "Arquivo do export (bookmarklet / Scriptable). Mapeamento e sinal automáticos, pendentes já excluídos." },
+    { id: "csv", title: "CSV", desc: "Planilha genérica com mapeamento manual de colunas. Para importar o histórico antigo." },
+  ];
 
   return (
     <div style={S.col}>
       <h3 style={S.sectionTitle}>Import</h3>
-      <p style={{ color: "#8b94a3", fontSize: 13, margin: 0 }}>
-        Select your bank to auto-configure column mapping, then upload a file.
-      </p>
 
-      {/* Bank / Source selector */}
-      <div style={{ marginBottom: 4 }}>
-        <label style={{ fontSize: 13, color: "#8892a4", display: "block", marginBottom: 4 }}>
-          Bank / Source
-        </label>
-        <select
-          value={profileId}
-          onChange={(e) => {
-            setProfileId(e.target.value);
-            resetAll();
-          }}
-          style={{ background: "#1e2328", border: "1px solid #3a3f4a", color: "#e0e6f0", borderRadius: 6, padding: "7px 10px", fontSize: 14, width: "100%" }}
-        >
-          <option value="generic">Generic (manual mapping)</option>
-          {BANK_PROFILES.filter((p) => p.group == null && p.id !== 'generic').map((p) => (
-            <option key={p.id} value={p.id}>{p.label}</option>
-          ))}
-          <optgroup label="Chase">
-            {BANK_PROFILES.filter((p) => p.group === 'Chase' && p.format === 'csv').map((p) => (
-              <option key={p.id} value={p.id}>{p.label}</option>
-            ))}
-          </optgroup>
-          <optgroup label="Chase (OFX/QFX)">
-            {BANK_PROFILES.filter((p) => p.group === 'Chase' && p.format === 'ofx').map((p) => (
-              <option key={p.id} value={p.id}>{p.label}</option>
-            ))}
-          </optgroup>
-        </select>
+      {/* Method picker */}
+      <div style={{ display: "flex", gap: 10 }}>
+        {methods.map((m) => (
+          <button key={m.id} onClick={() => selectMethod(m.id)} style={methodCard(method === m.id)}>
+            <div style={{ fontWeight: 600, fontSize: 14, color: "#e5e7eb" }}>{m.title}</div>
+            <div style={{ fontSize: 11, color: "#8b94a3", marginTop: 4, lineHeight: 1.35 }}>{m.desc}</div>
+          </button>
+        ))}
       </div>
 
-      <input
-        type="file"
-        accept={profile.format === 'ofx' ? '.ofx,.qfx' : '.csv,.tsv,.txt'}
-        onChange={onFile}
-        style={{ color: "#cbd5e1" }}
-      />
+      {/* File dropzone */}
+      <label
+        onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+        onDragLeave={() => setDragOver(false)}
+        onDrop={onDrop}
+        style={{
+          display: "flex", flexDirection: "column", alignItems: "center", gap: 8,
+          padding: "26px 16px", borderRadius: 16, cursor: "pointer", textAlign: "center",
+          border: `1.5px dashed ${dragOver ? "#0A84FF" : "#2a313c"}`,
+          background: dragOver ? "#10243d" : "#12161c",
+        }}
+      >
+        <input type="file" accept=".csv,.tsv,.txt" onChange={onFile} style={{ display: "none" }} />
+        <Upload size={22} color="#8b94a3" />
+        <span style={{ fontSize: 14, color: "#cbd5e1", overflowWrap: "anywhere" }}>
+          {fileName || "Escolher arquivo ou arrastar aqui"}
+        </span>
+        <span style={{ fontSize: 11, color: "#6b7280" }}>CSV</span>
+      </label>
 
       {error ? <div style={{ color: "#f87171", fontSize: 13 }}>{error}</div> : null}
       {done ? <div style={{ color: "#34d399", fontSize: 13 }}>{done}</div> : null}
 
-      {hasData ? (
+      {headers.length > 0 ? (
         <>
-          {/* Column mapping — only shown for CSV, not for OFX (fields already parsed) */}
-          {profile.format !== 'ofx' && (
+          {/* Manual column mapping — CSV method only */}
+          {method === "csv" && (
             <>
-              <h3 style={S.sectionTitle}>Column Mapping</h3>
+              <h3 style={S.sectionTitle}>Column mapping</h3>
               <div style={S.col}>
                 {IMPORT_FIELDS.map((f) => {
                   const fallbackHint =
-                    f.key === "category"
-                      ? "— use default: Other —"
-                      : f.key === "account"
-                      ? `— use default: ${profile.defaultAccount || "Unassigned"} —`
-                      : "— skip —";
+                    f.key === "category" ? "— use default: Other —"
+                    : f.key === "account" ? "— use default: Unassigned —"
+                    : "— skip —";
                   return (
                     <Field key={f.key} label={f.required ? `${f.label} *` : f.label}>
-                      <select
-                        value={mapping[f.key] || ""}
-                        onChange={(e) => setColumn(f.key, e.target.value)}
-                        style={S.input}
-                      >
+                      <select value={mapping[f.key] || ""} onChange={(e) => setColumn(f.key, e.target.value)} style={S.input}>
                         <option value="">{f.required ? "— none —" : fallbackHint}</option>
                         {headers.map((h) => (
-                          <option key={h} value={h}>
-                            {h}
-                          </option>
+                          <option key={h} value={h}>{h}</option>
                         ))}
                       </select>
                     </Field>
                   );
                 })}
               </div>
-
               {missingRequired.length > 0 ? (
                 <div style={{ color: "#fbbf24", fontSize: 13 }}>
                   Map a column for: {missingRequired.map((f) => f.label).join(", ")}.
@@ -2756,32 +2659,32 @@ function ImportTransactions({ onImport, accountMap, config }) {
           )}
 
           <div style={{ color: "#8b94a3", fontSize: 12 }}>
-            {rows.length} {profile.format === 'ofx' ? '' : `of ${rawRows.length} `}rows ready
-            {rows.length > 50 ? ` · Showing 50 of ${rows.length} rows` : null}
+            {csvRows.length} of {rawRows.length} rows ready
+            {csvRows.length > 50 ? " · showing first 50" : ""}
           </div>
           <div style={{ ...S.list, maxHeight: 320, overflowY: "auto" }}>
-            {rows.slice(0, 50).map((t) => (
+            {csvRows.slice(0, 50).map((t) => (
               <div key={t.id} style={S.txnRow}>
                 <div style={{ minWidth: 0, flex: 1 }}>
-                  <div style={{ fontSize: 14, color: "#e5e7eb" }}>{t.description || t.category}</div>
+                  <div style={{ fontSize: 14, color: "#e5e7eb", overflowWrap: "anywhere" }}>{t.description || t.category}</div>
                   <div style={{ fontSize: 11, color: "#8b94a3" }}>
-                    {t.date} · {t.category} · {t.account}
+                    {t.date} · {t.category}{t.account ? ` · ${t.account}` : ""}
                   </div>
                 </div>
-                <span style={{ fontSize: 14, color: "#cbd5e1" }}>{usd.format(t.amount)}</span>
+                <span style={{ fontSize: 14, color: "#cbd5e1", whiteSpace: "nowrap" }}>{usd.format(t.amount)}</span>
               </div>
             ))}
           </div>
           <button
             onClick={confirm}
-            disabled={rows.length === 0 || missingRequired.length > 0}
+            disabled={csvRows.length === 0 || missingRequired.length > 0}
             style={{
               ...S.primaryBtn,
-              opacity: rows.length === 0 || missingRequired.length > 0 ? 0.5 : 1,
-              cursor: rows.length === 0 || missingRequired.length > 0 ? "not-allowed" : "pointer",
+              opacity: csvRows.length === 0 || missingRequired.length > 0 ? 0.5 : 1,
+              cursor: csvRows.length === 0 || missingRequired.length > 0 ? "not-allowed" : "pointer",
             }}
           >
-            Import {rows.length} transactions
+            Import {csvRows.length} transactions
           </button>
         </>
       ) : null}
