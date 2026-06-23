@@ -3544,7 +3544,7 @@ const S = {
     display: "flex",
     alignItems: "center",
     justifyContent: "space-between",
-    padding: "max(12px, env(safe-area-inset-top)) 16px 12px",
+    padding: "calc(env(safe-area-inset-top) + 14px) 16px 12px",
     background: "rgba(11,13,16,0.85)",
     backdropFilter: "blur(20px) saturate(180%)",
     WebkitBackdropFilter: "blur(20px) saturate(180%)",
