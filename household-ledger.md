@@ -238,16 +238,17 @@ ficam fixos.
    bulk delete é client-side: remove as N transações e dispara uma única
    chamada `scheduleSave` (mesmo padrão do delete singular, sem novo
    endpoint).
-4. **Import** — importação de CSV (papaparse) com mapeamento de colunas
-   configurável (`IMPORT_FIELDS`, `guessMapping`, selects por campo com
-   hints de fallback) e contador "Showing 50 of N rows" na prévia.
-   **Bank profiles** (`BANK_PROFILES`) pré-configuram o mapeamento por
-   fonte: `Generic` (mapeamento manual), **`Credit Karma`** (auto-mapeia
-   `date,description,amount,category,account,ck_category` — a coluna
-   `account` passa por `matchAccount`), os profiles Chase (Bela/Preferred/
-   Reserve/Ink) que forçam a conta via `defaultAccount`, e Chase OFX/QFX.
-   Quando nenhum sinal de conta existe, a linha fica **Unassigned** (não
-   mais "ATT Reward").
+4. **Import** — importação de CSV (papaparse) com **dois métodos** apenas
+   (`BANK_PROFILES`, cards selecionáveis + dropzone com drag-and-drop):
+   - **Credit Karma** (uso diário) — auto-mapeia as colunas do export
+     (`account` passa por `classifyAccount`), preserva o sinal e já vem sem
+     pendentes; sem UI de mapeamento.
+   - **CSV** (uso único, backfill do histórico) — mapeamento manual de
+     colunas (`IMPORT_FIELDS`, `guessMapping`, selects por campo com hints de
+     fallback).
+   Prévia com até 50 linhas. Quando nenhum sinal de conta existe, a linha
+   fica **Unassigned** (não mais "ATT Reward"). OFX/QFX e os profiles Chase
+   foram removidos (o mapa de contas por URN cobre o caso Chase).
 5. **Analyze** — análise aprofundada com três seções:
    - **Tendências mês a mês** — LineChart com top-5 categorias de despesa por
      volume nos últimos 12 meses; StackedBarChart com mix de todas as categorias
