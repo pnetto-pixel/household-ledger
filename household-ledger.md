@@ -2,7 +2,8 @@
 
 Aplicativo mobile-first de controle financeiro doméstico. Registra
 transações da casa (despesas e receitas) por categoria e conta, com
-dashboard, gráficos, importação de CSV e visão por mês.
+dashboard, análise (gráficos + tendências + orçamentos), e importação de CSV
+(Credit Karma ou planilha genérica) com deduplicação.
 
 Construído a partir do mesmo scaffold do **aa-findocs**: React 18 + Vite no
 front-end, funções serverless na Vercel e Redis (ioredis) como armazenamento
@@ -29,7 +30,11 @@ persistente por usuário.
 household-ledger/
 ├── api/
 │   ├── transactions.js     # GET/PUT do ledger (auth obrigatória)
-│   └── budgets.js          # GET/PUT de orçamentos por categoria (auth obrigatória)
+│   ├── budgets.js          # GET/PUT de orçamentos por categoria
+│   ├── account-map.js      # GET/PUT do mapa accountURN -> conta
+│   └── config.js           # GET/PUT das listas de contas/categorias
+├── tools/
+│   └── credit-karma/       # exportadores CK (bookmarklet Safari + Scriptable)
 ├── lib/
 │   ├── auth.js             # verificação de token Google + senha + allowlist
 │   └── redis.js            # singleton ioredis
@@ -198,11 +203,11 @@ imports futuros.
 
 ## UI
 
-Mobile-first, tema escuro iOS. Tab bar inferior fixa com 5 abas. A entrada de transações é exclusivamente via Import — não há formulário manual de adição.
+Mobile-first, tema escuro iOS. Tab bar inferior fixa com 4 abas. A entrada de transações é exclusivamente via Import — não há formulário manual de adição. Configuração (match de cartões CK + listas de contas/categorias) fica atrás da **engrenagem** no header (`SettingsModal`); o antigo botão Refresh foi removido.
 
 **Identidade visual (PR #23 — iOS 26 "Liquid Glass")**
 
-- **Safe-area**: header usa `padding-top: env(safe-area-inset-top)` para não sobrepor a Dynamic Island; tab bar e modais usam `env(safe-area-inset-bottom)` para o home indicator.
+- **Safe-area**: header usa `padding-top: calc(env(safe-area-inset-top) + 14px)` para não sobrepor a Dynamic Island; tab bar usa `env(safe-area-inset-bottom)` para o home indicator. Os modais (sheets ancorados embaixo) têm a altura limitada a `calc(100dvh − inset-top − inset-bottom − 28px)` — assim, por mais que as seções expandam, o topo nunca passa da Dynamic Island (o conteúdo interno rola).
 - **Tipografia**: font stack `SF Pro Display, SF Pro Text, system-ui`; antialiasing ligado; título do app peso 600 com `letter-spacing` negativo; section titles uppercase estilo headline iOS; tab labels peso 500.
 - **Liquid Glass**: header e tab bar com `backdrop-filter: blur(20px) saturate(180%)` (superfície translúcida); borders `rgba(255,255,255,0.08)`.
 - **Cantos arredondados**: cards 16 px, modais 20 px, inputs/botões 12 px, linhas de transação 14 px.
@@ -215,9 +220,18 @@ ficam fixos.
 1. **Dashboard** — saldo líquido, receitas/despesas totais, resumo do mês
    corrente e transações recentes. Filtrável por mês/ano via `PeriodFilter`
    (inicia no mês corrente).
-2. **Analyze** — sessão consolidada de análise (antigas tabs Charts +
-   Analyze juntas): pizza de despesas por categoria e barras receita×despesa
-   por mês (recharts, `PeriodFilter`), mais Trends, Budgets e Recurrents.
+2. **Analyze** — sessão consolidada de análise (antigas tabs Charts + Analyze
+   juntas). Começa com a parte de **Charts** (pizza de despesas por categoria
+   e barras receita×despesa por mês, recharts + `PeriodFilter`), seguida de:
+   - **Tendências mês a mês** — LineChart com top-5 categorias de despesa por
+     volume nos últimos 12 meses; StackedBarChart com mix de todas as
+     categorias por mês; tabela comparativa mês atual vs. anterior (delta $/%).
+   - **Orçamentos por categoria** — limites mensais editáveis inline por
+     categoria de despesa; barra de progresso verde/amarelo/vermelho; banner
+     ao ultrapassar 100%; persistidos no Redis via `/api/budgets`.
+   - **Recorrentes / assinaturas** — detecção client-side por descrição exata
+     em ≥ 2 meses distintos com valor ± 10 % da mediana; lista com valor
+     típico, conta, frequência e último mês visto.
 3. **Transactions** — lista com busca textual livre, filtros por intervalo
    de datas (from/to), categoria e conta, botão "Clear filters" e contador
    de resultados. A aba é um flex column de altura fixa (`txnTab`): os menus
@@ -237,15 +251,12 @@ ficam fixos.
    `ReclassifyModal` — foi removida; a fonte de verdade para contas é a
    tabela de/para por URN.)
 
-   **Modo de seleção (bulk delete):** botão "Select" alterna o modo de
-   seleção; quando ativo, muda para "Cancel" e o botão de lixeira individual
-   de cada linha fica oculto. Cada linha exibe um checkbox; "Select all"
-   marca/desmarca todas as transações da lista filtrada corrente. Com ao
-   menos uma seleção, aparece o botão "Delete selected (N)"; ao clicar, um
-   banner de confirmação inline é exibido antes de efetivar a remoção. O
-   bulk delete é client-side: remove as N transações e dispara uma única
-   chamada `scheduleSave` (mesmo padrão do delete singular, sem novo
-   endpoint).
+   **Seleção e edição em massa:** cada linha tem checkbox (sempre visível);
+   "Select all" marca/desmarca a lista filtrada corrente. Com ao menos uma
+   seleção, aparece a **barra de bulk**: definir categoria, definir conta,
+   "Mark as Transfer" e "Delete (N)" com confirmação inline. Após qualquer
+   **Apply**, a seleção é limpa automaticamente. Tudo é client-side (uma
+   chamada `scheduleSave`, sem novo endpoint).
 4. **Import** — importação de CSV (papaparse) com **dois métodos** apenas
    (`BANK_PROFILES`, cards selecionáveis + dropzone com drag-and-drop):
    - **Credit Karma** (uso diário) — auto-mapeia as colunas do export
@@ -266,17 +277,6 @@ ficam fixos.
    id — assim dois gastos reais idênticos nunca são fundidos; senão, usa um
    **fingerprint** `data │ valor(centavos, com sinal) │ descrição normalizada
    │ conta` (`txnFingerprint`). O export do CK emite a coluna `source_id`.
-5. **Analyze** — análise aprofundada com três seções:
-   - **Tendências mês a mês** — LineChart com top-5 categorias de despesa por
-     volume nos últimos 12 meses; StackedBarChart com mix de todas as categorias
-     por mês; tabela comparativa mês atual vs. anterior com delta $ e %.
-   - **Orçamentos por categoria** — limites mensais editáveis inline por
-     categoria de despesa; barra de progresso verde/amarelo/vermelho; banner de
-     alerta ao ultrapassar 100%; limites persistidos no Redis via
-     `/api/budgets`.
-   - **Recorrentes / assinaturas** — detecção client-side por descrição exata
-     em ≥ 2 meses distintos com valor ± 10 % da mediana; lista com valor
-     típico, conta, frequência e último mês visto.
 
 **Toggle do olho** no cabeçalho esconde/mostra todos os valores
 monetários globalmente (persistido em `localStorage`).
@@ -299,7 +299,7 @@ O app inicia com array vazio quando não há dados salvos (sem SEED).
 - [x] Scaffold do projeto (package.json, vite, vercel, index.html, main.jsx)
 - [x] `lib/auth.js` e `lib/redis.js` (do aa-findocs)
 - [x] `api/transactions.js` com namespace `household:*:transactions`
-- [x] `src/App.jsx` com 5 tabs, totais, eye toggle, import CSV
+- [x] `src/App.jsx` com tabs, totais, eye toggle, import CSV
 - [x] Documentação
 
 ### Fase 2 — Refino de UX
@@ -334,6 +334,14 @@ O app inicia com array vazio quando não há dados salvos (sem SEED).
 - [x] Dedup de import híbrido (`markDuplicates`): `source_id` do CK quando
   disponível, senão fingerprint conteúdo; prévia com checkbox por linha e
   duplicadas desmarcadas por padrão
+- [x] Import redesenhado: dois métodos (Credit Karma auto / CSV manual) em
+  cards + dropzone drag-and-drop; profiles Chase e OFX/QFX removidos
+- [x] Settings unificado (engrenagem): Card mapping + listas em
+  `CollapsibleCard`; export do CK exclui pendentes (`isPending`)
+- [x] Layout: shell de altura fixa (`100dvh`, só `<main>` scrolla), Analyze +
+  Charts numa tab só, aba Transactions com controles fixos (teto 50%) e lista
+  com scroll próprio, modais limitados à área da Dynamic Island; Refresh e
+  Reclassify removidos
 - [ ] Multiusuário / household compartilhado
 - [ ] PWA offline-first
 - [~] Integrações de import (bancos, cartões) — exportador Credit Karma para
