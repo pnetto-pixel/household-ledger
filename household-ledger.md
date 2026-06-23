@@ -136,7 +136,8 @@ Endpoint `api/budgets.js`:
 Mapa `{ [accountURN]: "Conta amigável" }` persistido no Redis em
 `household:USERID:accountmap` via `api/account-map.js` (GET/PUT, mesmo
 padrão dos orçamentos). Alimenta `classifyAccount` no import e é editável
-pelo `AccountMapModal`.
+pela seção **Card mapping** dentro de Settings (`AccountMapSection`, dentro
+do `SettingsModal`).
 
 ### Listas gerenciáveis (contas + categorias)
 
@@ -147,10 +148,12 @@ ser fixas no código: são variáveis de módulo (mutáveis) semeadas pelos
 não-vazias e deduplicadas). As funções puras (`matchAccount`, `isIncome`,
 `buildRow`) leem os valores correntes; os componentes React re-renderizam
 via o `config` state no App (`Transfer` continua fixo). A UI é o
-`SettingsModal` (engrenagem no header): adiciona/renomeia/exclui nas três
-listas. **Renomear faz cascata** — conta atualiza transações + valores do
-mapa de contas; categoria atualiza transações + chaves de orçamento. Itens
-em uso por transações não podem ser excluídos (renomear, sim).
+`SettingsModal` (engrenagem no header), que reúne **Card mapping** +
+adiciona/renomeia/exclui nas três listas (cards colapsáveis via
+`CollapsibleCard`). **Renomear faz cascata** — conta atualiza transações +
+valores do mapa de contas; categoria atualiza transações + chaves de
+orçamento. Itens em uso por transações não podem ser excluídos (renomear,
+sim).
 
 ### Categorias
 
@@ -185,10 +188,11 @@ primeiro da lista).
 A tabela de/para por URN existe porque o Credit Karma rotula vários cartões
 com o mesmo nome genérico (cinco Chase como `"CREDIT CARD"`); o URN os
 separa, e o último-4 (`last4`, extraído de `accountTypeAndNumberDisplay`) é
-o rótulo legível. A UI fica no botão **Accounts** da aba Transactions
-(`AccountMapModal`): lista os cartões vistos (emissor · ••últimos-4 ·
-contagem), você atribui uma conta a cada um, e ao salvar aplica nas
-transações existentes (por URN) e em todos os imports futuros.
+o rótulo legível. A UI fica na seção **Card mapping** dentro de Settings
+(engrenagem no header → `AccountMapSection`): lista os cartões vistos
+(emissor · ••últimos-4 · contagem), você atribui uma conta a cada um, e ao
+**Save & apply** aplica nas transações existentes (por URN) e em todos os
+imports futuros.
 
 ---
 
