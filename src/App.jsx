@@ -1447,9 +1447,9 @@ function Transactions({ transactions, money, hideValues, isWide, onDelete, onUpd
   const allSelected = filtered.length > 0 && filtered.every((t) => selectedIds.has(t.id));
 
   return (
-    <div style={S.col}>
-      {/* Sticky controls: filters/summary/bulk bar stay put while the list
-          scrolls underneath (main is the scroll container). */}
+    <div style={S.txnTab}>
+      {/* Fixed controls (capped at half the height, scroll internally if
+          taller) over a list that owns the rest of the space and scrolls. */}
       <div style={S.txnControls}>
       {/* Search box — always above the table */}
       <div style={S.searchWrap}>
@@ -1596,6 +1596,7 @@ function Transactions({ transactions, money, hideValues, isWide, onDelete, onUpd
       )}
       </div>
 
+      <div style={S.txnListScroll}>
       {filtered.length === 0 ? (
         <Empty>{hasFilters ? "No transactions match your filters." : "Nothing here."}</Empty>
       ) : isWide ? (
@@ -1639,6 +1640,7 @@ function Transactions({ transactions, money, hideValues, isWide, onDelete, onUpd
           ))}
         </div>
       )}
+      </div>
 
       {editing ? (
         <EditModal
@@ -3360,16 +3362,30 @@ const S = {
   },
   center: { textAlign: "center", color: "#8b94a3", padding: 40 },
   col: { display: "flex", flexDirection: "column", gap: 14 },
+  // The Transactions tab fills the scroller and splits into a fixed controls
+  // block (capped at half) and a list that scrolls in the remaining space.
+  txnTab: {
+    display: "flex",
+    flexDirection: "column",
+    height: "100%",
+    minHeight: 0,
+  },
   txnControls: {
-    position: "sticky",
-    top: 0,
-    zIndex: 5,
+    flex: "0 1 auto",
+    maxHeight: "50%",
+    overflowY: "auto",
     background: "#0b0d10",
     display: "flex",
     flexDirection: "column",
-    gap: 12,
-    paddingBottom: 10,
-    borderBottom: "1px solid rgba(255,255,255,0.06)",
+    gap: 8,
+    paddingBottom: 8,
+    borderBottom: "1px solid rgba(255,255,255,0.08)",
+  },
+  txnListScroll: {
+    flex: "1 1 0",
+    minHeight: 0,
+    overflowY: "auto",
+    paddingTop: 10,
   },
   cardRow: { display: "flex", gap: 12 },
   card: {
@@ -3515,10 +3531,11 @@ const S = {
   modalCard: {
     width: "100%",
     maxWidth: 536,
-    // Fit exactly within the overlay's padding box (which already reserves the
-    // safe-area insets), so a tall sheet can't overflow upward under the
-    // Dynamic Island when bottom-aligned.
-    maxHeight: "100%",
+    // Explicit cap (not 100% — WebKit resolves a flex item's % max-height
+    // inconsistently): viewport minus both safe-area insets and a margin, so a
+    // bottom-aligned sheet can never overflow upward under the Dynamic Island,
+    // however far its sections expand.
+    maxHeight: "calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset-bottom) - 28px)",
     overflowY: "auto",
     background: "#161a20",
     border: "1px solid #1e2530",
@@ -3633,21 +3650,21 @@ const S = {
   },
   summaryBar: {
     display: "flex",
-    gap: 16,
+    gap: 12,
     flexWrap: "wrap",
     alignItems: "center",
-    fontSize: 13,
-    padding: "8px 12px",
+    fontSize: 12,
+    padding: "6px 10px",
     background: "#161a20",
     border: "1px solid #1e2530",
     borderRadius: 10,
   },
   bulkBar: {
     display: "flex",
-    gap: 10,
+    gap: 8,
     flexWrap: "wrap",
     alignItems: "center",
-    padding: "10px 12px",
+    padding: "8px 10px",
     background: "#101826",
     border: "1px solid #1e3a5f",
     borderRadius: 10,

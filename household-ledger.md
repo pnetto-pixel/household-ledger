@@ -220,10 +220,13 @@ ficam fixos.
    por mês (recharts, `PeriodFilter`), mais Trends, Budgets e Recurrents.
 3. **Transactions** — lista com busca textual livre, filtros por intervalo
    de datas (from/to), categoria e conta, botão "Clear filters" e contador
-   de resultados. Todos os menus acima da lista ficam **fixos** (`txnControls`
-   sticky) — só a lista scrolla. O filtro de conta inclui um chip
-   **"Unassigned"** que agrupa as transações sem conta classificada. Suporta
-   edição via `EditModal` (PUT) e exclusão individual.
+   de resultados. A aba é um flex column de altura fixa (`txnTab`): os menus
+   ficam num bloco **fixo** no topo (`txnControls`, teto de 50% da altura,
+   rola internamente se passar) e a lista ocupa o resto com seu próprio scroll
+   (`txnListScroll`) — garantindo ~metade da tela para as transações mesmo com
+   a barra de bulk aberta. O filtro de conta inclui um chip **"Unassigned"**
+   que agrupa as transações sem conta classificada. Suporta edição via
+   `EditModal` (PUT) e exclusão individual.
    Botão **CSV** exporta as transações filtradas (campos: `date, description,
    amount, category, account`); desabilitado quando o toggle do olho está
    ativo. O botão JSON foi removido (PR #14).
