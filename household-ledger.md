@@ -218,16 +218,11 @@ Mobile-first, tema escuro iOS. Tab bar inferior fixa com 5 abas. A entrada de tr
    amount, category, account`); desabilitado quando o toggle do olho está
    ativo. O botão JSON foi removido (PR #14).
 
-   **Re-classify (auditoria de conta):** botão "Re-classify" abre o
-   `ReclassifyModal`, que re-roda `matchAccount` sobre as transações
-   existentes (usando `srcAccount`, ou o valor de conta cru ainda
-   não-mapeado) e lista **cada mudança proposta** (origem · conta atual →
-   conta proposta) com **checkbox por linha** e "Select/Deselect all".
-   Só as linhas marcadas são gravadas. Linhas legadas sem valor de origem
-   não geram candidato — o modal aponta para o re-import via profile
-   Credit Karma. A auditoria também aparece como tooltip na célula de conta
-   (desktop), linha "Source account (audit)" no `EditModal`, e `src:` no
-   card mobile das linhas não-mapeadas.
+   A auditoria de origem aparece como tooltip na célula de conta (desktop),
+   linha "Source account (audit)" no `EditModal`, e `src:` no card mobile
+   das linhas não-mapeadas. (A re-classificação por aliases — antigo
+   `ReclassifyModal` — foi removida; a fonte de verdade para contas é a
+   tabela de/para por URN.)
 
    **Modo de seleção (bulk delete):** botão "Select" alterna o modo de
    seleção; quando ativo, muda para "Cancel" e o botão de lixeira individual
@@ -305,8 +300,7 @@ O app inicia com array vazio quando não há dados salvos (sem SEED).
 - [x] Redesign iOS 26 "Liquid Glass": safe-area, tipografia SF Pro, backdrop-filter, paleta dark mode, cantos arredondados (PR #23)
 - [x] Classificação de conta por aliases (`ACCOUNT_ALIASES` / `matchAccount`):
   sem match vira Unassigned em vez de "ATT Reward"; profile de import
-  Credit Karma; re-classificação revisável (`ReclassifyModal`) e trilha de
-  auditoria (`srcAccount`)
+  Credit Karma; trilha de auditoria (`srcAccount`)
 - [x] Tabela de/para de contas por `accountURN` (estável) + último-4
   (`AccountMapModal`, `/api/account-map`): separa cartões que a fonte rotula
   igual (5 Chase) e identifica o Venture X; export do CK passa a emitir
@@ -324,4 +318,5 @@ O app inicia com array vazio quando não há dados salvos (sem SEED).
   detecta reversões (refund de despesa / clawback de receita) auto-calibrando
   a convenção de sinal do CK e emite o `amount` na direção natural da
   categoria (normal positivo, reversão negativo); o profile Credit Karma
-  preserva esse sinal no import
+  preserva esse sinal no import. Transações **pendentes são excluídas** do
+  export (`isPending`) — só linhas liquidadas (cleared) entram no CSV
