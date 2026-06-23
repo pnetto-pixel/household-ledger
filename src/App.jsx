@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import {
   LayoutDashboard,
-  PieChart as PieIcon,
   List,
   Upload,
   Eye,
@@ -11,7 +10,6 @@ import {
   Search,
   X,
   LogOut,
-  RefreshCw,
   TrendingUp,
   Settings,
   Plus,
@@ -772,7 +770,6 @@ export default function App() {
       <Header
         hideValues={hideValues}
         onToggleHide={toggleHide}
-        onRefresh={load}
         onLogout={logout}
         onOpenSettings={() => setSettingsOpen(true)}
         saving={saving}
@@ -794,8 +791,6 @@ export default function App() {
           <div style={S.center}>Loading…</div>
         ) : tab === "dashboard" ? (
           <Dashboard transactions={transactions} money={money} />
-        ) : tab === "charts" ? (
-          <Charts transactions={transactions} hideValues={hideValues} />
         ) : tab === "transactions" ? (
           <Transactions
             transactions={transactions}
@@ -812,15 +807,18 @@ export default function App() {
         ) : tab === "import" ? (
           <ImportTransactions onImport={addTransactions} accountMap={accountMap} config={config} />
         ) : (
-          <Analyze
-            transactions={transactions}
-            money={money}
-            hideValues={hideValues}
-            budgets={budgets}
-            onUpdateBudget={updateBudget}
-            budgetSaving={budgetSaving}
-            config={config}
-          />
+          <div style={S.col}>
+            <Charts transactions={transactions} hideValues={hideValues} />
+            <Analyze
+              transactions={transactions}
+              money={money}
+              hideValues={hideValues}
+              budgets={budgets}
+              onUpdateBudget={updateBudget}
+              budgetSaving={budgetSaving}
+              config={config}
+            />
+          </div>
         )}
       </main>
 
@@ -995,7 +993,7 @@ function SaveIndicator({ saving, dirty, savedAt, saveError }) {
   return null;
 }
 
-function Header({ hideValues, onToggleHide, onRefresh, onLogout, onOpenSettings, saving, savedAt, dirty, saveError }) {
+function Header({ hideValues, onToggleHide, onLogout, onOpenSettings, saving, savedAt, dirty, saveError }) {
   return (
     <header style={S.header}>
       <style>{`@keyframes hl-spin { 0%,100%{opacity:1} 50%{opacity:0.2} }`}</style>
@@ -1004,9 +1002,6 @@ function Header({ hideValues, onToggleHide, onRefresh, onLogout, onOpenSettings,
         <SaveIndicator saving={saving} dirty={dirty} savedAt={savedAt} saveError={saveError} />
       </div>
       <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
-        <IconButton onClick={onRefresh} title="Refresh">
-          <RefreshCw size={18} />
-        </IconButton>
         <IconButton onClick={onToggleHide} title={hideValues ? "Show values" : "Hide values"}>
           {hideValues ? <EyeOff size={18} /> : <Eye size={18} />}
         </IconButton>
@@ -1043,10 +1038,9 @@ function IconButton({ children, ...props }) {
 
 const TABS = [
   { id: "dashboard", label: "Dashboard", Icon: LayoutDashboard },
-  { id: "charts", label: "Charts", Icon: PieIcon },
+  { id: "analyze", label: "Analyze", Icon: TrendingUp },
   { id: "transactions", label: "Txns", Icon: List },
   { id: "import", label: "Import", Icon: Upload },
-  { id: "analyze", label: "Analyze", Icon: TrendingUp },
 ];
 
 function TabBar({ tab, setTab, wide }) {
@@ -1507,6 +1501,9 @@ function Transactions({ transactions, money, hideValues, isWide, onDelete, onUpd
 
   return (
     <div style={S.col}>
+      {/* Sticky controls: filters/summary/bulk bar stay put while the list
+          scrolls underneath (main is the scroll container). */}
+      <div style={S.txnControls}>
       {/* Search box — always above the table */}
       <div style={S.searchWrap}>
         <Search size={16} color="#8b94a3" />
@@ -1657,6 +1654,7 @@ function Transactions({ transactions, money, hideValues, isWide, onDelete, onUpd
           Select all ({filtered.length})
         </label>
       )}
+      </div>
 
       {filtered.length === 0 ? (
         <Empty>{hasFilters ? "No transactions match your filters." : "Nothing here."}</Empty>
@@ -2396,7 +2394,7 @@ function SettingsModal({ config, transactions, onClose, onAddAccount, onRenameAc
   return (
     <div style={S.modalOverlay} onClick={onClose} role="dialog" aria-modal="true">
       <div
-        style={{ ...S.modalCard, maxWidth: 560, width: "92vw", maxHeight: "88vh", display: "flex", flexDirection: "column" }}
+        style={{ ...S.modalCard, maxWidth: 560, width: "92vw", display: "flex", flexDirection: "column" }}
         onClick={(e) => e.stopPropagation()}
         aria-label="Manage accounts and categories"
       >
@@ -3361,7 +3359,11 @@ function Empty({ children }) {
 
 const S = {
   app: {
-    minHeight: "100vh",
+    // Fixed-height app shell: only <main> scrolls, so the header and tab bar
+    // stay put (and tab content like the Transactions filters can pin to the
+    // top of the scroller).
+    height: "100dvh",
+    overflow: "hidden",
     background: "#0b0d10",
     color: "#e5e7eb",
     fontFamily:
@@ -3374,8 +3376,7 @@ const S = {
     margin: "0 auto",
   },
   header: {
-    position: "sticky",
-    top: 0,
+    flexShrink: 0,
     zIndex: 10,
     display: "flex",
     alignItems: "center",
@@ -3388,7 +3389,8 @@ const S = {
   },
   main: {
     flex: 1,
-    padding: "16px 16px 92px",
+    minHeight: 0,
+    padding: "16px 16px 24px",
     overflowY: "auto",
   },
   errorBar: {
@@ -3399,6 +3401,17 @@ const S = {
   },
   center: { textAlign: "center", color: "#8b94a3", padding: 40 },
   col: { display: "flex", flexDirection: "column", gap: 14 },
+  txnControls: {
+    position: "sticky",
+    top: 0,
+    zIndex: 5,
+    background: "#0b0d10",
+    display: "flex",
+    flexDirection: "column",
+    gap: 12,
+    paddingBottom: 10,
+    borderBottom: "1px solid rgba(255,255,255,0.06)",
+  },
   cardRow: { display: "flex", gap: 12 },
   card: {
     background: "#161a20",
@@ -3439,12 +3452,8 @@ const S = {
     placeItems: "center",
   },
   tabBar: {
-    position: "fixed",
-    bottom: 0,
-    left: 0,
-    right: 0,
-    maxWidth: 560,
-    margin: "0 auto",
+    flexShrink: 0,
+    width: "100%",
     display: "flex",
     justifyContent: "space-around",
     background: "rgba(11,13,16,0.88)",
@@ -3540,18 +3549,19 @@ const S = {
     display: "flex",
     alignItems: "flex-end",
     justifyContent: "center",
-    padding: 12,
+    // Always keep clear of the Dynamic Island / status bar at the top and the
+    // home indicator at the bottom, so a tall sheet never slides under them.
+    padding: "calc(env(safe-area-inset-top) + 12px) 12px max(12px, env(safe-area-inset-bottom))",
   },
   modalCard: {
     width: "100%",
     maxWidth: 536,
-    maxHeight: "90vh",
+    maxHeight: "calc(100dvh - env(safe-area-inset-top) - 24px)",
     overflowY: "auto",
     background: "#161a20",
     border: "1px solid #1e2530",
     borderRadius: 20,
     padding: 16,
-    marginBottom: "max(12px, env(safe-area-inset-bottom))",
   },
   loginCard: {
     background: "#161a20",

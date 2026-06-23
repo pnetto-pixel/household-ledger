@@ -34,7 +34,7 @@ household-ledger/
 │   ├── auth.js             # verificação de token Google + senha + allowlist
 │   └── redis.js            # singleton ioredis
 ├── src/
-│   ├── App.jsx             # app completo (5 tabs)
+│   ├── App.jsx             # app completo (4 tabs)
 │   └── main.jsx            # entrypoint React
 ├── index.html
 ├── vite.config.js
@@ -203,17 +203,22 @@ Mobile-first, tema escuro iOS. Tab bar inferior fixa com 5 abas. A entrada de tr
 - **Cantos arredondados**: cards 16 px, modais 20 px, inputs/botões 12 px, linhas de transação 14 px.
 - **Paleta dark mode iOS**: superfícies `#161a20`, borders `#1e2530`, system blue `#0A84FF` em botões primários e links, cinza `#636366` no botão de exclusão. (Background anterior `#0b0d10` substituído.)
 
+São **4 tabs**: Dashboard, Analyze, Transactions, Import. O app usa shell de
+altura fixa (`100dvh`): só o `<main>` faz scroll, então header e tab bar
+ficam fixos.
+
 1. **Dashboard** — saldo líquido, receitas/despesas totais, resumo do mês
    corrente e transações recentes. Filtrável por mês/ano via `PeriodFilter`
    (inicia no mês corrente).
-2. **Charts** — pizza de despesas por categoria e barras de receita vs
-   despesa por mês (recharts). Filtrável por mês/ano via `PeriodFilter`
-   compartilhado (inicia em "All").
+2. **Analyze** — sessão consolidada de análise (antigas tabs Charts +
+   Analyze juntas): pizza de despesas por categoria e barras receita×despesa
+   por mês (recharts, `PeriodFilter`), mais Trends, Budgets e Recurrents.
 3. **Transactions** — lista com busca textual livre, filtros por intervalo
    de datas (from/to), categoria e conta, botão "Clear filters" e contador
-   de resultados. O filtro de conta inclui um chip **"Unassigned"** que
-   agrupa as transações sem conta classificada. Suporta edição via
-   `EditModal` (PUT) e exclusão individual.
+   de resultados. Todos os menus acima da lista ficam **fixos** (`txnControls`
+   sticky) — só a lista scrolla. O filtro de conta inclui um chip
+   **"Unassigned"** que agrupa as transações sem conta classificada. Suporta
+   edição via `EditModal` (PUT) e exclusão individual.
    Botão **CSV** exporta as transações filtradas (campos: `date, description,
    amount, category, account`); desabilitado quando o toggle do olho está
    ativo. O botão JSON foi removido (PR #14).
