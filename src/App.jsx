@@ -15,6 +15,8 @@ import {
   TrendingUp,
   Settings,
   Plus,
+  ChevronDown,
+  ChevronRight,
 } from "lucide-react";
 import {
   ResponsiveContainer,
@@ -2435,6 +2437,7 @@ function AccountMapModal({ transactions, accountMap, onSave, onClose }) {
 // via /api/config. Renames cascade into existing data (handled in App), and
 // items currently used by transactions can't be deleted (only renamed).
 function ManagedList({ title, items, usage, onAdd, onRename, onDelete }) {
+  const [open, setOpen] = useState(false); // collapsed by default
   const [adding, setAdding] = useState("");
   const [editName, setEditName] = useState(null);
   const [editVal, setEditVal] = useState("");
@@ -2455,8 +2458,18 @@ function ManagedList({ title, items, usage, onAdd, onRename, onDelete }) {
   const inputStyle = { flex: 1, minWidth: 0, background: "#0f1216", color: "#e5e7eb", border: "1px solid #2a313c", borderRadius: 8, padding: "7px 9px", fontSize: 13 };
 
   return (
-    <div style={{ marginBottom: 16 }}>
-      <h4 style={{ ...S.sectionTitle, margin: "0 0 8px" }}>{title}</h4>
+    <div style={{ marginBottom: 10, border: "1px solid #2a313c", borderRadius: 12, overflow: "hidden", background: "#12161c" }}>
+      <button
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        style={{ width: "100%", display: "flex", alignItems: "center", gap: 8, padding: "11px 12px", background: "transparent", border: "none", cursor: "pointer", textAlign: "left" }}
+      >
+        {open ? <ChevronDown size={16} color="#8b94a3" /> : <ChevronRight size={16} color="#8b94a3" />}
+        <span style={{ ...S.sectionTitle, margin: 0 }}>{title}</span>
+        <span style={{ marginLeft: "auto", fontSize: 11, color: "#8b94a3" }}>{items.length}</span>
+      </button>
+      {!open ? null : (
+      <div style={{ padding: "0 12px 12px" }}>
       <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
         {items.map((name) => {
           const used = usage[name] || 0;
@@ -2510,6 +2523,8 @@ function ManagedList({ title, items, usage, onAdd, onRename, onDelete }) {
           <Plus size={14} style={{ verticalAlign: "-2px" }} /> Add
         </button>
       </div>
+      </div>
+      )}
     </div>
   );
 }
