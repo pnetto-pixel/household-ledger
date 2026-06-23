@@ -92,7 +92,8 @@ Cada transação:
   "srcAccount": "Chase CREDIT CARD 7612", // opcional — rótulo de origem (auditoria)
   "accountUrn": "urn:account:fdp::accountid:81f7bbd0-…", // opcional — id estável do cartão
   "last4": "7612",             // opcional — últimos 4 do cartão (rótulo)
-  "ckCategory": "GROCERIES"    // opcional — categoria crua da fonte (auditoria)
+  "ckCategory": "GROCERIES",   // opcional — categoria crua da fonte (auditoria)
+  "sourceId": "abc123"         // opcional — id da transação na fonte (dedup)
 }
 ```
 
@@ -246,9 +247,18 @@ ficam fixos.
    - **CSV** (uso único, backfill do histórico) — mapeamento manual de
      colunas (`IMPORT_FIELDS`, `guessMapping`, selects por campo com hints de
      fallback).
-   Prévia com até 50 linhas. Quando nenhum sinal de conta existe, a linha
-   fica **Unassigned** (não mais "ATT Reward"). OFX/QFX e os profiles Chase
-   foram removidos (o mapa de contas por URN cobre o caso Chase).
+   Quando nenhum sinal de conta existe, a linha fica **Unassigned** (não mais
+   "ATT Reward"). OFX/QFX e os profiles Chase foram removidos (o mapa de
+   contas por URN cobre o caso Chase).
+
+   **Deduplicação (híbrida).** Na prévia, cada linha tem checkbox e as
+   duplicadas vêm **desmarcadas** (badge `DUP`), com filtro "Only duplicates"
+   e Select/Deselect all — só as marcadas são importadas. A detecção
+   (`markDuplicates`) compara contra os dados existentes **e** dentro do
+   próprio lote: quando os dois lados têm `sourceId` (id do CK), compara por
+   id — assim dois gastos reais idênticos nunca são fundidos; senão, usa um
+   **fingerprint** `data │ valor(centavos, com sinal) │ descrição normalizada
+   │ conta` (`txnFingerprint`). O export do CK emite a coluna `source_id`.
 5. **Analyze** — análise aprofundada com três seções:
    - **Tendências mês a mês** — LineChart com top-5 categorias de despesa por
      volume nos últimos 12 meses; StackedBarChart com mix de todas as categorias
@@ -314,13 +324,16 @@ O app inicia com array vazio quando não há dados salvos (sem SEED).
 - [x] Listas de contas e categorias gerenciáveis pela UI (`SettingsModal`,
   `/api/config`): add/rename/delete com cascata nos dados; antes eram
   constantes fixas no código
+- [x] Dedup de import híbrido (`markDuplicates`): `source_id` do CK quando
+  disponível, senão fingerprint conteúdo; prévia com checkbox por linha e
+  duplicadas desmarcadas por padrão
 - [ ] Multiusuário / household compartilhado
 - [ ] PWA offline-first
 - [~] Integrações de import (bancos, cartões) — exportador Credit Karma para
   iPhone via Scriptable e bookmarklet de Safari em `tools/credit-karma/`
   (gera CSV `date,description,amount,category,account,ck_account,provider,
-  ck_category,type,account_urn,last4`, consumido pelo profile Credit Karma do
-  Import). O export
+  ck_category,type,account_urn,last4,source_id`, consumido pelo profile
+  Credit Karma do Import). O export
   detecta reversões (refund de despesa / clawback de receita) auto-calibrando
   a convenção de sinal do CK e emite o `amount` na direção natural da
   categoria (normal positivo, reversão negativo); o profile Credit Karma

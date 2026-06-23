@@ -158,7 +158,7 @@ const BANK_PROFILES = [
     // category, account, ck_account, provider, ck_category, type, account_urn,
     // last4. The account column is run through matchAccount, and ck_category is
     // kept for auditing.
-    columnMap: { date: 'date', description: 'description', amount: 'amount', category: 'category', account: 'account', ckCategory: 'ck_category', accountUrn: 'account_urn', last4: 'last4' },
+    columnMap: { date: 'date', description: 'description', amount: 'amount', category: 'category', account: 'account', ckCategory: 'ck_category', accountUrn: 'account_urn', last4: 'last4', sourceId: 'source_id' },
     defaultAccount: '',
     // Preserve the sign: the CK export writes the amount in the category's
     // natural direction, so a refund/clawback arrives negative and nets out.
@@ -753,7 +753,7 @@ export default function App() {
             onSaveAccountMap={saveAndApplyAccountMap}
           />
         ) : tab === "import" ? (
-          <ImportTransactions onImport={addTransactions} accountMap={accountMap} config={config} />
+          <ImportTransactions onImport={addTransactions} accountMap={accountMap} config={config} transactions={transactions} />
         ) : (
           <div style={S.col}>
             <Charts transactions={transactions} hideValues={hideValues} />
@@ -2402,6 +2402,7 @@ const IMPORT_FIELDS = [
   { key: "ckCategory", label: "Source category (audit)", aliases: ["ck_category", "ck category", "source category", "original category"] },
   { key: "accountUrn", label: "Account ID (URN)", aliases: ["account_urn", "account urn", "urn", "account id"] },
   { key: "last4", label: "Card last 4", aliases: ["last4", "last 4", "last_four", "card last 4"] },
+  { key: "sourceId", label: "Source ID (dedup)", aliases: ["source_id", "source id", "transaction id", "txn id", "id"] },
 ];
 
 // Best-guess header for a field from its aliases (case-insensitive).
@@ -2446,6 +2447,7 @@ function buildRow(raw, mapping, profile, accountMap) {
   const rawAccount = (mapping.account && val("account")) || "";
   const accountUrn = mapping.accountUrn ? val("accountUrn") : "";
   const last4 = mapping.last4 ? val("last4") : "";
+  const sourceId = mapping.sourceId ? val("sourceId") : "";
   // Classify by URN map first (separates same-named cards), then by alias;
   // otherwise the profile's account. Never default to ACCOUNTS[0] — leave it
   // unmapped so it can be filtered and fixed instead of labeled "ATT Reward".
@@ -2471,10 +2473,44 @@ function buildRow(raw, mapping, profile, accountMap) {
   // Stable per-card identity from the source, used by the account map UI.
   if (accountUrn) row.accountUrn = accountUrn;
   if (last4) row.last4 = last4;
+  // Stable per-transaction id from the source, used for de-duplication.
+  if (sourceId) row.sourceId = sourceId;
   return row;
 }
 
-function ImportTransactions({ onImport, accountMap, config }) {
+// Content fingerprint for de-duplication: day + signed cents + normalized
+// description + account. Used when a source transaction id isn't available.
+function txnFingerprint(t) {
+  const amt = Math.round((Number(t.amount) || 0) * 100);
+  const desc = String(t.description || "").toLowerCase().replace(/\s+/g, " ").trim();
+  return `${t.date || ""}|${amt}|${desc}|${t.account || ""}`;
+}
+
+// Flag duplicates in a batch of built rows against existing transactions and
+// against earlier rows in the same batch. Hybrid key: when both sides carry a
+// source id, compare by id (so two genuinely distinct but identical-looking
+// purchases are never merged); otherwise compare by content fingerprint.
+function markDuplicates(rows, existing) {
+  const idSet = new Set();
+  const fpNoId = new Set();
+  const fpAll = new Set();
+  const remember = (t) => {
+    const fp = txnFingerprint(t);
+    fpAll.add(fp);
+    if (t.sourceId) idSet.add(t.sourceId);
+    else fpNoId.add(fp);
+  };
+  for (const t of existing) remember(t);
+  return rows.map((r) => {
+    const dup = r.sourceId
+      ? idSet.has(r.sourceId) || fpNoId.has(txnFingerprint(r))
+      : fpAll.has(txnFingerprint(r));
+    remember(r);
+    return { ...r, _dup: dup };
+  });
+}
+
+function ImportTransactions({ onImport, accountMap, config, transactions }) {
   // Two methods: Credit Karma (auto-mapped, day-to-day) and CSV (manual
   // mapping, one-time history backfill).
   const [method, setMethod] = useState("ck");
@@ -2561,16 +2597,39 @@ function ImportTransactions({ onImport, accountMap, config }) {
     return rawRows.map((r) => buildRow(r, mapping, profile, accountMap)).filter(Boolean);
   }, [rawRows, mapping, profile, accountMap, config]);
 
+  // Flag duplicates against existing data + within the batch.
+  const dedupedRows = useMemo(() => markDuplicates(csvRows, transactions || []), [csvRows, transactions]);
+  const dupCount = useMemo(() => dedupedRows.filter((r) => r._dup).length, [dedupedRows]);
+
+  // Per-row selection. Default: keep non-duplicates checked, duplicates
+  // unchecked. Resets whenever the parsed/mapped batch changes.
+  const [selected, setSelected] = useState(() => new Set());
+  const [onlyDups, setOnlyDups] = useState(false);
+  useEffect(() => {
+    setSelected(new Set(dedupedRows.filter((r) => !r._dup).map((r) => r.id)));
+    setOnlyDups(false);
+  }, [dedupedRows]);
+
+  const toggleRow = (id) => setSelected((prev) => {
+    const next = new Set(prev);
+    next.has(id) ? next.delete(id) : next.add(id);
+    return next;
+  });
+  const selectAll = () => setSelected(new Set(dedupedRows.map((r) => r.id)));
+  const selectNone = () => setSelected(new Set());
+
   const missingRequired = method === "csv"
     ? IMPORT_FIELDS.filter((f) => f.required && !mapping[f.key])
     : [];
 
   const setColumn = (key, col) => setMapping((prev) => ({ ...prev, [key]: col }));
 
+  const selectedCount = selected.size;
   const confirm = () => {
-    if (csvRows.length === 0 || missingRequired.length > 0) return;
-    onImport(csvRows);
-    setDone(`Imported ${csvRows.length} transactions.`);
+    if (selectedCount === 0 || missingRequired.length > 0) return;
+    const toImport = dedupedRows.filter((r) => selected.has(r.id)).map(({ _dup, ...t }) => t);
+    onImport(toImport);
+    setDone(`Imported ${toImport.length} transactions${dupCount ? ` · ${dupCount} duplicate(s) detected` : ""}.`);
     resetAll();
   };
 
@@ -2658,33 +2717,54 @@ function ImportTransactions({ onImport, accountMap, config }) {
             </>
           )}
 
-          <div style={{ color: "#8b94a3", fontSize: 12 }}>
-            {csvRows.length} of {rawRows.length} rows ready
-            {csvRows.length > 50 ? " · showing first 50" : ""}
+          <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", fontSize: 12, color: "#8b94a3" }}>
+            <span>
+              {csvRows.length} rows · <span style={{ color: "#cbd5e1" }}>{selectedCount} selected</span>
+              {dupCount ? <span style={{ color: "#fbbf24" }}> · {dupCount} duplicate{dupCount === 1 ? "" : "s"} auto-unchecked</span> : null}
+            </span>
+            <button onClick={selectAll} style={S.linkBtn}>Select all</button>
+            <button onClick={selectNone} style={S.linkBtn}>Deselect all</button>
+            {dupCount ? (
+              <label style={{ display: "flex", alignItems: "center", gap: 5, cursor: "pointer", color: "#cbd5e1" }}>
+                <input type="checkbox" checked={onlyDups} onChange={(e) => setOnlyDups(e.target.checked)} style={S.checkbox} />
+                Only duplicates
+              </label>
+            ) : null}
           </div>
-          <div style={{ ...S.list, maxHeight: 320, overflowY: "auto" }}>
-            {csvRows.slice(0, 50).map((t) => (
-              <div key={t.id} style={S.txnRow}>
-                <div style={{ minWidth: 0, flex: 1 }}>
-                  <div style={{ fontSize: 14, color: "#e5e7eb", overflowWrap: "anywhere" }}>{t.description || t.category}</div>
-                  <div style={{ fontSize: 11, color: "#8b94a3" }}>
-                    {t.date} · {t.category}{t.account ? ` · ${t.account}` : ""}
+          <div style={{ ...S.list, maxHeight: 360, overflowY: "auto" }}>
+            {dedupedRows.filter((t) => (onlyDups ? t._dup : true)).slice(0, 400).map((t) => {
+              const checked = selected.has(t.id);
+              return (
+                <div
+                  key={t.id}
+                  onClick={() => toggleRow(t.id)}
+                  style={{ ...S.txnRow, cursor: "pointer", gap: 10, opacity: checked ? 1 : 0.5, outline: t._dup ? "1px solid #5b4a16" : undefined }}
+                >
+                  <input type="checkbox" checked={checked} onChange={() => toggleRow(t.id)} onClick={(e) => e.stopPropagation()} style={S.checkbox} />
+                  <div style={{ minWidth: 0, flex: 1 }}>
+                    <div style={{ fontSize: 14, color: "#e5e7eb", overflowWrap: "anywhere" }}>
+                      {t.description || t.category}
+                      {t._dup ? <span style={{ marginLeft: 6, fontSize: 10, fontWeight: 700, color: "#fbbf24", border: "1px solid #5b4a16", borderRadius: 6, padding: "1px 5px", verticalAlign: "1px" }}>DUP</span> : null}
+                    </div>
+                    <div style={{ fontSize: 11, color: "#8b94a3" }}>
+                      {t.date} · {t.category}{t.account ? ` · ${t.account}` : ""}
+                    </div>
                   </div>
+                  <span style={{ fontSize: 14, color: "#cbd5e1", whiteSpace: "nowrap" }}>{usd.format(t.amount)}</span>
                 </div>
-                <span style={{ fontSize: 14, color: "#cbd5e1", whiteSpace: "nowrap" }}>{usd.format(t.amount)}</span>
-              </div>
-            ))}
+              );
+            })}
           </div>
           <button
             onClick={confirm}
-            disabled={csvRows.length === 0 || missingRequired.length > 0}
+            disabled={selectedCount === 0 || missingRequired.length > 0}
             style={{
               ...S.primaryBtn,
-              opacity: csvRows.length === 0 || missingRequired.length > 0 ? 0.5 : 1,
-              cursor: csvRows.length === 0 || missingRequired.length > 0 ? "not-allowed" : "pointer",
+              opacity: selectedCount === 0 || missingRequired.length > 0 ? 0.5 : 1,
+              cursor: selectedCount === 0 || missingRequired.length > 0 ? "not-allowed" : "pointer",
             }}
           >
-            Import {csvRows.length} transactions
+            Import {selectedCount} transaction{selectedCount === 1 ? "" : "s"}
           </button>
         </>
       ) : null}

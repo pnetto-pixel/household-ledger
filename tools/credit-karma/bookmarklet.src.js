@@ -159,7 +159,7 @@
       if (!date) continue;
       if (isPending(t)) continue;
       if (new Date(date).getTime() < START_MS) continue;
-      rows.push({ date: date, description: t.description || '', amount: naturalAmount(t), category: mapCat(t.category, t.categoryType), account: acctLabel(t.provider, t.account, t.mask), ck_account: t.account || '', provider: t.provider || '', ck_category: t.category || '', type: isInc(t) ? 'income' : 'expense', account_urn: t.urn || '', last4: t.mask || '' });
+      rows.push({ date: date, description: t.description || '', amount: naturalAmount(t), category: mapCat(t.category, t.categoryType), account: acctLabel(t.provider, t.account, t.mask), ck_account: t.account || '', provider: t.provider || '', ck_category: t.category || '', type: isInc(t) ? 'income' : 'expense', account_urn: t.urn || '', last4: t.mask || '', source_id: t.id || '' });
     }
     rows.sort(function (a, b) { return a.date < b.date ? 1 : a.date > b.date ? -1 : 0; });
     if (rows.length === 0) {
@@ -174,9 +174,9 @@
       return;
     }
 
-    const header = ['date', 'description', 'amount', 'category', 'account', 'ck_account', 'provider', 'ck_category', 'type', 'account_urn', 'last4'];
+    const header = ['date', 'description', 'amount', 'category', 'account', 'ck_account', 'provider', 'ck_category', 'type', 'account_urn', 'last4', 'source_id'];
     const lines = [header.join(',')];
-    for (const r of rows) lines.push([r.date, r.description, r.amount, r.category, r.account, r.ck_account, r.provider, r.ck_category, r.type, r.account_urn, r.last4].map(cell).join(','));
+    for (const r of rows) lines.push([r.date, r.description, r.amount, r.category, r.account, r.ck_account, r.provider, r.ck_category, r.type, r.account_urn, r.last4, r.source_id].map(cell).join(','));
     const csv = lines.join('\n');
     const name = 'creditkarma_' + ymd(new Date(START_MS)) + '_to_' + ymd(new Date()) + '.csv';
 

@@ -168,11 +168,11 @@ function acctLabel(provider, name, mask) {
   return m ? (base + ' ' + m).trim() : base;
 }
 function toCSV(rows) {
-  const header = ['date', 'description', 'amount', 'category', 'account', 'ck_account', 'provider', 'ck_category', 'type', 'account_urn', 'last4'];
+  const header = ['date', 'description', 'amount', 'category', 'account', 'ck_account', 'provider', 'ck_category', 'type', 'account_urn', 'last4', 'source_id'];
   const lines = [header.join(',')];
   for (const r of rows) {
     lines.push(
-      [r.date, r.description, r.amount, r.category, r.account, r.ck_account, r.provider, r.ck_category, r.type, r.account_urn, r.last4]
+      [r.date, r.description, r.amount, r.category, r.account, r.ck_account, r.provider, r.ck_category, r.type, r.account_urn, r.last4, r.source_id]
         .map(csvCell)
         .join(',')
     );
@@ -270,6 +270,7 @@ async function main() {
       type: isInc(t) ? 'income' : 'expense',
       account_urn: t.urn || '',
       last4: t.mask || '',
+      source_id: t.id || '',
     });
   }
   rows.sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));
