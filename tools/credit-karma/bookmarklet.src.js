@@ -62,7 +62,9 @@
     const m = String(a.accountTypeAndNumberDisplay || '').match(/\(\D*([0-9]{4})\)/);
     return m ? m[1] : '';
   }
-  function norm(t) { return { id: t.id, date: t.date, description: (t.description || (t.merchant && t.merchant.name) || ''), category: (t.category && t.category.name) || '', categoryType: (t.category && t.category.type) || '', amount: (t.amount && t.amount.value) || 0, account: (t.account && t.account.name) || '', provider: (t.account && t.account.providerName) || '', mask: acctMask(t.account), urn: (t.account && t.account.accountURN) || '' }; }
+  function norm(t) { return { id: t.id, date: t.date, description: (t.description || (t.merchant && t.merchant.name) || ''), category: (t.category && t.category.name) || '', categoryType: (t.category && t.category.type) || '', amount: (t.amount && t.amount.value) || 0, account: (t.account && t.account.name) || '', provider: (t.account && t.account.providerName) || '', mask: acctMask(t.account), urn: (t.account && t.account.accountURN) || '', status: t.status || '' }; }
+  // Pending transactions are excluded from the export — only settled rows.
+  function isPending(t) { return String(t.status || '').toUpperCase().indexOf('PENDING') >= 0; }
   // Build a useful account label: prefix the bank when the name is just a
   // product type ("CREDIT CARD"), and append the last 4 digits when present.
   function acctLabel(provider, name, mask) {
@@ -155,6 +157,7 @@
     for (const t of all) {
       const date = normDate(t.date);
       if (!date) continue;
+      if (isPending(t)) continue;
       if (new Date(date).getTime() < START_MS) continue;
       rows.push({ date: date, description: t.description || '', amount: naturalAmount(t), category: mapCat(t.category, t.categoryType), account: acctLabel(t.provider, t.account, t.mask), ck_account: t.account || '', provider: t.provider || '', ck_category: t.category || '', type: isInc(t) ? 'income' : 'expense', account_urn: t.urn || '', last4: t.mask || '' });
     }

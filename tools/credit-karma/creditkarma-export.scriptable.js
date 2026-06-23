@@ -86,7 +86,8 @@ const PAGE_CODE = `(async () => {
   }
   function traceId(){return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g,function(c){var r=Math.random()*16|0,v=c==='x'?r:(r&0x3|0x8);return v.toString(16);});}
   function acctMask(a){if(!a)return '';var direct=String(a.mask||a.lastFour||a.last4||a.accountNumberMask||a.partialAccountNumber||a.maskedAccountNumber||'').replace(/[^0-9]/g,'').slice(-4);if(direct)return direct;var m=String(a.accountTypeAndNumberDisplay||'').match(/\(\D*([0-9]{4})\)/);return m?m[1]:'';}
-  function norm(t){return {id:t.id,date:t.date,description:(t.description||(t.merchant&&t.merchant.name)||''),category:(t.category&&t.category.name)||'',categoryType:(t.category&&t.category.type)||'',amount:(t.amount&&t.amount.value)||0,account:(t.account&&t.account.name)||'',accountType:(t.account&&t.account.type)||'',provider:(t.account&&t.account.providerName)||'',mask:acctMask(t.account),urn:(t.account&&t.account.accountURN)||''};}
+  function norm(t){return {id:t.id,date:t.date,description:(t.description||(t.merchant&&t.merchant.name)||''),category:(t.category&&t.category.name)||'',categoryType:(t.category&&t.category.type)||'',amount:(t.amount&&t.amount.value)||0,account:(t.account&&t.account.name)||'',accountType:(t.account&&t.account.type)||'',provider:(t.account&&t.account.providerName)||'',mask:acctMask(t.account),urn:(t.account&&t.account.accountURN)||'',status:t.status||''};}
+  function isPending(t){return String(t.status||'').toUpperCase().indexOf('PENDING')>=0;}
   try {
     var ENDPOINT='https://api.creditkarma.com/graphql';
     var LIST_HASH='__LIST_HASH__';
@@ -254,6 +255,7 @@ async function main() {
   for (const t of txns) {
     const date = normDate(t.date);
     if (!date) continue;
+    if (isPending(t)) continue;
     const ms = new Date(date).getTime();
     if (ms < START_MS) continue;
     rows.push({
