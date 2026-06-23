@@ -749,8 +749,6 @@ export default function App() {
             onUpdate={updateTransaction}
             onDeleteSelected={deleteSelected}
             onUpdateMany={updateMany}
-            accountMap={accountMap}
-            onSaveAccountMap={saveAndApplyAccountMap}
           />
         ) : tab === "import" ? (
           <ImportTransactions onImport={addTransactions} accountMap={accountMap} config={config} transactions={transactions} />
@@ -776,6 +774,8 @@ export default function App() {
         <SettingsModal
           config={config}
           transactions={transactions}
+          accountMap={accountMap}
+          onSaveAccountMap={saveAndApplyAccountMap}
           onClose={() => setSettingsOpen(false)}
           onAddAccount={addAccount}
           onRenameAccount={renameAccount}
@@ -1290,7 +1290,7 @@ function Charts({ transactions, hideValues }) {
 // Transactions list
 // ===========================================================================
 
-function Transactions({ transactions, money, hideValues, isWide, onDelete, onUpdate, onDeleteSelected, onUpdateMany, accountMap, onSaveAccountMap }) {
+function Transactions({ transactions, money, hideValues, isWide, onDelete, onUpdate, onDeleteSelected, onUpdateMany }) {
   const [catFilter, setCatFilter] = useState([]);
   const [acctFilter, setAcctFilter] = useState([]);
   const [typeFilter, setTypeFilter] = useState([]);
@@ -1300,7 +1300,6 @@ function Transactions({ transactions, money, hideValues, isWide, onDelete, onUpd
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
   const [editing, setEditing] = useState(null);
-  const [mappingOpen, setMappingOpen] = useState(false);
 
   // Bulk-select state. Rows are always selectable via their checkbox on both
   // platforms; the bulk-edit bar appears once anything is selected.
@@ -1516,13 +1515,6 @@ function Transactions({ transactions, money, hideValues, isWide, onDelete, onUpd
         </div>
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
           <button
-            onClick={() => setMappingOpen(true)}
-            title="Map each source card (by issuer + last 4) to an account"
-            style={S.exportBtn(false)}
-          >
-            Accounts
-          </button>
-          <button
             onClick={() => handleExportCSV(filtered)}
             disabled={hideValues}
             title={hideValues ? "Show values to export" : "Export CSV"}
@@ -1656,14 +1648,6 @@ function Transactions({ transactions, money, hideValues, isWide, onDelete, onUpd
             onUpdate(updated);
             setEditing(null);
           }}
-        />
-      ) : null}
-      {mappingOpen ? (
-        <AccountMapModal
-          transactions={transactions}
-          accountMap={accountMap}
-          onSave={onSaveAccountMap}
-          onClose={() => setMappingOpen(false)}
         />
       ) : null}
     </div>
@@ -2124,11 +2108,30 @@ function EditModal({ txn, onClose, onSave }) {
   );
 }
 
-// Map each source card to an account. Cards are keyed on the source's stable
-// account URN (so five Chase "CREDIT CARD"s are told apart by their last-4),
-// labeled by issuer + last-4. Saving persists the map and re-applies it to
-// existing transactions; future imports classify by it automatically.
-function AccountMapModal({ transactions, accountMap, onSave, onClose }) {
+// A titled card with a chevron header that collapses its body.
+function CollapsibleCard({ title, badge, defaultOpen = false, children }) {
+  const [open, setOpen] = useState(defaultOpen);
+  return (
+    <div style={{ marginBottom: 10, border: "1px solid #2a313c", borderRadius: 12, overflow: "hidden", background: "#12161c" }}>
+      <button
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        style={{ width: "100%", display: "flex", alignItems: "center", gap: 8, padding: "11px 12px", background: "transparent", border: "none", cursor: "pointer", textAlign: "left" }}
+      >
+        {open ? <ChevronDown size={16} color="#8b94a3" /> : <ChevronRight size={16} color="#8b94a3" />}
+        <span style={{ ...S.sectionTitle, margin: 0 }}>{title}</span>
+        {badge != null ? <span style={{ marginLeft: "auto", fontSize: 11, color: "#8b94a3" }}>{badge}</span> : null}
+      </button>
+      {open ? <div style={{ padding: "0 12px 12px" }}>{children}</div> : null}
+    </div>
+  );
+}
+
+// Map each source card to an account (lives inside Settings). Cards are keyed
+// on the source's stable account URN (so five Chase "CREDIT CARD"s are told
+// apart by their last-4), labeled by issuer + last-4. Saving persists the map
+// and re-applies it to existing transactions; future imports classify by it.
+function AccountMapSection({ transactions, accountMap, onSave }) {
   const cards = useMemo(() => {
     const m = new Map();
     for (const t of transactions) {
@@ -2146,6 +2149,8 @@ function AccountMapModal({ transactions, accountMap, onSave, onClose }) {
   }, [transactions]);
 
   const [draft, setDraft] = useState(accountMap || {});
+  // Keep the draft in sync if the saved map loads/changes while open.
+  useEffect(() => { setDraft(accountMap || {}); }, [accountMap]);
   const setOne = (urn, account) =>
     setDraft((prev) => {
       const next = { ...prev };
@@ -2154,82 +2159,61 @@ function AccountMapModal({ transactions, accountMap, onSave, onClose }) {
       return next;
     });
 
-  const save = () => {
-    onSave(draft);
-    onClose();
-  };
-
   const unmapped = cards.filter((c) => !draft[c.urn]).length;
+  const dirty = useMemo(() => JSON.stringify(draft) !== JSON.stringify(accountMap || {}), [draft, accountMap]);
 
   return (
-    <div style={S.modalOverlay} onClick={onClose} role="dialog" aria-modal="true">
-      <div
-        style={{ ...S.modalCard, maxWidth: 720, width: "92vw" }}
-        onClick={(e) => e.stopPropagation()}
-        aria-label="Account mapping"
-      >
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
-          <h3 style={{ ...S.sectionTitle, margin: 0 }}>Account mapping</h3>
-          <button onClick={onClose} style={S.deleteBtn} title="Close">
-            <X size={18} />
-          </button>
-        </div>
-
-        {cards.length === 0 ? (
-          <p style={{ color: "#8b94a3", fontSize: 14, lineHeight: 1.5 }}>
-            No card identities found. Re-export with the updated Credit Karma
-            bookmarklet (it now includes the account URN + last 4) and re-import
-            via the Credit Karma profile, then map each card here.
-          </p>
-        ) : (
-          <>
-            <div style={{ fontSize: 13, color: "#8b94a3", margin: "4px 0 10px" }}>
-              {cards.length} card{cards.length === 1 ? "" : "s"} · {unmapped} unmapped.
-              Assign each to an account; saving applies it to existing rows and all future imports.
-            </div>
-            <div style={{ maxHeight: "55vh", overflowY: "auto", display: "flex", flexDirection: "column", gap: 6 }}>
-              {cards.map((c) => (
-                <div
-                  key={c.urn}
-                  style={{ display: "flex", gap: 10, alignItems: "flex-start", padding: "8px 10px", borderRadius: 10, background: "#161a20" }}
-                >
-                  <div style={{ minWidth: 0, flex: 1 }}>
-                    <div style={{ fontSize: 13, color: "#e5e7eb", overflowWrap: "anywhere", lineHeight: 1.35 }}>
-                      {c.label || "—"} {c.last4 ? <span style={{ color: "#8b94a3" }}>· ••{c.last4}</span> : null}
-                    </div>
-                    <div style={{ fontSize: 11, color: "#8b94a3", marginTop: 2 }}>
-                      {c.count} txn{c.count === 1 ? "" : "s"}
-                      {c.suggested ? ` · alias: ${c.suggested}` : ""}
-                    </div>
+    <CollapsibleCard title="Card mapping (Credit Karma)" badge={cards.length ? `${unmapped} unmapped` : 0}>
+      {cards.length === 0 ? (
+        <p style={{ color: "#8b94a3", fontSize: 13, lineHeight: 1.5, margin: 0 }}>
+          No card identities found. Re-export with the updated Credit Karma
+          bookmarklet and re-import, then map each card here.
+        </p>
+      ) : (
+        <>
+          <div style={{ fontSize: 12, color: "#8b94a3", margin: "0 0 10px" }}>
+            Assign each source card to an account; saving applies it to existing
+            rows and all future imports.
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            {cards.map((c) => (
+              <div
+                key={c.urn}
+                style={{ display: "flex", gap: 10, alignItems: "flex-start", padding: "8px 10px", borderRadius: 10, background: "#161a20" }}
+              >
+                <div style={{ minWidth: 0, flex: 1 }}>
+                  <div style={{ fontSize: 13, color: "#e5e7eb", overflowWrap: "anywhere", lineHeight: 1.35 }}>
+                    {c.label || "—"} {c.last4 ? <span style={{ color: "#8b94a3" }}>· ••{c.last4}</span> : null}
                   </div>
-                  <select
-                    value={draft[c.urn] || ""}
-                    onChange={(e) => setOne(c.urn, e.target.value)}
-                    style={{ ...S.cellSelect, minWidth: 150 }}
-                  >
-                    <option value="">— Unassigned —</option>
-                    {ACCOUNTS.map((a) => (
-                      <option key={a}>{a}</option>
-                    ))}
-                  </select>
+                  <div style={{ fontSize: 11, color: "#8b94a3", marginTop: 2 }}>
+                    {c.count} txn{c.count === 1 ? "" : "s"}
+                    {c.suggested ? ` · alias: ${c.suggested}` : ""}
+                  </div>
                 </div>
-              ))}
-            </div>
-          </>
-        )}
-
-        <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
-          <button type="button" onClick={onClose} style={S.secondaryBtn}>
-            Cancel
+                <select
+                  value={draft[c.urn] || ""}
+                  onChange={(e) => setOne(c.urn, e.target.value)}
+                  style={{ ...S.cellSelect, minWidth: 150 }}
+                >
+                  <option value="">— Unassigned —</option>
+                  {ACCOUNTS.map((a) => (
+                    <option key={a}>{a}</option>
+                  ))}
+                </select>
+              </div>
+            ))}
+          </div>
+          <button
+            type="button"
+            onClick={() => onSave(draft)}
+            disabled={!dirty}
+            style={{ ...S.primaryBtn, marginTop: 12, opacity: dirty ? 1 : 0.5, cursor: dirty ? "pointer" : "not-allowed" }}
+          >
+            Save &amp; apply
           </button>
-          {cards.length > 0 ? (
-            <button type="button" onClick={save} style={S.primaryBtn}>
-              Save &amp; apply
-            </button>
-          ) : null}
-        </div>
-      </div>
-    </div>
+        </>
+      )}
+    </CollapsibleCard>
   );
 }
 
@@ -2237,7 +2221,6 @@ function AccountMapModal({ transactions, accountMap, onSave, onClose }) {
 // via /api/config. Renames cascade into existing data (handled in App), and
 // items currently used by transactions can't be deleted (only renamed).
 function ManagedList({ title, items, usage, onAdd, onRename, onDelete }) {
-  const [open, setOpen] = useState(false); // collapsed by default
   const [adding, setAdding] = useState("");
   const [editName, setEditName] = useState(null);
   const [editVal, setEditVal] = useState("");
@@ -2258,18 +2241,7 @@ function ManagedList({ title, items, usage, onAdd, onRename, onDelete }) {
   const inputStyle = { flex: 1, minWidth: 0, background: "#0f1216", color: "#e5e7eb", border: "1px solid #2a313c", borderRadius: 8, padding: "7px 9px", fontSize: 13 };
 
   return (
-    <div style={{ marginBottom: 10, border: "1px solid #2a313c", borderRadius: 12, overflow: "hidden", background: "#12161c" }}>
-      <button
-        onClick={() => setOpen((v) => !v)}
-        aria-expanded={open}
-        style={{ width: "100%", display: "flex", alignItems: "center", gap: 8, padding: "11px 12px", background: "transparent", border: "none", cursor: "pointer", textAlign: "left" }}
-      >
-        {open ? <ChevronDown size={16} color="#8b94a3" /> : <ChevronRight size={16} color="#8b94a3" />}
-        <span style={{ ...S.sectionTitle, margin: 0 }}>{title}</span>
-        <span style={{ marginLeft: "auto", fontSize: 11, color: "#8b94a3" }}>{items.length}</span>
-      </button>
-      {!open ? null : (
-      <div style={{ padding: "0 12px 12px" }}>
+    <CollapsibleCard title={title} badge={items.length}>
       <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
         {items.map((name) => {
           const used = usage[name] || 0;
@@ -2323,13 +2295,11 @@ function ManagedList({ title, items, usage, onAdd, onRename, onDelete }) {
           <Plus size={14} style={{ verticalAlign: "-2px" }} /> Add
         </button>
       </div>
-      </div>
-      )}
-    </div>
+    </CollapsibleCard>
   );
 }
 
-function SettingsModal({ config, transactions, onClose, onAddAccount, onRenameAccount, onDeleteAccount, onAddCategory, onRenameCategory, onDeleteCategory }) {
+function SettingsModal({ config, transactions, accountMap, onSaveAccountMap, onClose, onAddAccount, onRenameAccount, onDeleteAccount, onAddCategory, onRenameCategory, onDeleteCategory }) {
   const usage = useMemo(() => {
     const acc = {}, cat = {};
     for (const t of transactions) {
@@ -2344,19 +2314,25 @@ function SettingsModal({ config, transactions, onClose, onAddAccount, onRenameAc
       <div
         style={{ ...S.modalCard, maxWidth: 560, width: "92vw", display: "flex", flexDirection: "column" }}
         onClick={(e) => e.stopPropagation()}
-        aria-label="Manage accounts and categories"
+        aria-label="Settings"
       >
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
-          <h3 style={{ ...S.sectionTitle, margin: 0 }}>Accounts &amp; categories</h3>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8, flexShrink: 0 }}>
+          <h3 style={{ ...S.sectionTitle, margin: 0 }}>Settings</h3>
           <button onClick={onClose} style={S.deleteBtn} title="Close">
             <X size={18} />
           </button>
         </div>
-        <div style={{ fontSize: 12, color: "#8b94a3", marginBottom: 12, lineHeight: 1.5 }}>
-          Renaming updates every transaction (and budget/account-map) using the
-          old name. Items in use can't be deleted — rename them instead.
+        <div style={{ fontSize: 12, color: "#8b94a3", marginBottom: 12, lineHeight: 1.5, flexShrink: 0 }}>
+          Map your Credit Karma cards to accounts, and manage the account and
+          category lists. Renaming cascades to every transaction; items in use
+          can't be deleted — rename them instead.
         </div>
-        <div style={{ overflowY: "auto", paddingRight: 4 }}>
+        <div style={{ flex: 1, minHeight: 0, overflowY: "auto", paddingRight: 4 }}>
+          <AccountMapSection
+            transactions={transactions}
+            accountMap={accountMap}
+            onSave={onSaveAccountMap}
+          />
           <ManagedList
             title="Accounts"
             items={config.accounts}
@@ -3539,7 +3515,10 @@ const S = {
   modalCard: {
     width: "100%",
     maxWidth: 536,
-    maxHeight: "calc(100dvh - env(safe-area-inset-top) - 24px)",
+    // Fit exactly within the overlay's padding box (which already reserves the
+    // safe-area insets), so a tall sheet can't overflow upward under the
+    // Dynamic Island when bottom-aligned.
+    maxHeight: "100%",
     overflowY: "auto",
     background: "#161a20",
     border: "1px solid #1e2530",
