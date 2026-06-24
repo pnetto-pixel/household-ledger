@@ -897,7 +897,7 @@ function Login({ onAuthed }) {
 function SaveIndicator({ saving, dirty, savedAt, saveError }) {
   if (saveError === "offline") {
     return (
-      <span style={{ fontSize: 11, color: "#fbbf24", display: "flex", alignItems: "center", gap: 3 }}>
+      <span style={{ fontSize: 10, color: "#fbbf24", display: "flex", alignItems: "center", gap: 3 }}>
         <span>↻</span>
         <span>Offline</span>
       </span>
@@ -905,7 +905,7 @@ function SaveIndicator({ saving, dirty, savedAt, saveError }) {
   }
   if (saveError) {
     return (
-      <span style={{ fontSize: 11, color: "#f87171", display: "flex", alignItems: "center", gap: 3 }}>
+      <span style={{ fontSize: 10, color: "#f87171", display: "flex", alignItems: "center", gap: 3 }}>
         <span>✕</span>
         <span style={{ maxWidth: 120, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
           Save failed
@@ -915,7 +915,7 @@ function SaveIndicator({ saving, dirty, savedAt, saveError }) {
   }
   if (saving) {
     return (
-      <span style={{ fontSize: 11, color: "#8b94a3", display: "flex", alignItems: "center", gap: 3 }}>
+      <span style={{ fontSize: 10, color: "#8b94a3", display: "flex", alignItems: "center", gap: 3 }}>
         <span style={{ display: "inline-block", animation: "hl-spin 1s linear infinite" }}>·</span>
         <span>saving…</span>
       </span>
@@ -923,7 +923,7 @@ function SaveIndicator({ saving, dirty, savedAt, saveError }) {
   }
   if (dirty && !saving) {
     return (
-      <span style={{ fontSize: 11, color: "#fbbf24", display: "flex", alignItems: "center", gap: 3 }}>
+      <span style={{ fontSize: 10, color: "#fbbf24", display: "flex", alignItems: "center", gap: 3 }}>
         <span>●</span>
         <span>unsaved…</span>
       </span>
@@ -932,7 +932,7 @@ function SaveIndicator({ saving, dirty, savedAt, saveError }) {
   if (savedAt && !dirty && !saving && !saveError) {
     const timeStr = new Date(savedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
     return (
-      <span style={{ fontSize: 11, color: "#34d399", display: "flex", alignItems: "center", gap: 3 }}>
+      <span style={{ fontSize: 10, color: "#34d399", display: "flex", alignItems: "center", gap: 3 }}>
         <span>✓</span>
         <span>saved {timeStr}</span>
       </span>
@@ -946,18 +946,18 @@ function Header({ hideValues, onToggleHide, onLogout, onOpenSettings, saving, sa
     <header style={S.header}>
       <style>{`@keyframes hl-spin { 0%,100%{opacity:1} 50%{opacity:0.2} }`}</style>
       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-        <span style={{ fontWeight: 600, fontSize: 17, letterSpacing: -0.4 }}>Household Ledger</span>
+        <span style={{ fontWeight: 600, fontSize: 15, letterSpacing: -0.3 }}>Household Ledger</span>
         <SaveIndicator saving={saving} dirty={dirty} savedAt={savedAt} saveError={saveError} />
       </div>
       <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
         <IconButton onClick={onToggleHide} title={hideValues ? "Show values" : "Hide values"}>
-          {hideValues ? <EyeOff size={18} /> : <Eye size={18} />}
+          {hideValues ? <EyeOff size={16} /> : <Eye size={16} />}
         </IconButton>
         <IconButton onClick={onOpenSettings} title="Manage accounts & categories">
-          <Settings size={18} />
+          <Settings size={16} />
         </IconButton>
         <IconButton onClick={onLogout} title="Log out">
-          <LogOut size={18} />
+          <LogOut size={16} />
         </IconButton>
       </div>
     </header>
@@ -972,7 +972,7 @@ function IconButton({ children, ...props }) {
         background: "transparent",
         border: "none",
         color: "#cbd5e1",
-        padding: 8,
+        padding: 6,
         borderRadius: 8,
         cursor: "pointer",
         display: "grid",
@@ -1005,8 +1005,8 @@ function TabBar({ tab, setTab, wide }) {
               color: active ? "#0A84FF" : "#8b94a3",
             }}
           >
-            <Icon size={22} />
-            <span style={{ fontSize: 10, marginTop: 2, fontWeight: 500 }}>{label}</span>
+            <Icon size={18} />
+            <span style={{ fontSize: 9, marginTop: 1, fontWeight: 500 }}>{label}</span>
           </button>
         );
       })}
@@ -3318,6 +3318,119 @@ function Empty({ children }) {
 // Styles
 // ===========================================================================
 
+// ===========================================================================
+// DESIGN SPEC — Household Ledger Mobile (developer-ready)
+// Last updated: 2026-06-24 (mobile density redesign)
+//
+// ── PALETTE (do not alter) ──────────────────────────────────────────────────
+//   bg        #0b0d10       app background
+//   surface   #161a20       cards, modal backgrounds
+//   border    #1e2530       card/modal borders
+//   border2   #232a33       input/select borders
+//   text      #e5e7eb       primary text
+//   text2     #8b94a3       muted / secondary text
+//   text3     #636366       disabled / delete icon
+//   blue      #0A84FF       primary action, active tab
+//   green     #34d399       income, saved indicator
+//   red       #f87171       expenses, error indicator
+//   gray      #8b94a3       saving indicator
+//   amber     #fbbf24       unsaved / offline indicator
+//
+// ── HEADER ──────────────────────────────────────────────────────────────────
+//   Target total height (safe-area = 0): 44–46 px
+//   iPhone 16 Pro (safe-area-inset-top ≈ 59px): ~75–77 px  (<25% of 852px ✓)
+//
+//   padding-top:    calc(env(safe-area-inset-top) + 8px)
+//   padding-right:  16px
+//   padding-bottom: 8px
+//   padding-left:   16px
+//   background:     rgba(11,13,16,0.85)
+//   backdrop-filter: blur(20px) saturate(180%)
+//   border-bottom:  1px solid rgba(255,255,255,0.08)
+//   z-index:        10
+//
+//   Title "Household Ledger"
+//     font-size:      15px
+//     font-weight:    600
+//     letter-spacing: -0.3px
+//     color:          #e5e7eb
+//
+//   Icon buttons (Eye/EyeOff, Settings, LogOut)
+//     icon size:  16px
+//     padding:    6px  (all sides)
+//     border-radius: 8px
+//     color default: #cbd5e1
+//     color hover:   #e5e7eb  +  background rgba(255,255,255,0.06)
+//     NOTE: hover is defined in the spec but not implemented via
+//           onMouseEnter/onMouseLeave (app is mobile-first; no regression risk
+//           from omitting it; can be added via onMouseEnter/Leave if needed)
+//
+//   SaveIndicator  font-size: 10px
+//     saved:   color #34d399  prefix "✓"
+//     saving:  color #8b94a3  animated dot
+//     unsaved: color #fbbf24  prefix "●"
+//     error:   color #f87171  prefix "✕"
+//     offline: color #fbbf24  prefix "↻"
+//
+// ── TAB BAR ─────────────────────────────────────────────────────────────────
+//   Target total height (safe-area = 0): 40–42 px
+//   (18px icon + 9px label + 1px gap + 4px top + 4px bottom ≈ ~36–40 px)
+//
+//   padding-top:    4px
+//   padding-bottom: max(4px, env(safe-area-inset-bottom))
+//   background:     rgba(11,13,16,0.88)
+//   backdrop-filter: blur(20px) saturate(180%)
+//   border-top:     1px solid rgba(255,255,255,0.08)
+//   z-index:        10
+//
+//   Tab button
+//     padding:       2px  (all sides)
+//     flex: 1  (equal width, space-around)
+//     layout:        column, centered
+//
+//   Icon
+//     size:  18px
+//     color active:   #0A84FF
+//     color inactive: #8b94a3
+//
+//   Label
+//     font-size:   9px
+//     font-weight: 500
+//     margin-top:  1px
+//     color active:         #0A84FF
+//     color inactive:       #8b94a3
+//     color inactive hover: #a1aab8  (desktop; no bg change)
+//     NOTE: font-size 9px is below iOS Safari auto-zoom threshold (10px), but
+//           index.html already has  maximum-scale=1  in the viewport meta tag
+//           so zoom is prevented. No change to index.html needed.
+//
+// ── TRANSACTIONS — txnControls ──────────────────────────────────────────────
+//   max-height:    50%  of <main>  (unchanged — no value change needed)
+//   overflow-y:    auto  (internal scroll when filter panel is tall)
+//   gap:           8px
+//   background:    #0b0d10
+//   border-bottom: 1px solid rgba(255,255,255,0.08)
+//   With the smaller header+tabbar the txnListScroll gains ~20–28 px of
+//   visible space on every device.
+//
+// ── RESPONSIVE ──────────────────────────────────────────────────────────────
+//   Mobile  (<900px)
+//     Header: single row, title left / icons right; ≤25% of screen height
+//     TabBar: icon+label stacked, safe-area respected; ~40–42 px sans inset
+//     txnControls: internal scroll, max 50% of <main>
+//   Desktop (≥900px, app maxWidth 1180px via TabBar prop)
+//     Same layout; safe-area-inset-top ≈ 0 → padding-top = 8px
+//     Labels remain visible; hover states apply (spec only, not implemented)
+//
+// ── SPACING & RADII ─────────────────────────────────────────────────────────
+//   Cards:     border-radius 16px  padding 16px
+//   Modals:    border-radius 20px  padding 16px
+//   Inputs:    border-radius 12px  padding 12px 14px
+//   TxnRow:    border-radius 14px  padding 10px 12px
+//   IconBtn:   border-radius 8px   padding 6px
+//
+// ===========================================================================
+
 const S = {
   app: {
     // Fixed-height app shell: only <main> scrolls, so the header and tab bar
@@ -3342,7 +3455,7 @@ const S = {
     display: "flex",
     alignItems: "center",
     justifyContent: "space-between",
-    padding: "calc(env(safe-area-inset-top) + 14px) 16px 12px",
+    padding: "calc(env(safe-area-inset-top) + 8px) 16px 8px",
     background: "rgba(11,13,16,0.85)",
     backdropFilter: "blur(20px) saturate(180%)",
     WebkitBackdropFilter: "blur(20px) saturate(180%)",
@@ -3435,7 +3548,7 @@ const S = {
     backdropFilter: "blur(20px) saturate(180%)",
     WebkitBackdropFilter: "blur(20px) saturate(180%)",
     borderTop: "1px solid rgba(255,255,255,0.08)",
-    padding: "8px 0 max(8px, env(safe-area-inset-bottom))",
+    padding: "4px 0 max(4px, env(safe-area-inset-bottom))",
     zIndex: 10,
   },
   tabBtn: {
@@ -3446,7 +3559,7 @@ const S = {
     flexDirection: "column",
     alignItems: "center",
     flex: 1,
-    padding: 4,
+    padding: 2,
   },
   input: {
     width: "100%",
