@@ -109,16 +109,19 @@ servem para auditar as decisões de classificação de conta e categoria.
 **Sinal do `amount`.** O valor é sinalizado na **direção natural da
 categoria**: positivo é uma despesa/receita normal; **negativo é uma
 reversão** — um refund numa categoria de despesa (reduz as despesas) ou um
-cashback/imposto clawback numa categoria de receita (reduz a receita). As
-agregações somam o valor sinalizado (`income += amount`, `expenses +=
-amount`, `net = income − expenses`), então um refund de despesa entra como
-crédito sem precisar trocar de categoria. Na UI o sinal/cor da linha segue
-o **fluxo de caixa**: entrada (refund de despesa ou receita) em verde com
+clawback numa categoria de receita (reduz a receita). As agregações somam o
+valor sinalizado (`income += amount`, `expenses += amount`,
+`net = income − expenses`), então um refund de despesa entra como crédito
+sem precisar trocar de categoria. Na UI o sinal/cor da linha segue o
+**fluxo de caixa**: entrada (refund de despesa ou receita) em verde com
 `+`, saída (despesa ou clawback de receita) em vermelho com `−`. O profile
-Credit Karma preserva o sinal vindo do export (que detecta reversões); os
+Credit Karma usa a calibração de sinal do export apenas para categorias de
+**despesa** (detecta refunds); transações de **receita** (income) saem
+sempre positivas (`Math.abs`) — clawbacks de receita são raros e, quando
+ocorrem, são corrigidos manualmente no `EditModal` (valor negativo). Os
 demais profiles normalizam para positivo (`Math.abs`) e reversões são
-marcadas à mão no `EditModal` (valor negativo). Transfer continua excluída
-de todos os totais.
+marcadas à mão no `EditModal`. Transfer continua excluída de todos os
+totais.
 
 ### Orçamentos
 
@@ -351,9 +354,14 @@ O app inicia com array vazio quando não há dados salvos (sem SEED).
   iPhone via Scriptable e bookmarklet de Safari em `tools/credit-karma/`
   (gera CSV `date,description,amount,category,account,ck_account,provider,
   ck_category,type,account_urn,last4,source_id`, consumido pelo profile
-  Credit Karma do Import). O export
-  detecta reversões (refund de despesa / clawback de receita) auto-calibrando
-  a convenção de sinal do CK e emite o `amount` na direção natural da
-  categoria (normal positivo, reversão negativo); o profile Credit Karma
-  preserva esse sinal no import. Transações **pendentes são excluídas** do
-  export (`isPending`) — só linhas liquidadas (cleared) entram no CSV
+  Credit Karma do Import). O export calibra o sinal por tipo de categoria:
+  transações de **income** saem sempre positivas (`Math.abs`) — cashback
+  Apple Card ("Daily Cash"/"Deposit") incluído; transações de **expense**
+  usam calibração de sinal para detectar refunds (emitindo-os como negativos
+  na direção da categoria). Clawbacks de receita (raros) são corrigidos
+  manualmente no `EditModal`. Transações **pendentes são excluídas** do
+  export (`isPending`) — só linhas liquidadas (cleared) entram no CSV.
+- [x] Bugfix PR #42: cashback Apple Card ("Daily Cash"/"Deposit") exportado
+  com sinal negativo pelo exportador CK — corrigido; income agora sai sempre
+  positivo nos dois exportadores (`creditkarma-export.scriptable.js` e
+  `bookmarklet.src.js`; `bookmarklet.txt` regenerado)
