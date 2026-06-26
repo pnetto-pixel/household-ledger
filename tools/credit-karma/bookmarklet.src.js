@@ -127,13 +127,22 @@
       await new Promise(function (res) { setTimeout(res, 400); });
     }
 
+    // Apple Card "Daily Cash" cashback is deposited into the Apple Savings
+    // account and Credit Karma tags it as a Transfer with a NEGATIVE amount.
+    // It is really cashback income, so these Apple "Deposit" rows are
+    // reclassified as income (positive) below. Heuristic: Apple provider +
+    // a "Deposit" description. A manual transfer into Apple Savings would also
+    // match (accepted trade-off — those are rare).
+    function isAppleCashback(t) {
+      const acct = (String(t.provider || '') + ' ' + String(t.account || '')).toUpperCase();
+      return acct.indexOf('APPLE CARD') >= 0 && String(t.description || '').toUpperCase().indexOf('DEPOSIT') >= 0;
+    }
     // Reversal detection for EXPENSE transactions (refund = minority sign).
-    // Income is always emitted as positive (Math.abs) regardless of the raw CK
-    // sign — Apple Card cashback ("Daily Cash") arrives with a negative amount
-    // even though it is INCOME, and the calibration heuristic would mis-classify
-    // it as a reversal when it is a minority. Income clawbacks (very rare) can
-    // be corrected manually in EditModal.
-    function isInc(t) { return (t.categoryType || '').toUpperCase() === 'INCOME'; }
+    // Income (incl. Apple cashback) is always emitted as positive (Math.abs)
+    // regardless of the raw CK sign; the calibration heuristic would otherwise
+    // mis-classify a minority sign as a reversal. Income clawbacks (very rare)
+    // can be corrected manually in EditModal.
+    function isInc(t) { return (t.categoryType || '').toUpperCase() === 'INCOME' || isAppleCashback(t); }
     let expPos = 0, expNeg = 0;
     for (const t of all) {
       const v = Number(t.amount) || 0; if (!v || isInc(t)) continue;
@@ -161,7 +170,7 @@
       if (!date) continue;
       if (isPending(t)) continue;
       if (new Date(date).getTime() < START_MS) continue;
-      rows.push({ date: date, description: t.description || '', amount: naturalAmount(t), category: mapCat(t.category, t.categoryType), account: acctLabel(t.provider, t.account, t.mask), ck_account: t.account || '', provider: t.provider || '', ck_category: t.category || '', type: isInc(t) ? 'income' : 'expense', account_urn: t.urn || '', last4: t.mask || '', source_id: t.id || '' });
+      rows.push({ date: date, description: t.description || '', amount: naturalAmount(t), category: isAppleCashback(t) ? 'Other Income' : mapCat(t.category, t.categoryType), account: acctLabel(t.provider, t.account, t.mask), ck_account: t.account || '', provider: t.provider || '', ck_category: t.category || '', type: isInc(t) ? 'income' : 'expense', account_urn: t.urn || '', last4: t.mask || '', source_id: t.id || '' });
     }
     rows.sort(function (a, b) { return a.date < b.date ? 1 : a.date > b.date ? -1 : 0; });
     if (rows.length === 0) {

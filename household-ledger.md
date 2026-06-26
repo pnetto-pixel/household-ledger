@@ -123,6 +123,14 @@ demais profiles normalizam para positivo (`Math.abs`) e reversões são
 marcadas à mão no `EditModal`. Transfer continua excluída de todos os
 totais.
 
+O **cashback do Apple Card ("Daily Cash")** chega do Credit Karma como um
+`Deposit` na conta Apple Savings, marcado como `Transfer` e com valor
+negativo. Como é receita de cashback (não uma transferência entre contas do
+usuário), o export reclassifica essas linhas para `Other Income` (positivo,
+contando no total de receita). A detecção é por heurística: provedor com
+"Apple Card" + descrição "Deposit". Um depósito manual feito pelo usuário na
+Apple Savings também casaria com essa regra (trade-off aceito — são raros).
+
 ### Orçamentos
 
 Limites mensais por categoria de despesa persistidos separadamente no Redis:
@@ -355,13 +363,17 @@ O app inicia com array vazio quando não há dados salvos (sem SEED).
   (gera CSV `date,description,amount,category,account,ck_account,provider,
   ck_category,type,account_urn,last4,source_id`, consumido pelo profile
   Credit Karma do Import). O export calibra o sinal por tipo de categoria:
-  transações de **income** saem sempre positivas (`Math.abs`) — cashback
-  Apple Card ("Daily Cash"/"Deposit") incluído; transações de **expense**
-  usam calibração de sinal para detectar refunds (emitindo-os como negativos
-  na direção da categoria). Clawbacks de receita (raros) são corrigidos
-  manualmente no `EditModal`. Transações **pendentes são excluídas** do
-  export (`isPending`) — só linhas liquidadas (cleared) entram no CSV.
-- [x] Bugfix PR #42: cashback Apple Card ("Daily Cash"/"Deposit") exportado
-  com sinal negativo pelo exportador CK — corrigido; income agora sai sempre
-  positivo nos dois exportadores (`creditkarma-export.scriptable.js` e
-  `bookmarklet.src.js`; `bookmarklet.txt` regenerado)
+  transações de **income** saem sempre positivas (`Math.abs`); transações de
+  **expense** usam calibração de sinal para detectar refunds (emitindo-os
+  como negativos na direção da categoria). O cashback do **Apple Card
+  ("Daily Cash")**, que o CK entrega como `Deposit`/`Transfer` negativo na
+  conta Apple Savings, é reclassificado para `Other Income` (positivo).
+  Clawbacks de receita (raros) são corrigidos manualmente no `EditModal`.
+  Transações **pendentes são excluídas** do export (`isPending`) — só linhas
+  liquidadas (cleared) entram no CSV.
+- [x] Bugfix PR #42: income do exportador CK agora sai sempre positivo nos
+  dois exportadores (`creditkarma-export.scriptable.js` e `bookmarklet.src.js`)
+- [x] Bugfix: cashback Apple Card ("Daily Cash") chegava do CK como `Transfer`
+  negativo na conta Apple Savings e aparecia como "Deposit −$0.30"; agora é
+  reclassificado para `Other Income` (positivo) por heurística (provedor
+  "Apple Card" + descrição "Deposit"); `bookmarklet.txt` regenerado

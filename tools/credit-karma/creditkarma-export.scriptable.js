@@ -223,13 +223,22 @@ async function main() {
   if (res.error) return showError('Erro: ' + res.error + ' ' + (res.detail || ''));
 
   const txns = res.transactions || [];
+  // Apple Card "Daily Cash" cashback is deposited into the Apple Savings
+  // account and Credit Karma tags it as a Transfer with a NEGATIVE amount. It
+  // is really cashback income, so these Apple "Deposit" rows are reclassified
+  // as income (positive) below. Heuristic: Apple provider + a "Deposit"
+  // description. A manual transfer into Apple Savings would also match
+  // (accepted trade-off — those are rare).
+  const isAppleCashback = (t) => {
+    const acct = (String(t.provider || '') + ' ' + String(t.account || '')).toUpperCase();
+    return acct.indexOf('APPLE CARD') >= 0 && String(t.description || '').toUpperCase().indexOf('DEPOSIT') >= 0;
+  };
   // Reversal detection for EXPENSE transactions (refund = minority sign).
-  // Income is always emitted as positive (Math.abs) regardless of the raw CK
-  // sign — Apple Card cashback ("Daily Cash") arrives with a negative amount
-  // even though it is INCOME, and the calibration heuristic would mis-classify
-  // it as a reversal when it is a minority. Income clawbacks (very rare) can
-  // be corrected manually in EditModal.
-  const isInc = (t) => (t.categoryType || '').toUpperCase() === 'INCOME';
+  // Income (incl. Apple cashback) is always emitted as positive (Math.abs)
+  // regardless of the raw CK sign; the calibration heuristic would otherwise
+  // mis-classify a minority sign as a reversal. Income clawbacks (very rare)
+  // can be corrected manually in EditModal.
+  const isInc = (t) => (t.categoryType || '').toUpperCase() === 'INCOME' || isAppleCashback(t);
   let expPos = 0, expNeg = 0;
   for (const t of txns) {
     const v = Number(t.amount) || 0;
@@ -265,7 +274,7 @@ async function main() {
       date,
       description: t.description || '',
       amount: naturalAmount(t),
-      category: mapCategory(t.category, t.categoryType),
+      category: isAppleCashback(t) ? 'Other Income' : mapCategory(t.category, t.categoryType),
       account: acctLabel(t.provider, t.account, t.mask),
       ck_account: t.account || '',
       provider: t.provider || '',
