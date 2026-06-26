@@ -123,13 +123,19 @@ demais profiles normalizam para positivo (`Math.abs`) e reversões são
 marcadas à mão no `EditModal`. Transfer continua excluída de todos os
 totais.
 
-O **cashback do Apple Card ("Daily Cash")** chega do Credit Karma como um
-`Deposit` na conta Apple Savings, marcado como `Transfer` e com valor
-negativo. Como é receita de cashback (não uma transferência entre contas do
-usuário), o export reclassifica essas linhas para `Other Income` (positivo,
-contando no total de receita). A detecção é por heurística: provedor com
-"Apple Card" + descrição "Deposit". Um depósito manual feito pelo usuário na
-Apple Savings também casaria com essa regra (trade-off aceito — são raros).
+O **cashback do Apple Card ("Daily Cash")** chega do Credit Karma marcado
+como `Transfer` nas contas Apple, com um sinal que é o **oposto** da
+convenção de receita do ledger, em duas formas:
+- `Deposit` — cashback **ganho**, depositado na Apple Savings (CK: negativo);
+- `Adjustment` — cashback **estornado** quando uma compra é reembolsada,
+  lançado no Apple Card (CK: positivo).
+
+Ambos são reclassificados para `Other Income`: o `Deposit` entra positivo
+(soma a receita) e o `Adjustment` entra negativo (clawback que abate o
+cashback ganho). O valor no ledger é a **negação do valor cru do CK**. A
+detecção é por heurística: provedor com "Apple Card" + descrição "Deposit"
+ou "Adjustment". Um depósito manual feito pelo usuário na Apple Savings
+também casaria com essa regra (trade-off aceito — são raros).
 
 ### Orçamentos
 
@@ -366,9 +372,12 @@ O app inicia com array vazio quando não há dados salvos (sem SEED).
   transações de **income** saem sempre positivas (`Math.abs`); transações de
   **expense** usam calibração de sinal para detectar refunds (emitindo-os
   como negativos na direção da categoria). O cashback do **Apple Card
-  ("Daily Cash")**, que o CK entrega como `Deposit`/`Transfer` negativo na
-  conta Apple Savings, é reclassificado para `Other Income` (positivo).
-  Clawbacks de receita (raros) são corrigidos manualmente no `EditModal`.
+  ("Daily Cash")**, que o CK entrega como `Transfer` nas contas Apple, é
+  reclassificado para `Other Income` negando o valor cru do CK: `Deposit`
+  (cashback ganho) entra positivo e `Adjustment` (cashback estornado em
+  refund) entra negativo, abatendo o cashback ganho.
+  Clawbacks de receita não-Apple (raros) são corrigidos manualmente no
+  `EditModal`.
   Transações **pendentes são excluídas** do export (`isPending`) — só linhas
   liquidadas (cleared) entram no CSV.
 - [x] Bugfix PR #42: income do exportador CK agora sai sempre positivo nos
@@ -377,3 +386,6 @@ O app inicia com array vazio quando não há dados salvos (sem SEED).
   negativo na conta Apple Savings e aparecia como "Deposit −$0.30"; agora é
   reclassificado para `Other Income` (positivo) por heurística (provedor
   "Apple Card" + descrição "Deposit"); `bookmarklet.txt` regenerado
+- [x] Bugfix: `Adjustment` do Apple Card (estorno de cashback em refund de
+  compra) agora entra como `Other Income` negativo (clawback que abate o
+  cashback ganho), negando o valor cru do CK; antes ficava como `Transfer`
