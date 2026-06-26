@@ -143,36 +143,15 @@
       const desc = String(t.description || '').toUpperCase();
       return desc.indexOf('DEPOSIT') >= 0 || desc.indexOf('ADJUSTMENT') >= 0;
     }
-    // Reversal detection for EXPENSE transactions (refund = minority sign).
-    // Income is always emitted as positive (Math.abs) regardless of the raw CK
-    // sign; the calibration heuristic would otherwise mis-classify a minority
-    // sign as a reversal. Income clawbacks (very rare) can be corrected
-    // manually in EditModal. Apple Daily Cash is handled separately above.
+    // SIGN INVARIANT: the exporter NEVER changes Credit Karma's amount sign.
+    // CK already signs every transaction in the ledger's natural direction —
+    // a normal expense/income is positive, a reversal (refund on an expense,
+    // clawback on income) is negative — which is exactly what the ledger's
+    // cash-flow display expects. We only remap CATEGORIES (e.g. Apple Daily
+    // Cash -> Other Income), never the sign. naturalAmount returns CK's raw
+    // value verbatim; do not reintroduce Math.abs or sign calibration here.
     function isInc(t) { return (t.categoryType || '').toUpperCase() === 'INCOME' || isAppleDailyCash(t); }
-    let expPos = 0, expNeg = 0;
-    for (const t of all) {
-      const v = Number(t.amount) || 0; if (!v || isInc(t)) continue;
-      v > 0 ? expPos++ : expNeg++;
-    }
-    const expSign = expPos === expNeg ? 0 : (expPos > expNeg ? 1 : -1);
-    const signsReliable = expSign !== 0;
-    function naturalAmount(t) {
-      const raw = Number(t.amount) || 0;
-      const mag = Math.abs(raw);
-      // Apple Daily Cash: keep CK's own sign. CK already reports it in the
-      // income-natural direction — "Deposit" (cashback earned) is positive,
-      // "Adjustment" (clawback on a refund) is negative, so the adjustment
-      // nets the earned cashback back out.
-      if (isAppleDailyCash(t)) return raw;
-      // Other income: always a positive credit.
-      if (isInc(t)) return mag;
-      // Expense: calibrated — majority sign is normal, minority is refund.
-      if (!signsReliable) return mag;
-      const rs = raw > 0 ? 1 : raw < 0 ? -1 : 0;
-      // minority sign (opposite to expSign majority) = refund/reversal
-      const reversal = rs !== expSign;
-      return reversal ? -mag : mag;
-    }
+    function naturalAmount(t) { return Number(t.amount) || 0; }
 
     // Build rows within the window
     const rows = [];
