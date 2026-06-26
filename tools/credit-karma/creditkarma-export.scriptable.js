@@ -223,22 +223,29 @@ async function main() {
   if (res.error) return showError('Erro: ' + res.error + ' ' + (res.detail || ''));
 
   const txns = res.transactions || [];
-  // Apple Card "Daily Cash" cashback is deposited into the Apple Savings
-  // account and Credit Karma tags it as a Transfer with a NEGATIVE amount. It
-  // is really cashback income, so these Apple "Deposit" rows are reclassified
-  // as income (positive) below. Heuristic: Apple provider + a "Deposit"
-  // description. A manual transfer into Apple Savings would also match
-  // (accepted trade-off — those are rare).
-  const isAppleCashback = (t) => {
+  // Apple Card "Daily Cash" cashback. Credit Karma reports it on the Apple
+  // accounts as a Transfer, never as income, with a sign that is the OPPOSITE
+  // of the ledger's income convention:
+  //   - "Deposit"    = cashback earned, paid into Apple Savings (CK: negative)
+  //   - "Adjustment" = cashback clawed back when a purchase is refunded,
+  //                    charged on the Apple Card (CK: positive)
+  // Both belong in "Other Income": the deposit adds, the adjustment nets it
+  // back out. The correct ledger amount is simply the negation of CK's raw
+  // value (see naturalAmount). Heuristic: Apple provider + a "Deposit" or
+  // "Adjustment" description. A manual deposit into Apple Savings would also
+  // match (accepted trade-off — those are rare).
+  const isAppleDailyCash = (t) => {
     const acct = (String(t.provider || '') + ' ' + String(t.account || '')).toUpperCase();
-    return acct.indexOf('APPLE CARD') >= 0 && String(t.description || '').toUpperCase().indexOf('DEPOSIT') >= 0;
+    if (acct.indexOf('APPLE CARD') < 0) return false;
+    const desc = String(t.description || '').toUpperCase();
+    return desc.indexOf('DEPOSIT') >= 0 || desc.indexOf('ADJUSTMENT') >= 0;
   };
   // Reversal detection for EXPENSE transactions (refund = minority sign).
-  // Income (incl. Apple cashback) is always emitted as positive (Math.abs)
-  // regardless of the raw CK sign; the calibration heuristic would otherwise
-  // mis-classify a minority sign as a reversal. Income clawbacks (very rare)
-  // can be corrected manually in EditModal.
-  const isInc = (t) => (t.categoryType || '').toUpperCase() === 'INCOME' || isAppleCashback(t);
+  // Income is always emitted as positive (Math.abs) regardless of the raw CK
+  // sign; the calibration heuristic would otherwise mis-classify a minority
+  // sign as a reversal. Income clawbacks (very rare) can be corrected manually
+  // in EditModal. Apple Daily Cash is handled separately above.
+  const isInc = (t) => (t.categoryType || '').toUpperCase() === 'INCOME' || isAppleDailyCash(t);
   let expPos = 0, expNeg = 0;
   for (const t of txns) {
     const v = Number(t.amount) || 0;
@@ -250,9 +257,12 @@ async function main() {
   const naturalAmount = (t) => {
     const raw = Number(t.amount) || 0;
     const mag = Math.abs(raw);
-    // Income is always a credit to the user — always positive. The CK sign
-    // convention for income varies per card (Apple Card cashback arrives
-    // negative) and clawbacks are rare enough to fix manually in EditModal.
+    // Apple Daily Cash: negate CK's raw amount. "Deposit" (CK-negative)
+    // becomes a positive credit; "Adjustment" (CK-positive) becomes a
+    // negative clawback that nets the earned cashback back out.
+    if (isAppleDailyCash(t)) return -raw;
+    // Other income is always a credit to the user — always positive. Clawbacks
+    // are rare enough to fix manually in EditModal.
     if (isInc(t)) return mag;
     // Expense: use calibrated sign to detect refunds (minority sign = reversal).
     if (!signsReliable) return mag;
@@ -274,7 +284,7 @@ async function main() {
       date,
       description: t.description || '',
       amount: naturalAmount(t),
-      category: isAppleCashback(t) ? 'Other Income' : mapCategory(t.category, t.categoryType),
+      category: isAppleDailyCash(t) ? 'Other Income' : mapCategory(t.category, t.categoryType),
       account: acctLabel(t.provider, t.account, t.mask),
       ck_account: t.account || '',
       provider: t.provider || '',
