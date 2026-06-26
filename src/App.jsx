@@ -97,6 +97,12 @@ function applyConfig(cfg) {
   if (Array.isArray(cfg?.accounts) && cfg.accounts.length) ACCOUNTS = [...cfg.accounts];
   if (Array.isArray(cfg?.expenseCategories) && cfg.expenseCategories.length) EXPENSE_CATEGORIES = [...cfg.expenseCategories];
   if (Array.isArray(cfg?.incomeCategories) && cfg.incomeCategories.length) INCOME_CATEGORIES = [...cfg.incomeCategories];
+  // "Other Income" is the income bucket the Credit Karma importer maps rows
+  // into (see BANK_PROFILES and the CK exporter). Guarantee it is always a
+  // recognized income category so imported income (e.g. Apple Daily Cash)
+  // is never silently downgraded to the expense "Other" — which would invert
+  // its displayed sign in the cash-flow view.
+  if (!INCOME_CATEGORIES.includes("Other Income")) INCOME_CATEGORIES = [...INCOME_CATEGORIES, "Other Income"];
   CATEGORIES = [...EXPENSE_CATEGORIES, ...INCOME_CATEGORIES, TRANSFER_CATEGORY];
 }
 
@@ -2475,9 +2481,14 @@ function buildRow(raw, mapping, profile, accountMap) {
   };
 
   const rawAmount = val("amount");
+  // Preserve the source sign on EVERY import path — no profile and no fallback
+  // ever changes it. The CK profile parses the value as-is; the generic CSV
+  // path used to apply Math.abs (a sign transformation) and no longer does.
+  // Direction in the cash-flow view still comes from the category (income vs
+  // expense); a reversal keeps the source's own negative sign.
   const amount = profile && profile.normalizeAmount
     ? profile.normalizeAmount(rawAmount)
-    : Math.abs(parseFloat(String(rawAmount).replace(/[$,]/g, "")) || 0);
+    : (parseFloat(String(rawAmount).replace(/[$,]/g, "")) || 0);
   if (!Number.isFinite(amount) || amount === 0) return null;
 
   let date = val("date");
