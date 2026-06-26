@@ -1013,7 +1013,7 @@ function TabBar({ tab, setTab, wide }) {
             onClick={() => setTab(id)}
             style={{ ...S.tabBtn, color: active ? "#0A84FF" : "#8b94a3", position: "relative" }}
           >
-            <div style={{ position: "relative", display: "flex", alignItems: "center", justifyContent: "center", padding: "2px 8px" }}>
+            <div style={{ position: "relative", display: "flex", alignItems: "center", justifyContent: "center", padding: "4px 12px" }}>
               {active && (
                 <div style={{
                   position: "absolute", inset: 0, background: "rgba(10,132,255,0.12)",
@@ -3631,13 +3631,14 @@ const S = {
     flexShrink: 0,
     width: "100%",
     display: "flex",
-    justifyContent: "space-around",
+    justifyContent: "space-evenly",
     background: "rgba(11,13,16,0.88)",
     backdropFilter: "blur(20px) saturate(180%)",
     WebkitBackdropFilter: "blur(20px) saturate(180%)",
     borderTop: "1px solid rgba(255,255,255,0.08)",
-    padding: "4px 0 max(4px, env(safe-area-inset-bottom))",
+    padding: "6px 8px max(6px, env(safe-area-inset-bottom))",
     zIndex: 10,
+    gap: 4,
   },
   tabBtn: {
     background: "transparent",
@@ -3647,7 +3648,7 @@ const S = {
     flexDirection: "column",
     alignItems: "center",
     flex: 1,
-    padding: 2,
+    padding: "2px 0",
   },
   input: {
     width: "100%",
