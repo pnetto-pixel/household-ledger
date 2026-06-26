@@ -120,9 +120,15 @@ Credit Karma já entrega cada transação na direção natural da categoria
 (normal positivo, reversão negativo), que é exatamente o que o display de
 fluxo de caixa espera, então o `amount` cru é preservado verbatim — só as
 **categorias** são remapeadas (ex.: Apple Daily Cash → `Other Income`).
-Não há mais calibração de sinal nem `Math.abs` no export. Os demais
-profiles normalizam para positivo (`Math.abs`) e reversões são marcadas à
-mão no `EditModal`. Transfer continua excluída de todos os totais.
+Não há mais calibração de sinal nem `Math.abs` no export. **O import também
+preserva o sinal em todos os caminhos** (`buildRow`): tanto o profile Credit
+Karma quanto o CSV genérico mantêm o sinal da fonte — o `Math.abs` que o
+caminho genérico aplicava foi removido. A direção no fluxo de caixa vem da
+**categoria** (income vs expense), não de uma transformação do número.
+Para que receita importada não seja rebaixada para a despesa `Other` (o que
+inverteria o sinal exibido), `applyConfig` garante que **`Other Income`**
+seja sempre uma categoria de receita reconhecida — é o bucket que o
+importador Credit Karma usa. Transfer continua excluída de todos os totais.
 
 O **cashback do Apple Card ("Daily Cash")** chega do Credit Karma marcado
 como `Transfer` nas contas Apple, mas já na **direção natural de receita**
@@ -382,6 +388,11 @@ O app inicia com array vazio quando não há dados salvos (sem SEED).
 - [x] Invariante de sinal (PR #48): o exportador CK não altera mais o sinal
   do CK — removidas a calibração de sinal de despesa e o `Math.abs` de
   income; `naturalAmount` retorna o valor cru. Só categorias são remapeadas
+- [x] Invariante de sinal no import: `buildRow` preserva o sinal em todos os
+  caminhos (removido o `Math.abs` do CSV genérico); `applyConfig` garante que
+  `Other Income` seja sempre reconhecida como receita, evitando que income
+  importado seja rebaixado para a despesa `Other` (o que invertia o sinal
+  exibido de Deposit/Adjustment do Apple Card)
 - [x] Bugfix PR #42: income do exportador CK agora sai sempre positivo nos
   dois exportadores (`creditkarma-export.scriptable.js` e `bookmarklet.src.js`)
 - [x] Bugfix: cashback Apple Card ("Daily Cash") chegava do CK como `Transfer`
