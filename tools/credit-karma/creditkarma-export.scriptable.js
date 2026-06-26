@@ -224,16 +224,15 @@ async function main() {
 
   const txns = res.transactions || [];
   // Apple Card "Daily Cash" cashback. Credit Karma reports it on the Apple
-  // accounts as a Transfer, never as income, with a sign that is the OPPOSITE
-  // of the ledger's income convention:
-  //   - "Deposit"    = cashback earned, paid into Apple Savings (CK: negative)
+  // accounts as a Transfer (never as income), but already in the ledger's
+  // income-natural direction:
+  //   - "Deposit"    = cashback earned, paid into Apple Savings (CK: positive)
   //   - "Adjustment" = cashback clawed back when a purchase is refunded,
-  //                    charged on the Apple Card (CK: positive)
+  //                    charged on the Apple Card (CK: negative)
   // Both belong in "Other Income": the deposit adds, the adjustment nets it
-  // back out. The correct ledger amount is simply the negation of CK's raw
-  // value (see naturalAmount). Heuristic: Apple provider + a "Deposit" or
-  // "Adjustment" description. A manual deposit into Apple Savings would also
-  // match (accepted trade-off — those are rare).
+  // back out. CK's own sign is kept as-is (see naturalAmount). Heuristic:
+  // Apple provider + a "Deposit" or "Adjustment" description. A manual deposit
+  // into Apple Savings would also match (accepted trade-off — those are rare).
   const isAppleDailyCash = (t) => {
     const acct = (String(t.provider || '') + ' ' + String(t.account || '')).toUpperCase();
     if (acct.indexOf('APPLE CARD') < 0) return false;
@@ -257,10 +256,11 @@ async function main() {
   const naturalAmount = (t) => {
     const raw = Number(t.amount) || 0;
     const mag = Math.abs(raw);
-    // Apple Daily Cash: negate CK's raw amount. "Deposit" (CK-negative)
-    // becomes a positive credit; "Adjustment" (CK-positive) becomes a
-    // negative clawback that nets the earned cashback back out.
-    if (isAppleDailyCash(t)) return -raw;
+    // Apple Daily Cash: keep CK's own sign. CK already reports it in the
+    // income-natural direction — "Deposit" (cashback earned) is positive,
+    // "Adjustment" (clawback on a refund) is negative, so the adjustment
+    // nets the earned cashback back out.
+    if (isAppleDailyCash(t)) return raw;
     // Other income is always a credit to the user — always positive. Clawbacks
     // are rare enough to fix manually in EditModal.
     if (isInc(t)) return mag;
