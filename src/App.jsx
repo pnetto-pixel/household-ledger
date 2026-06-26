@@ -160,8 +160,9 @@ const BANK_PROFILES = [
     // kept for auditing.
     columnMap: { date: 'date', description: 'description', amount: 'amount', category: 'category', account: 'account', ckCategory: 'ck_category', accountUrn: 'account_urn', last4: 'last4', sourceId: 'source_id' },
     defaultAccount: '',
-    // Preserve the sign: the CK export writes the amount in the category's
-    // natural direction, so a refund/clawback arrives negative and nets out.
+    // Preserve the sign: the CK export writes income always positive and
+    // expense in the natural direction — a refund (expense minority sign)
+    // arrives negative and nets out. Income clawbacks are corrected manually.
     normalizeAmount: (raw) => parseFloat(String(raw).replace(/[$,]/g, '')) || 0,
   },
   {

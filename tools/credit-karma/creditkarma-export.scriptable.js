@@ -223,30 +223,33 @@ async function main() {
   if (res.error) return showError('Erro: ' + res.error + ' ' + (res.detail || ''));
 
   const txns = res.transactions || [];
-  // Reversal detection (refund on an expense / clawback on income). CK carries
-  // a signed amount, but its absolute convention isn't documented, so we
-  // calibrate it from the batch: income and expense should carry opposite
-  // signs, and the minority sign within a categoryType marks a reversal. The
-  // amount is emitted in the category's natural direction (normal positive,
-  // reversal negative); the ledger sums these signed values. If the signs are
-  // not reliably opposite (e.g. already abs'd), we fall back to magnitude.
+  // Reversal detection for EXPENSE transactions (refund = minority sign).
+  // Income is always emitted as positive (Math.abs) regardless of the raw CK
+  // sign — Apple Card cashback ("Daily Cash") arrives with a negative amount
+  // even though it is INCOME, and the calibration heuristic would mis-classify
+  // it as a reversal when it is a minority. Income clawbacks (very rare) can
+  // be corrected manually in EditModal.
   const isInc = (t) => (t.categoryType || '').toUpperCase() === 'INCOME';
-  let incPos = 0, incNeg = 0, expPos = 0, expNeg = 0;
+  let expPos = 0, expNeg = 0;
   for (const t of txns) {
     const v = Number(t.amount) || 0;
-    if (!v) continue;
-    if (isInc(t)) v > 0 ? incPos++ : incNeg++;
-    else v > 0 ? expPos++ : expNeg++;
+    if (!v || isInc(t)) continue;
+    v > 0 ? expPos++ : expNeg++;
   }
-  const incSign = incPos === incNeg ? 0 : incPos > incNeg ? 1 : -1;
   const expSign = expPos === expNeg ? 0 : expPos > expNeg ? 1 : -1;
-  const signsReliable = incSign !== 0 && expSign !== 0 && incSign !== expSign;
+  const signsReliable = expSign !== 0;
   const naturalAmount = (t) => {
     const raw = Number(t.amount) || 0;
     const mag = Math.abs(raw);
+    // Income is always a credit to the user — always positive. The CK sign
+    // convention for income varies per card (Apple Card cashback arrives
+    // negative) and clawbacks are rare enough to fix manually in EditModal.
+    if (isInc(t)) return mag;
+    // Expense: use calibrated sign to detect refunds (minority sign = reversal).
     if (!signsReliable) return mag;
     const rs = raw > 0 ? 1 : raw < 0 ? -1 : 0;
-    const reversal = isInc(t) ? rs !== incSign : rs === incSign;
+    // minority sign (opposite to expSign majority) = refund/reversal
+    const reversal = rs !== expSign;
     return reversal ? -mag : mag;
   };
 
