@@ -946,11 +946,21 @@ function Header({ hideValues, onToggleHide, onLogout, onOpenSettings, saving, sa
   return (
     <header style={S.header}>
       <style>{`@keyframes hl-spin { 0%,100%{opacity:1} 50%{opacity:0.2} }`}</style>
-      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-        <span style={{ fontWeight: 600, fontSize: 15, letterSpacing: -0.3 }}>Household Ledger</span>
+      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <div style={{
+            width: 28, height: 28, borderRadius: 8,
+            background: "linear-gradient(135deg, #0A84FF 0%, #0055cc 100%)",
+            display: "grid", placeItems: "center", flexShrink: 0,
+            boxShadow: "0 2px 8px rgba(10,132,255,0.35)",
+          }}>
+            <LayoutDashboard size={14} color="#fff" />
+          </div>
+          <span style={{ fontWeight: 700, fontSize: 15, letterSpacing: -0.5, color: "#e5e7eb" }}>Household</span>
+        </div>
         <SaveIndicator saving={saving} dirty={dirty} savedAt={savedAt} saveError={saveError} />
       </div>
-      <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 2 }}>
         <IconButton onClick={onToggleHide} title={hideValues ? "Show values" : "Hide values"}>
           {hideValues ? <EyeOff size={16} /> : <Eye size={16} />}
         </IconButton>
@@ -1001,13 +1011,18 @@ function TabBar({ tab, setTab, wide }) {
           <button
             key={id}
             onClick={() => setTab(id)}
-            style={{
-              ...S.tabBtn,
-              color: active ? "#0A84FF" : "#8b94a3",
-            }}
+            style={{ ...S.tabBtn, color: active ? "#0A84FF" : "#8b94a3", position: "relative" }}
           >
-            <Icon size={18} />
-            <span style={{ fontSize: 9, marginTop: 1, fontWeight: 500 }}>{label}</span>
+            <div style={{ position: "relative", display: "flex", alignItems: "center", justifyContent: "center", padding: "2px 8px" }}>
+              {active && (
+                <div style={{
+                  position: "absolute", inset: 0, background: "rgba(10,132,255,0.12)",
+                  borderRadius: 8, pointerEvents: "none",
+                }} />
+              )}
+              <Icon size={18} />
+            </div>
+            <span style={{ fontSize: 9, marginTop: 2, fontWeight: active ? 600 : 500 }}>{label}</span>
           </button>
         );
       })}
@@ -1131,30 +1146,60 @@ function Dashboard({ transactions, money }) {
     [periodTxns]
   );
 
+  const netColor = all.net >= 0 ? "#34d399" : "#f87171";
+
   return (
     <div style={S.col}>
-      <div style={S.cardRow}>
-        <StatCard label="Net Balance" value={money(all.net)} accent={all.net >= 0 ? "#34d399" : "#f87171"} />
-      </div>
-      <div style={S.cardRow}>
-        <StatCard label="Total Income" value={money(all.income)} accent="#34d399" />
-        <StatCard label="Total Expenses" value={money(all.expenses)} accent="#f87171" />
+      {/* Hero balance card */}
+      <div style={{
+        background: "linear-gradient(145deg, #161a20 0%, #1b2236 100%)",
+        border: "1px solid #1e2530",
+        borderRadius: 20,
+        padding: "22px 20px 20px",
+        position: "relative",
+        overflow: "hidden",
+        boxShadow: "0 4px 24px rgba(0,0,0,0.4)",
+      }}>
+        <div style={{
+          position: "absolute", top: -40, right: -40, width: 120, height: 120,
+          background: all.net >= 0 ? "rgba(52,211,153,0.13)" : "rgba(248,113,113,0.13)",
+          borderRadius: "50%", filter: "blur(28px)", pointerEvents: "none",
+        }} />
+        <div style={{ fontSize: 10, color: "#8b94a3", fontWeight: 600, letterSpacing: 0.8, textTransform: "uppercase", marginBottom: 6 }}>
+          Net Balance
+        </div>
+        <div style={{ fontSize: 40, fontWeight: 700, letterSpacing: -1.5, color: netColor, lineHeight: 1.1, marginBottom: 20 }}>
+          {money(all.net)}
+        </div>
+        <div style={{ display: "flex", borderTop: "1px solid rgba(255,255,255,0.06)", paddingTop: 16 }}>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 10, color: "#8b94a3", fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.5 }}>Total Income</div>
+            <div style={{ fontSize: 17, fontWeight: 700, color: "#34d399", marginTop: 3 }}>{money(all.income)}</div>
+          </div>
+          <div style={{ width: 1, background: "rgba(255,255,255,0.06)", margin: "0 16px" }} />
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 10, color: "#8b94a3", fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.5 }}>Total Expenses</div>
+            <div style={{ fontSize: 17, fontWeight: 700, color: "#f87171", marginTop: 3 }}>{money(all.expenses)}</div>
+          </div>
+        </div>
       </div>
 
-      <h3 style={S.sectionTitle}>{periodLabel(year, month)}</h3>
-      <PeriodFilter year={year} month={month} setYear={setYear} setMonth={setMonth} years={years} />
+      {/* Period selector row */}
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 4 }}>
+        <h3 style={S.sectionTitle}>{periodLabel(year, month)}</h3>
+        <PeriodFilter year={year} month={month} setYear={setYear} setMonth={setMonth} years={years} />
+      </div>
+
       <div style={S.cardRow}>
         <StatCard label="Income" value={money(period.income)} accent="#34d399" small />
         <StatCard label="Expenses" value={money(period.expenses)} accent="#f87171" small />
-        <StatCard
-          label="Net"
-          value={money(period.net)}
-          accent={period.net >= 0 ? "#34d399" : "#f87171"}
-          small
-        />
+        <StatCard label="Net" value={money(period.net)} accent={period.net >= 0 ? "#34d399" : "#f87171"} small />
       </div>
 
-      <h3 style={S.sectionTitle}>Recent</h3>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+        <h3 style={S.sectionTitle}>Recent</h3>
+        {recent.length > 0 && <span style={{ fontSize: 11, color: "#636366" }}>{recent.length} transactions</span>}
+      </div>
       {recent.length === 0 ? (
         <Empty>No transactions in this period.</Empty>
       ) : (
@@ -1170,9 +1215,9 @@ function Dashboard({ transactions, money }) {
 
 function StatCard({ label, value, accent, small }) {
   return (
-    <div style={{ ...S.card, flex: 1 }}>
-      <div style={{ color: "#8b94a3", fontSize: small ? 11 : 13 }}>{label}</div>
-      <div style={{ color: accent || "#e5e7eb", fontWeight: 700, fontSize: small ? 16 : 22, marginTop: 4 }}>
+    <div style={{ ...S.card, flex: 1, borderLeft: `3px solid ${accent || "#0A84FF"}`, paddingLeft: 14 }}>
+      <div style={{ color: "#8b94a3", fontSize: 10, fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.6 }}>{label}</div>
+      <div style={{ color: accent || "#e5e7eb", fontWeight: 700, fontSize: small ? 18 : 26, marginTop: 3, letterSpacing: -0.5 }}>
         {value}
       </div>
     </div>
@@ -1232,8 +1277,10 @@ function Charts({ transactions, hideValues }) {
 
   return (
     <div style={S.col}>
-      <h2 style={{ margin: "4px 0 0", fontSize: 16, color: "#e5e7eb", fontWeight: 600 }}>{label}</h2>
-      <PeriodFilter year={year} month={month} setYear={setYear} setMonth={setMonth} years={years} />
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+        <h2 style={{ margin: "4px 0 0", fontSize: 17, color: "#e5e7eb", fontWeight: 700, letterSpacing: -0.3 }}>{label}</h2>
+        <PeriodFilter year={year} month={month} setYear={setYear} setMonth={setMonth} years={years} />
+      </div>
       {scoped.length === 0 ? <Empty>No data for {label}.</Empty> : null}
       <h3 style={S.sectionTitle}>Spending by Category</h3>
       <div style={{ ...S.card, height: 280 }}>
@@ -1285,6 +1332,14 @@ function Charts({ transactions, hideValues }) {
       )}
     </div>
   );
+}
+
+// Maps category name → a stable color from CATEGORY_COLORS palette
+function catDotColor(cat) {
+  if (!cat) return "#8b94a3";
+  let h = 0;
+  for (let i = 0; i < cat.length; i++) h = (h * 31 + cat.charCodeAt(i)) & 0xffff;
+  return CATEGORY_COLORS[h % CATEGORY_COLORS.length];
 }
 
 // ===========================================================================
@@ -1857,6 +1912,7 @@ function TxnTable({ rows, money, selectedIds, allSelected, onToggleSelect, onSel
 
 function TxnRow({ t, money, onDelete, onEdit, selectMode = false, selected = false, onToggleSelect }) {
   const amt = amountDisplay(t);
+  const dotColor = catDotColor(t.category);
 
   const handleRowClick = selectMode
     ? (e) => {
@@ -1876,7 +1932,7 @@ function TxnRow({ t, money, onDelete, onEdit, selectMode = false, selected = fal
       }}
       onClick={handleRowClick}
     >
-      {selectMode && (
+      {selectMode ? (
         <input
           type="checkbox"
           checked={selected}
@@ -1884,18 +1940,28 @@ function TxnRow({ t, money, onDelete, onEdit, selectMode = false, selected = fal
           onClick={(e) => e.stopPropagation()}
           style={S.checkbox}
         />
+      ) : (
+        <div style={{
+          width: 36, height: 36, borderRadius: 10, flexShrink: 0,
+          background: `${dotColor}1a`,
+          border: `1px solid ${dotColor}35`,
+          display: "grid", placeItems: "center",
+          color: dotColor, fontSize: 13, fontWeight: 700,
+        }}>
+          {(t.category || "?")[0]}
+        </div>
       )}
       <div style={{ minWidth: 0, flex: 1 }}>
-        <div style={{ fontSize: 14, color: "#e5e7eb", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+        <div style={{ fontSize: 14, color: "#e5e7eb", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontWeight: 500 }}>
           {t.description || t.category}
         </div>
-        <div style={{ fontSize: 11, color: "#8b94a3", marginTop: 2 }}>
+        <div style={{ fontSize: 11, color: "#636366", marginTop: 2 }}>
           {t.date} · {t.category}
           {t.account ? ` · ${t.account}` : ""}
         </div>
       </div>
       <div style={{ textAlign: "right", display: "flex", alignItems: "center", gap: 8 }}>
-        <span style={{ color: amt.color, fontWeight: 600, fontSize: 14, whiteSpace: "nowrap" }}>
+        <span style={{ color: amt.color, fontWeight: 700, fontSize: 14, whiteSpace: "nowrap" }}>
           {amt.sign}
           {money(amt.value)}
         </span>
@@ -3075,30 +3141,49 @@ function Budgets({ transactions, budgets, onUpdateBudget, budgetSaving, money, c
             pct >= 100 ? "#f87171" : pct >= 80 ? "#fbbf24" : "#34d399";
           const isEditing = editCat === cat;
 
+          const dotColor = catDotColor(cat);
           return (
             <div
               key={cat}
               style={{
                 ...S.budgetRow,
-                borderTop: idx > 0 ? "1px solid #1f242c" : "none",
+                borderTop: idx > 0 ? "1px solid #1a1f28" : "none",
+                gap: 12,
               }}
             >
+              {/* Category color dot */}
+              <div style={{
+                width: 32, height: 32, borderRadius: 8, flexShrink: 0,
+                background: `${dotColor}1a`,
+                border: `1px solid ${dotColor}30`,
+                display: "grid", placeItems: "center",
+                color: dotColor, fontSize: 11, fontWeight: 700,
+              }}>
+                {cat[0]}
+              </div>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div
                   style={{
                     display: "flex",
                     justifyContent: "space-between",
                     alignItems: "center",
-                    marginBottom: 4,
+                    marginBottom: limit > 0 ? 6 : 2,
                   }}
                 >
                   <span style={{ fontSize: 13, color: "#e5e7eb", fontWeight: 500 }}>
                     {cat}
                   </span>
-                  <span style={{ fontSize: 12, color: "#8b94a3", whiteSpace: "nowrap", marginLeft: 8 }}>
-                    {money(spent)}
-                    {limit > 0 ? ` / ${money(limit)}` : ""}
-                  </span>
+                  <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                    {limit > 0 && pct >= 80 && (
+                      <span style={{ fontSize: 10, fontWeight: 700, color: barColor, textTransform: "uppercase", letterSpacing: 0.4 }}>
+                        {pct >= 100 ? "Over" : `${Math.round(pct)}%`}
+                      </span>
+                    )}
+                    <span style={{ fontSize: 12, color: "#8b94a3", whiteSpace: "nowrap" }}>
+                      {money(spent)}
+                      {limit > 0 ? ` / ${money(limit)}` : ""}
+                    </span>
+                  </div>
                 </div>
 
                 {/* Progress bar (only shown when limit is set) */}
@@ -3109,6 +3194,7 @@ function Budgets({ transactions, budgets, onUpdateBudget, budgetSaving, money, c
                         ...S.progressBar,
                         width: `${pct}%`,
                         background: barColor,
+                        boxShadow: pct >= 80 ? `0 0 6px ${barColor}60` : undefined,
                       }}
                     />
                   </div>
@@ -3475,7 +3561,7 @@ const S = {
     fontSize: 13,
   },
   center: { textAlign: "center", color: "#8b94a3", padding: 40 },
-  col: { display: "flex", flexDirection: "column", gap: 14 },
+  col: { display: "flex", flexDirection: "column", gap: 16 },
   // The Transactions tab fills the scroller and splits into a fixed controls
   // block (capped at half) and a list that scrolls in the remaining space.
   txnTab: {
@@ -3507,8 +3593,9 @@ const S = {
     border: "1px solid #1e2530",
     borderRadius: 16,
     padding: 16,
+    boxShadow: "0 2px 12px rgba(0,0,0,0.28)",
   },
-  sectionTitle: { margin: "8px 0 0", fontSize: 13, color: "#cbd5e1", fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.3 },
+  sectionTitle: { margin: "4px 0 0", fontSize: 10, color: "#8b94a3", fontWeight: 700, textTransform: "uppercase", letterSpacing: 1 },
   list: { display: "flex", flexDirection: "column", gap: 8 },
   txnRow: {
     display: "flex",
@@ -3685,15 +3772,15 @@ const S = {
     gap: 10,
   },
   progressTrack: {
-    height: 6,
+    height: 8,
     background: "#1f242c",
-    borderRadius: 4,
+    borderRadius: 6,
     overflow: "hidden",
   },
   progressBar: {
     height: "100%",
-    borderRadius: 4,
-    transition: "width 0.3s ease",
+    borderRadius: 6,
+    transition: "width 0.4s ease",
   },
   table: {
     width: "100%",
