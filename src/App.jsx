@@ -777,8 +777,6 @@ export default function App() {
 
       <TabBar tab={tab} setTab={setTab} wide={isWide} />
 
-      <DebugViewport />
-
       {settingsOpen ? (
         <SettingsModal
           config={config}
@@ -950,37 +948,6 @@ function SaveIndicator({ saving, dirty, savedAt, saveError }) {
   return null;
 }
 
-// TEMP diagnostic: shows the real viewport numbers iOS reports so we can see
-// whether the web view actually spans the full screen / honors the safe areas.
-function DebugViewport() {
-  const [info, setInfo] = useState("");
-  useEffect(() => {
-    const probe = document.createElement("div");
-    probe.style.cssText =
-      "position:fixed;top:0;left:0;height:100dvh;padding-top:env(safe-area-inset-top);padding-bottom:env(safe-area-inset-bottom);visibility:hidden;pointer-events:none";
-    document.body.appendChild(probe);
-    const cs = getComputedStyle(probe);
-    const dvh = probe.clientHeight;
-    const sat = cs.paddingTop;
-    const sab = cs.paddingBottom;
-    probe.remove();
-    const vv = window.visualViewport;
-    setInfo(
-      `innerH ${window.innerHeight} · screenH ${window.screen.height} · dvh ${dvh} · vv ${vv ? Math.round(vv.height) : "?"} · sat ${sat} · sab ${sab}`
-    );
-  }, []);
-  return (
-    <div style={{
-      position: "fixed", bottom: 0, left: 0, right: 0, zIndex: 9999,
-      background: "rgba(255,0,0,0.85)", color: "#fff", fontSize: 11,
-      fontWeight: 700, textAlign: "center", padding: "4px 6px",
-      fontFamily: "monospace", pointerEvents: "none",
-    }}>
-      {info}
-    </div>
-  );
-}
-
 function Header({ hideValues, onToggleHide, onLogout, onOpenSettings, saving, savedAt, dirty, saveError }) {
   return (
     <header style={S.header}>
@@ -996,7 +963,7 @@ function Header({ hideValues, onToggleHide, onLogout, onOpenSettings, saving, sa
             <LayoutDashboard size={14} color="#fff" />
           </div>
           <span style={{ fontWeight: 700, fontSize: 15, letterSpacing: -0.5, color: "#e5e7eb" }}>Household</span>
-          <span style={{ fontSize: 9, color: "#3f4651", fontWeight: 600 }}>v19</span>
+          <span style={{ fontSize: 9, color: "#3f4651", fontWeight: 600 }}>v20</span>
         </div>
         <SaveIndicator saving={saving} dirty={dirty} savedAt={savedAt} saveError={saveError} />
       </div>
@@ -3831,7 +3798,7 @@ const S = {
     justifyContent: "space-evenly",
     background: "#0b0d10",
     borderTop: "1px solid rgba(255,255,255,0.06)",
-    padding: "8px 8px max(8px, calc(env(safe-area-inset-bottom) - 14px))",
+    padding: "8px 8px max(10px, env(safe-area-inset-bottom))",
     zIndex: 10,
     gap: 4,
   },
