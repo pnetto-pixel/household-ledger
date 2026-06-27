@@ -1507,12 +1507,29 @@ function Transactions({ transactions, money, hideValues, isWide, onDelete, onUpd
 
   const allSelected = filtered.length > 0 && filtered.every((t) => selectedIds.has(t.id));
 
+  // Group mobile transactions by date for section headers.
+  const groupedByDate = useMemo(() => {
+    const groups = [];
+    let lastDate = null;
+    for (const t of filtered) {
+      if (t.date !== lastDate) {
+        groups.push({ date: t.date, txns: [t] });
+        lastDate = t.date;
+      } else {
+        groups[groups.length - 1].txns.push(t);
+      }
+    }
+    return groups;
+  }, [filtered]);
+
+  const net = summary.income - summary.expenses;
+
   return (
     <div style={S.txnTab}>
       {/* Fixed controls (capped at half the height, scroll internally if
           taller) over a list that owns the rest of the space and scrolls. */}
       <div style={S.txnControls}>
-      {/* Search box — always above the table */}
+      {/* Search box */}
       <div style={S.searchWrap}>
         <Search size={16} color="#8b94a3" />
         <input
@@ -1529,36 +1546,22 @@ function Transactions({ transactions, money, hideValues, isWide, onDelete, onUpd
         ) : null}
       </div>
 
-      {/* Day-level From/To range — both platforms */}
-      <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
-        <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, color: "#8b94a3" }}>
-          From
-          <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} style={{ ...S.input, width: "auto", padding: "8px 10px", fontSize: 13 }} />
-        </label>
-        <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, color: "#8b94a3" }}>
-          To
-          <input type="date" value={to} onChange={(e) => setTo(e.target.value)} style={{ ...S.input, width: "auto", padding: "8px 10px", fontSize: 13 }} />
-        </label>
-      </div>
-
-      {/* Mobile: the same multi-select filters as the desktop column headers,
-          shown here as tappable chips (desktop filters them from the header). */}
+      {/* Filter chips — mobile only (desktop uses column-header filters in the table) */}
       {!isWide && (
-        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+        <div style={{ display: "flex", gap: 6, overflowX: "auto", paddingBottom: 2, WebkitOverflowScrolling: "touch" }}>
           <HeaderFilter chip label="Type" value={typeFilter} options={["Income", "Expense", "Transfer"]} onChange={setTypeFilter} />
           <HeaderFilter chip label="Account" value={acctFilter} options={acctOptions} onChange={setAcctFilter} />
           <HeaderFilter chip label="Category" value={catFilter} options={catOptions} onChange={setCatFilter} />
-          <DateHeaderFilter chip years={years} dateYears={dateYears} setDateYears={setDateYears} dateMonths={dateMonths} setDateMonths={setDateMonths} />
+          <DateHeaderFilter chip years={years} dateYears={dateYears} setDateYears={setDateYears} dateMonths={dateMonths} setDateMonths={setDateMonths} from={from} setFrom={setFrom} to={to} setTo={setTo} />
         </div>
       )}
 
-      {/* Audit summary for the filtered set */}
+      {/* Audit summary — colored pills */}
       <div style={S.summaryBar}>
-        <span style={{ color: "#cbd5e1", fontWeight: 600 }}>{filtered.length} txns</span>
-        <span style={{ color: TYPE_COLOR.Income }}>Income {money(summary.income)}</span>
-        <span style={{ color: TYPE_COLOR.Expense }}>Expenses {money(summary.expenses)}</span>
-        <span style={{ color: "#e5e7eb" }}>Net {money(summary.income - summary.expenses)}</span>
-        <span style={{ color: TYPE_COLOR.Transfer }}>Transfer {money(summary.transfer)} · excluded</span>
+        <span style={{ fontSize: 11, color: "#636366" }}>{filtered.length} txns</span>
+        <span style={{ fontSize: 11, color: "#34d399", background: "rgba(52,211,153,0.1)", borderRadius: 6, padding: "2px 8px" }}>↑ {money(summary.income)}</span>
+        <span style={{ fontSize: 11, color: "#f87171", background: "rgba(248,113,113,0.1)", borderRadius: 6, padding: "2px 8px" }}>↓ {money(summary.expenses)}</span>
+        <span style={{ fontSize: 11, color: net >= 0 ? "#34d399" : "#f87171", background: "rgba(255,255,255,0.05)", borderRadius: 6, padding: "2px 8px" }}>= {money(net)}</span>
       </div>
 
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
@@ -1684,20 +1687,34 @@ function Transactions({ transactions, money, hideValues, isWide, onDelete, onUpd
           setDateYears={setDateYears}
           dateMonths={dateMonths}
           setDateMonths={setDateMonths}
+          from={from}
+          setFrom={setFrom}
+          to={to}
+          setTo={setTo}
         />
       ) : (
         <div style={S.list}>
-          {filtered.map((t) => (
-            <TxnAuditCard
-              key={t.id}
-              t={t}
-              money={money}
-              selected={selectedIds.has(t.id)}
-              onToggleSelect={toggleRowSelect}
-              onInlineChange={(txn, patch) => onUpdate({ ...txn, ...patch })}
-              onEdit={setEditing}
-              onDelete={onDelete}
-            />
+          {groupedByDate.map(({ date, txns }) => (
+            <React.Fragment key={date || "nodate"}>
+              <div style={S.dateGroupHeader}>
+                <span>{formatDateHeader(date)}</span>
+                <span style={{ color: "#4b5563", fontSize: 10 }}>
+                  {txns.length} txn{txns.length !== 1 ? "s" : ""}
+                </span>
+              </div>
+              {txns.map((t) => (
+                <TxnAuditCard
+                  key={t.id}
+                  t={t}
+                  money={money}
+                  selected={selectedIds.has(t.id)}
+                  onToggleSelect={toggleRowSelect}
+                  onInlineChange={(txn, patch) => onUpdate({ ...txn, ...patch })}
+                  onEdit={setEditing}
+                  onDelete={onDelete}
+                />
+              ))}
+            </React.Fragment>
           ))}
         </div>
       )}
@@ -1715,6 +1732,15 @@ function Transactions({ transactions, money, hideValues, isWide, onDelete, onUpd
       ) : null}
     </div>
   );
+}
+
+function formatDateHeader(dateStr) {
+  if (!dateStr) return "Unknown";
+  const today = todayISO();
+  const yesterday = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
+  if (dateStr === today) return "Today";
+  if (dateStr === yesterday) return "Yesterday";
+  return new Date(dateStr + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
 }
 
 // Hook: close a popover when clicking outside its ref.
@@ -1770,49 +1796,71 @@ function HeaderFilter({ label, value, options, onChange, chip }) {
   );
 }
 
-// Date column-header filter: multi-select years and/or months (no days).
-function DateHeaderFilter({ years, dateYears, setDateYears, dateMonths, setDateMonths, chip }) {
+// Date column-header filter: multi-select years and/or months, plus optional
+// From/To day-level range (passed as props when available).
+function DateHeaderFilter({ years, dateYears, setDateYears, dateMonths, setDateMonths, chip, from, to, setFrom, setTo }) {
   const [open, setOpen] = useState(false);
   const ref = useRef(null);
-  const active = dateYears.length > 0 || dateMonths.length > 0;
+  const hasRange = !!(from || to);
+  const active = dateYears.length > 0 || dateMonths.length > 0 || hasRange;
   useOutsideClose(ref, open, setOpen);
   const toggle = (arr, set, v) =>
     set(arr.includes(v) ? arr.filter((x) => x !== v) : [...arr, v]);
   const labelText = !active
     ? "Date"
+    : hasRange && dateYears.length === 0 && dateMonths.length === 0
+    ? `Date: ${from || "…"} → ${to || "…"}`
     : `Date (${[...dateYears, ...dateMonths.map((m) => (MONTHS.find((x) => x.v === m) || {}).l)].join(", ")})`;
   return (
     <div ref={ref} style={{ position: "relative" }}>
-      <button onClick={() => setOpen((o) => !o)} style={chip ? S.chipBtn(active) : S.thBtn(active)} title="Filter by year / month">
+      <button onClick={() => setOpen((o) => !o)} style={chip ? S.chipBtn(active) : S.thBtn(active)} title="Filter by date">
         <span>{labelText}</span>
         <span style={{ fontSize: 9, opacity: 0.7 }}>▼</span>
       </button>
       {open && (
-        <div style={{ ...S.headerPop, display: "flex", gap: 8, minWidth: 220 }}>
-          <div style={{ flex: 1 }}>
-            <div style={S.popHead}>Year</div>
-            {years.length === 0 ? <div style={{ ...S.popItem(false), color: "#6b7280" }}>—</div> : null}
-            {years.map((y) => {
-              const sel = dateYears.includes(y);
-              return (
-                <button key={y} onClick={() => toggle(dateYears, setDateYears, y)} style={S.popItem(sel)}>
-                  <span style={{ display: "inline-block", width: 14 }}>{sel ? "✓" : ""}</span>
-                  {y}
-                </button>
-              );
-            })}
-          </div>
-          <div style={{ flex: 1 }}>
-            <div style={S.popHead}>Month</div>
-            {MONTHS.map((m) => {
-              const sel = dateMonths.includes(m.v);
-              return (
-                <button key={m.v} onClick={() => toggle(dateMonths, setDateMonths, m.v)} style={S.popItem(sel)}>
-                  <span style={{ display: "inline-block", width: 14 }}>{sel ? "✓" : ""}</span>
-                  {m.l}
-                </button>
-              );
-            })}
+        <div style={{ ...S.headerPop, display: "flex", flexDirection: "column", gap: 8, minWidth: 240 }}>
+          {/* From/To range — only when setFrom/setTo are provided */}
+          {setFrom && setTo && (
+            <div>
+              <div style={S.popHead}>Date range</div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 6, padding: "4px 8px" }}>
+                <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: "#8b94a3" }}>
+                  <span style={{ width: 28 }}>From</span>
+                  <input type="date" value={from || ""} onChange={(e) => setFrom(e.target.value)} style={{ ...S.input, flex: 1, padding: "6px 8px", fontSize: 12 }} />
+                </label>
+                <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: "#8b94a3" }}>
+                  <span style={{ width: 28 }}>To</span>
+                  <input type="date" value={to || ""} onChange={(e) => setTo(e.target.value)} style={{ ...S.input, flex: 1, padding: "6px 8px", fontSize: 12 }} />
+                </label>
+              </div>
+            </div>
+          )}
+          <div style={{ display: "flex", gap: 8 }}>
+            <div style={{ flex: 1 }}>
+              <div style={S.popHead}>Year</div>
+              {years.length === 0 ? <div style={{ ...S.popItem(false), color: "#6b7280" }}>—</div> : null}
+              {years.map((y) => {
+                const sel = dateYears.includes(y);
+                return (
+                  <button key={y} onClick={() => toggle(dateYears, setDateYears, y)} style={S.popItem(sel)}>
+                    <span style={{ display: "inline-block", width: 14 }}>{sel ? "✓" : ""}</span>
+                    {y}
+                  </button>
+                );
+              })}
+            </div>
+            <div style={{ flex: 1 }}>
+              <div style={S.popHead}>Month</div>
+              {MONTHS.map((m) => {
+                const sel = dateMonths.includes(m.v);
+                return (
+                  <button key={m.v} onClick={() => toggle(dateMonths, setDateMonths, m.v)} style={S.popItem(sel)}>
+                    <span style={{ display: "inline-block", width: 14 }}>{sel ? "✓" : ""}</span>
+                    {m.l}
+                  </button>
+                );
+              })}
+            </div>
           </div>
         </div>
       )}
@@ -1825,7 +1873,7 @@ function DateHeaderFilter({ years, dateYears, setDateYears, dateMonths, setDateM
 // row selection for bulk actions.
 // ---------------------------------------------------------------------------
 
-function TxnTable({ rows, money, selectedIds, allSelected, onToggleSelect, onSelectAll, onInlineChange, onEdit, onDelete, typeFilter, setTypeFilter, acctFilter, setAcctFilter, catFilter, setCatFilter, acctOptions, catOptions, years, dateYears, setDateYears, dateMonths, setDateMonths }) {
+function TxnTable({ rows, money, selectedIds, allSelected, onToggleSelect, onSelectAll, onInlineChange, onEdit, onDelete, typeFilter, setTypeFilter, acctFilter, setAcctFilter, catFilter, setCatFilter, acctOptions, catOptions, years, dateYears, setDateYears, dateMonths, setDateMonths, from, setFrom, to, setTo }) {
   return (
     <div style={{ ...S.card, padding: 0, overflow: "visible" }}>
       <table style={S.table}>
@@ -1835,7 +1883,7 @@ function TxnTable({ rows, money, selectedIds, allSelected, onToggleSelect, onSel
               <input type="checkbox" checked={allSelected} onChange={(e) => onSelectAll(e.target.checked)} style={S.checkbox} />
             </th>
             <th style={S.th}>
-              <DateHeaderFilter years={years} dateYears={dateYears} setDateYears={setDateYears} dateMonths={dateMonths} setDateMonths={setDateMonths} />
+              <DateHeaderFilter years={years} dateYears={dateYears} setDateYears={setDateYears} dateMonths={dateMonths} setDateMonths={setDateMonths} from={from} setFrom={setFrom} to={to} setTo={setTo} />
             </th>
             <th style={S.th}>Description</th>
             <th style={S.th}>
@@ -3862,7 +3910,7 @@ const S = {
   },
   summaryBar: {
     display: "flex",
-    gap: 12,
+    gap: 8,
     flexWrap: "wrap",
     alignItems: "center",
     fontSize: 12,
@@ -3870,6 +3918,18 @@ const S = {
     background: "#161a20",
     border: "1px solid #1e2530",
     borderRadius: 10,
+  },
+  dateGroupHeader: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingTop: 6,
+    paddingBottom: 2,
+    fontSize: 11,
+    fontWeight: 600,
+    color: "#8b94a3",
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
   },
   bulkBar: {
     display: "flex",
