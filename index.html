@@ -14,20 +14,18 @@
     <link rel="apple-touch-icon" href="/icon-192.png" />
     <title>Household Ledger</title>
     <style>
-      /* Lock the page so it can't scroll or rubber-band (the bounce was
-         revealing a black overscroll area over the fixed tab bar). The app's
-         own fixed shell handles all layout and internal scrolling. */
-      html, body {
+      /* Size every container to the FULL physical screen (100lvh = 874pt on
+         this device; 100dvh/% = only the 812pt safe viewport, which left the
+         34px home-indicator strip uncovered). All equal → no overflow to
+         rubber-band and nothing clipped. The app's fixed shell scrolls only
+         its inner <main>. */
+      html, body, #root {
         margin: 0;
-        height: 100%;
+        height: 100lvh;
         overflow: hidden;
-        position: fixed;
-        inset: 0;
-        width: 100%;
-        background: #0b0d10;
         overscroll-behavior: none;
+        background: #0b0d10;
       }
-      #root { height: 100%; }
     </style>
   </head>
   <body>

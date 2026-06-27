@@ -963,7 +963,7 @@ function Header({ hideValues, onToggleHide, onLogout, onOpenSettings, saving, sa
             <LayoutDashboard size={14} color="#fff" />
           </div>
           <span style={{ fontWeight: 700, fontSize: 15, letterSpacing: -0.5, color: "#e5e7eb" }}>Household</span>
-          <span style={{ fontSize: 9, color: "#3f4651", fontWeight: 600 }}>v25</span>
+          <span style={{ fontSize: 9, color: "#3f4651", fontWeight: 600 }}>v26</span>
         </div>
         <SaveIndicator saving={saving} dirty={dirty} savedAt={savedAt} saveError={saveError} />
       </div>
@@ -3679,16 +3679,11 @@ function Empty({ children }) {
 
 const S = {
   app: {
-    // On-device measurement: 100dvh/svh = 812pt (the safe layout viewport),
-    // but 100vh/100lvh = 874pt = the FULL physical screen. Use 100lvh so the
-    // shell spans the whole screen; the tab bar (last flex child) then sits on
-    // the physical bottom and its env(safe-area-inset-bottom) padding keeps the
-    // icons above the home indicator.
-    position: "fixed",
-    top: 0,
-    left: 0,
-    right: 0,
-    height: "100lvh",
+    // Fills #root, which is sized to 100lvh (the full physical screen) in
+    // index.html. The tab bar (last flex child) lands on the real bottom edge;
+    // its env(safe-area-inset-bottom) padding keeps the icons above the home
+    // indicator. (dvh/% gave only the 812pt safe viewport → bottom strip.)
+    height: "100%",
     overflow: "hidden",
     background: "#0b0d10",
     color: "#e5e7eb",
