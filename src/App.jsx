@@ -963,7 +963,7 @@ function Header({ hideValues, onToggleHide, onLogout, onOpenSettings, saving, sa
             <LayoutDashboard size={14} color="#fff" />
           </div>
           <span style={{ fontWeight: 700, fontSize: 15, letterSpacing: -0.5, color: "#e5e7eb" }}>Household</span>
-          <span style={{ fontSize: 9, color: "#3f4651", fontWeight: 600 }}>v13</span>
+          <span style={{ fontSize: 9, color: "#3f4651", fontWeight: 600 }}>v14</span>
         </div>
         <SaveIndicator saving={saving} dirty={dirty} savedAt={savedAt} saveError={saveError} />
       </div>
@@ -1018,18 +1018,19 @@ function TabBar({ tab, setTab, wide }) {
           <button
             key={id}
             onClick={() => setTab(id)}
+            aria-label={label}
+            title={label}
             style={{ ...S.tabBtn, color: active ? "#0A84FF" : "#8b94a3", position: "relative" }}
           >
-            <div style={{ position: "relative", display: "flex", alignItems: "center", justifyContent: "center", padding: "3px 12px" }}>
+            <div style={{ position: "relative", display: "flex", alignItems: "center", justifyContent: "center", padding: "6px 16px" }}>
               {active && (
                 <div style={{
-                  position: "absolute", inset: 0, background: "rgba(10,132,255,0.12)",
-                  borderRadius: 8, pointerEvents: "none",
+                  position: "absolute", inset: 0, background: "rgba(10,132,255,0.14)",
+                  borderRadius: 10, pointerEvents: "none",
                 }} />
               )}
-              <Icon size={18} />
+              <Icon size={22} />
             </div>
-            <span style={{ fontSize: 9, marginTop: 2, fontWeight: active ? 600 : 500 }}>{label}</span>
           </button>
         );
       })}
