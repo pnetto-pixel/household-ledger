@@ -214,26 +214,18 @@ const txnType = (cat) =>
 
 const TYPE_COLOR = { Income: "#34d399", Expense: "#f87171", Transfer: "#8b94a3" };
 
-// Presentation of a transaction's amount. Uses the raw sign of `amount`
-// (CK's sign is always preserved verbatim), and uses color to signal the
-// economic direction:
-//   normal income (positive) → green     clawback on income (negative) → red
-//   normal expense (positive) → red      refund on expense (negative)  → green
-// The "−" sign is shown only for reversals (negative amounts). Normal
-// positive transactions show no explicit sign — color carries the direction.
-// Transfer is shown as a plain magnitude with no color emphasis.
+// Presentation of a transaction's amount. The rule is simple and category
+// independent: the sign comes straight from Credit Karma's `amount` and is
+// never altered. Negative → red with a "−"; positive → green, no sign. The
+// ONLY category that overrides this is Transfer: gray, no sign.
 // Returns { sign, color, value } where value is the (positive) magnitude.
 function amountDisplay(t) {
   const raw = Number(t.amount) || 0;
   if (isTransfer(t.category)) return { sign: "", color: TYPE_COLOR.Transfer, value: Math.abs(raw) };
-  const reversal = raw < 0;
-  const inc = isIncome(t.category);
-  // Normal income (inc && !reversal) or expense refund (!inc && reversal) → green
-  // Normal expense (inc && !reversal) → actually red; clawback (inc && reversal) → red
-  const color = (inc && !reversal) || (!inc && reversal) ? TYPE_COLOR.Income : TYPE_COLOR.Expense;
+  const negative = raw < 0;
   return {
-    sign: reversal ? "−" : "",
-    color,
+    sign: negative ? "−" : "",
+    color: negative ? TYPE_COLOR.Expense : TYPE_COLOR.Income,
     value: Math.abs(raw),
   };
 }
