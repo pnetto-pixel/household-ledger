@@ -963,7 +963,7 @@ function Header({ hideValues, onToggleHide, onLogout, onOpenSettings, saving, sa
             <LayoutDashboard size={14} color="#fff" />
           </div>
           <span style={{ fontWeight: 700, fontSize: 15, letterSpacing: -0.5, color: "#e5e7eb" }}>Household</span>
-          <span style={{ fontSize: 9, color: "#3f4651", fontWeight: 600 }}>v14</span>
+          <span style={{ fontSize: 9, color: "#3f4651", fontWeight: 600 }}>v15</span>
         </div>
         <SaveIndicator saving={saving} dirty={dirty} savedAt={savedAt} saveError={saveError} />
       </div>
@@ -3794,16 +3794,8 @@ const S = {
     placeItems: "center",
   },
   tabBar: {
-    // Pinned to the physical bottom edge. A fixed bottom:0 element reliably
-    // reaches the real screen bottom in the iOS standalone PWA (the flex-child
-    // approach left the bar above the home-indicator inset, exposing a dark
-    // strip). The bar's own background + safe-area padding then fills the
-    // indicator area. Centered for the desktop maxWidth shell.
     position: "fixed",
-    // bottom:0 anchors at the TOP of the home-indicator safe-area (~34px above
-    // the physical edge), which left a dark gap below the bar. Offset down by
-    // that inset so the bar reaches the physical edge; the padding-bottom then
-    // sets how far the labels clear the home indicator.
+    // Pushed below the safe-area boundary so the icons reach the physical edge.
     bottom: "calc(-1 * env(safe-area-inset-bottom))",
     left: "50%",
     transform: "translateX(-50%)",
@@ -3811,13 +3803,10 @@ const S = {
     boxSizing: "border-box",
     display: "flex",
     justifyContent: "space-evenly",
-    // Match the page background so the bar reads as icons on the page, not a
-    // distinct gray block. Opaque so scrolled content doesn't show through.
-    background: "#0b0d10",
-    borderTop: "1px solid rgba(255,255,255,0.06)",
-    // Bar bottom is at the physical edge (via the negative offset above), so
-    // this bottom padding is the labels' clearance over the home indicator.
-    padding: "6px 8px 16px",
+    // No hard "bar": a gradient that fades up to transparent so the icons sit
+    // over the content without a solid black band or border line cutting it.
+    background: "linear-gradient(to top, #0b0d10 45%, rgba(11,13,16,0.85) 72%, rgba(11,13,16,0))",
+    padding: "16px 8px 16px",
     zIndex: 10,
     gap: 4,
   },
