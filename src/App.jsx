@@ -3813,7 +3813,7 @@ const S = {
     // regardless of this padding. Reserve only part of the home-indicator
     // inset so the icons sit low (less empty gray below) while still clearing
     // the indicator (~8pt).
-    padding: "5px 8px max(10px, calc(env(safe-area-inset-bottom) - 18px))",
+    padding: "5px 8px max(6px, calc(env(safe-area-inset-bottom) - 26px))",
     zIndex: 10,
     gap: 4,
   },
