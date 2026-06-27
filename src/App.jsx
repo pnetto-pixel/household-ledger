@@ -963,7 +963,7 @@ function Header({ hideValues, onToggleHide, onLogout, onOpenSettings, saving, sa
             <LayoutDashboard size={14} color="#fff" />
           </div>
           <span style={{ fontWeight: 700, fontSize: 15, letterSpacing: -0.5, color: "#e5e7eb" }}>Household</span>
-          <span style={{ fontSize: 9, color: "#3f4651", fontWeight: 600 }}>v10</span>
+          <span style={{ fontSize: 9, color: "#3f4651", fontWeight: 600 }}>v11</span>
         </div>
         <SaveIndicator saving={saving} dirty={dirty} savedAt={savedAt} saveError={saveError} />
       </div>
@@ -3811,10 +3811,10 @@ const S = {
     boxSizing: "border-box",
     display: "flex",
     justifyContent: "space-evenly",
-    background: "rgba(20,24,30,0.92)",
-    backdropFilter: "blur(20px) saturate(180%)",
-    WebkitBackdropFilter: "blur(20px) saturate(180%)",
-    borderTop: "1px solid rgba(255,255,255,0.08)",
+    // Match the page background so the bar reads as icons on the page, not a
+    // distinct gray block. Opaque so scrolled content doesn't show through.
+    background: "#0b0d10",
+    borderTop: "1px solid rgba(255,255,255,0.06)",
     // Bar is fixed to bottom:0, so its background fills to the screen edge
     // regardless of this padding. Use a small fixed bottom padding (not the
     // safe-area inset) so the icons sit right at the bottom with no empty gap.
