@@ -963,7 +963,7 @@ function Header({ hideValues, onToggleHide, onLogout, onOpenSettings, saving, sa
             <LayoutDashboard size={14} color="#fff" />
           </div>
           <span style={{ fontWeight: 700, fontSize: 15, letterSpacing: -0.5, color: "#e5e7eb" }}>Household</span>
-          <span style={{ fontSize: 9, color: "#3f4651", fontWeight: 600 }}>v15</span>
+          <span style={{ fontSize: 9, color: "#3f4651", fontWeight: 600 }}>v16</span>
         </div>
         <SaveIndicator saving={saving} dirty={dirty} savedAt={savedAt} saveError={saveError} />
       </div>
@@ -3795,8 +3795,9 @@ const S = {
   },
   tabBar: {
     position: "fixed",
-    // Pushed below the safe-area boundary so the icons reach the physical edge.
-    bottom: "calc(-1 * env(safe-area-inset-bottom))",
+    // bottom:0 IS the physical screen edge here — no negative offset (that
+    // pushed the bar off-screen and clipped the icons' lower half).
+    bottom: 0,
     left: "50%",
     transform: "translateX(-50%)",
     width: "100%",
@@ -3804,9 +3805,10 @@ const S = {
     display: "flex",
     justifyContent: "space-evenly",
     // No hard "bar": a gradient that fades up to transparent so the icons sit
-    // over the content without a solid black band or border line cutting it.
+    // over the content without a solid black band or border line.
     background: "linear-gradient(to top, #0b0d10 45%, rgba(11,13,16,0.85) 72%, rgba(11,13,16,0))",
-    padding: "16px 8px 16px",
+    // Small bottom padding so the icons sit low but fully on-screen.
+    padding: "18px 8px 12px",
     zIndex: 10,
     gap: 4,
   },
