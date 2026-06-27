@@ -777,8 +777,6 @@ export default function App() {
 
       <TabBar tab={tab} setTab={setTab} wide={isWide} />
 
-      <DebugViewport />
-
       {settingsOpen ? (
         <SettingsModal
           config={config}
@@ -950,42 +948,6 @@ function SaveIndicator({ saving, dirty, savedAt, saveError }) {
   return null;
 }
 
-// TEMP diagnostic (top bar, so it doesn't cover the bottom strip): measures
-// each viewport unit separately to find which one equals the full screen.
-function DebugViewport() {
-  const [info, setInfo] = useState("");
-  useEffect(() => {
-    const measure = (h) => {
-      const p = document.createElement("div");
-      p.style.cssText = `position:fixed;top:0;left:0;width:1px;height:${h};visibility:hidden;pointer-events:none`;
-      document.body.appendChild(p);
-      const v = p.clientHeight;
-      p.remove();
-      return v;
-    };
-    const sab = (() => {
-      const p = document.createElement("div");
-      p.style.cssText = "position:fixed;height:env(safe-area-inset-bottom);visibility:hidden";
-      document.body.appendChild(p);
-      const v = p.clientHeight;
-      p.remove();
-      return v;
-    })();
-    setInfo(
-      `inner ${window.innerHeight} screen ${window.screen.height} gap ${window.screen.height - window.innerHeight} | dvh ${measure("100dvh")} lvh ${measure("100lvh")} svh ${measure("100svh")} vh ${measure("100vh")} | sab ${sab}`
-    );
-  }, []);
-  return (
-    <div style={{
-      position: "fixed", top: "env(safe-area-inset-top)", left: 0, right: 0, zIndex: 9999,
-      background: "rgba(255,0,0,0.9)", color: "#fff", fontSize: 10, fontWeight: 700,
-      textAlign: "center", padding: "3px 6px", fontFamily: "monospace", pointerEvents: "none",
-    }}>
-      {info}
-    </div>
-  );
-}
-
 function Header({ hideValues, onToggleHide, onLogout, onOpenSettings, saving, savedAt, dirty, saveError }) {
   return (
     <header style={S.header}>
@@ -1001,7 +963,7 @@ function Header({ hideValues, onToggleHide, onLogout, onOpenSettings, saving, sa
             <LayoutDashboard size={14} color="#fff" />
           </div>
           <span style={{ fontWeight: 700, fontSize: 15, letterSpacing: -0.5, color: "#e5e7eb" }}>Household</span>
-          <span style={{ fontSize: 9, color: "#3f4651", fontWeight: 600 }}>v23</span>
+          <span style={{ fontSize: 9, color: "#3f4651", fontWeight: 600 }}>v24</span>
         </div>
         <SaveIndicator saving={saving} dirty={dirty} savedAt={savedAt} saveError={saveError} />
       </div>
@@ -3717,17 +3679,16 @@ function Empty({ children }) {
 
 const S = {
   app: {
-    // The fixed containing block / layout viewport is only the 812pt "safe"
-    // area — bottom:0 stops above the 34px home-indicator inset. Extend the
-    // shell's bottom edge DOWN into that inset with a negative offset (now that
-    // viewport-fit=cover exposes env()), so the shell reaches the physical
-    // edge and the tab bar (last flex child) sits on it; the tab bar's
-    // env(safe-area-inset-bottom) padding keeps the icons above the indicator.
+    // On-device measurement: 100dvh/svh = 812pt (the safe layout viewport),
+    // but 100vh/100lvh = 874pt = the FULL physical screen. Use 100lvh so the
+    // shell spans the whole screen; the tab bar (last flex child) then sits on
+    // the physical bottom and its env(safe-area-inset-bottom) padding keeps the
+    // icons above the home indicator.
     position: "fixed",
     top: 0,
-    bottom: "calc(-1 * env(safe-area-inset-bottom))",
     left: 0,
     right: 0,
+    height: "100lvh",
     overflow: "hidden",
     background: "#0b0d10",
     color: "#e5e7eb",
