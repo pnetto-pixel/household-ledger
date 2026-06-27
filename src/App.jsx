@@ -963,7 +963,7 @@ function Header({ hideValues, onToggleHide, onLogout, onOpenSettings, saving, sa
             <LayoutDashboard size={14} color="#fff" />
           </div>
           <span style={{ fontWeight: 700, fontSize: 15, letterSpacing: -0.5, color: "#e5e7eb" }}>Household</span>
-          <span style={{ fontSize: 9, color: "#3f4651", fontWeight: 600 }}>v16</span>
+          <span style={{ fontSize: 9, color: "#3f4651", fontWeight: 600 }}>v17</span>
         </div>
         <SaveIndicator saving={saving} dirty={dirty} savedAt={savedAt} saveError={saveError} />
       </div>
@@ -3679,15 +3679,11 @@ function Empty({ children }) {
 
 const S = {
   app: {
-    // Fixed-height app shell pinned to the visual viewport edges. Only <main>
-    // scrolls, so the header and tab bar stay put. position:fixed + inset:0 is
-    // the reliable way to fill the real screen on iOS standalone, where
-    // 100dvh / 100% can resolve short and leave a black band under the tab bar.
-    position: "fixed",
-    top: 0,
-    bottom: 0,
-    left: 0,
-    right: 0,
+    // Full-height shell using the dynamic viewport (dvh = the visual viewport,
+    // which on iOS standalone spans the real screen incl. the home-indicator
+    // area). position:fixed anchored to the *layout* viewport instead, which
+    // excludes the bottom inset — leaving unused space below the tab bar.
+    height: "100dvh",
     overflow: "hidden",
     background: "#0b0d10",
     color: "#e5e7eb",
@@ -3715,9 +3711,7 @@ const S = {
   main: {
     flex: 1,
     minHeight: 0,
-    // Bottom padding clears the fixed tab bar so the last row isn't hidden
-    // behind it (bar is ~64px tall incl. its small bottom padding).
-    padding: "16px 16px 72px",
+    padding: "16px 16px 20px",
     overflowY: "auto",
   },
   errorBar: {
@@ -3794,21 +3788,17 @@ const S = {
     placeItems: "center",
   },
   tabBar: {
-    position: "fixed",
-    // bottom:0 IS the physical screen edge here — no negative offset (that
-    // pushed the bar off-screen and clipped the icons' lower half).
-    bottom: 0,
-    left: "50%",
-    transform: "translateX(-50%)",
+    // Normal flex child at the bottom of the 100dvh shell, so it sits at the
+    // real screen edge. Bottom padding = the home-indicator clearance, trimmed
+    // a little so the icons sit low without being under the indicator.
+    flexShrink: 0,
     width: "100%",
     boxSizing: "border-box",
     display: "flex",
     justifyContent: "space-evenly",
-    // No hard "bar": a gradient that fades up to transparent so the icons sit
-    // over the content without a solid black band or border line.
-    background: "linear-gradient(to top, #0b0d10 45%, rgba(11,13,16,0.85) 72%, rgba(11,13,16,0))",
-    // Small bottom padding so the icons sit low but fully on-screen.
-    padding: "18px 8px 12px",
+    background: "#0b0d10",
+    borderTop: "1px solid rgba(255,255,255,0.06)",
+    padding: "8px 8px max(8px, calc(env(safe-area-inset-bottom) - 14px))",
     zIndex: 10,
     gap: 4,
   },
