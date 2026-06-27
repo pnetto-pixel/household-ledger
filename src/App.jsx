@@ -212,32 +212,29 @@ const isTransfer = (cat) => cat === TRANSFER_CATEGORY;
 const txnType = (cat) =>
   isTransfer(cat) ? "Transfer" : isIncome(cat) ? "Income" : "Expense";
 
-// When a category change crosses the income/expense boundary, negate the
-// stored amount so the displayed cash-flow sign stays the same. Transfer is
-// exempt — it is the only category where a visible sign change is acceptable.
-const withCategoryChange = (t, newCat) => {
-  const updated = { ...t, category: newCat };
-  if (!isTransfer(t.category) && !isTransfer(newCat) && isIncome(t.category) !== isIncome(newCat))
-    updated.amount = -(Number(t.amount) || 0);
-  return updated;
-};
-
 const TYPE_COLOR = { Income: "#34d399", Expense: "#f87171", Transfer: "#8b94a3" };
 
-// Cash-flow presentation of a transaction's amount. The stored `amount` is
-// signed in the category's natural direction: positive is a normal income /
-// expense, negative is a reversal (a refund on an expense, a clawback/tax on
-// income). Income adds to cash flow, expense subtracts; a reversal flips the
-// shown sign and color. Transfer is shown as a plain magnitude.
+// Presentation of a transaction's amount. Uses the raw sign of `amount`
+// (CK's sign is always preserved verbatim), and uses color to signal the
+// economic direction:
+//   normal income (positive) → green     clawback on income (negative) → red
+//   normal expense (positive) → red      refund on expense (negative)  → green
+// The "−" sign is shown only for reversals (negative amounts). Normal
+// positive transactions show no explicit sign — color carries the direction.
+// Transfer is shown as a plain magnitude with no color emphasis.
 // Returns { sign, color, value } where value is the (positive) magnitude.
 function amountDisplay(t) {
   const raw = Number(t.amount) || 0;
   if (isTransfer(t.category)) return { sign: "", color: TYPE_COLOR.Transfer, value: Math.abs(raw) };
-  const cf = (isIncome(t.category) ? 1 : -1) * raw;
+  const reversal = raw < 0;
+  const inc = isIncome(t.category);
+  // Normal income (inc && !reversal) or expense refund (!inc && reversal) → green
+  // Normal expense (inc && !reversal) → actually red; clawback (inc && reversal) → red
+  const color = (inc && !reversal) || (!inc && reversal) ? TYPE_COLOR.Income : TYPE_COLOR.Expense;
   return {
-    sign: cf > 0 ? "+" : cf < 0 ? "−" : "",
-    color: cf >= 0 ? TYPE_COLOR.Income : TYPE_COLOR.Expense,
-    value: Math.abs(cf),
+    sign: reversal ? "−" : "",
+    color,
+    value: Math.abs(raw),
   };
 }
 
@@ -601,10 +598,7 @@ export default function App() {
     (ids, patch) => {
       setTransactions((prev) => {
         const idSet = new Set(ids);
-        const next = prev.map((t) => {
-          if (!idSet.has(t.id)) return t;
-          return patch.category ? { ...withCategoryChange(t, patch.category), ...patch } : { ...t, ...patch };
-        });
+        const next = prev.map((t) => (idSet.has(t.id) ? { ...t, ...patch } : t));
         scheduleSave(next);
         return next;
       });
@@ -1682,7 +1676,7 @@ function Transactions({ transactions, money, hideValues, isWide, onDelete, onUpd
           allSelected={allSelected}
           onToggleSelect={toggleRowSelect}
           onSelectAll={(checked) => handleSelectAll(filtered, checked)}
-          onInlineChange={(t, patch) => onUpdate(patch.category ? { ...withCategoryChange(t, patch.category), ...patch } : { ...t, ...patch })}
+          onInlineChange={(t, patch) => onUpdate({ ...t, ...patch })}
           onEdit={setEditing}
           onDelete={onDelete}
           typeFilter={typeFilter}
@@ -1708,7 +1702,7 @@ function Transactions({ transactions, money, hideValues, isWide, onDelete, onUpd
               money={money}
               selected={selectedIds.has(t.id)}
               onToggleSelect={toggleRowSelect}
-              onInlineChange={(txn, patch) => onUpdate(patch.category ? { ...withCategoryChange(txn, patch.category), ...patch } : { ...txn, ...patch })}
+              onInlineChange={(txn, patch) => onUpdate({ ...txn, ...patch })}
               onEdit={setEditing}
               onDelete={onDelete}
             />
@@ -2100,19 +2094,6 @@ function EditModal({ txn, onClose, onSave }) {
     ACCOUNTS.includes(txn.account) ? txn.account : ""
   );
   const [err, setErr] = useState("");
-  const prevCatRef = useRef(CATEGORIES.includes(txn.category) ? txn.category : "Other");
-
-  // When the category crosses the income/expense boundary, negate the stored
-  // amount so the displayed cash-flow sign (+/-) stays the same. Transfer is
-  // the only category where a sign change in the display is acceptable.
-  const handleCategoryChange = (newCat) => {
-    const prev = prevCatRef.current;
-    if (!isTransfer(prev) && !isTransfer(newCat) && isIncome(prev) !== isIncome(newCat)) {
-      setAmount((a) => { const v = parseFloat(a); return Number.isFinite(v) ? String(-v) : a; });
-    }
-    prevCatRef.current = newCat;
-    setCategory(newCat);
-  };
 
   const submit = (e) => {
     e.preventDefault();
@@ -2170,7 +2151,7 @@ function EditModal({ txn, onClose, onSave }) {
             </div>
           </Field>
           <Field label="Category">
-            <select value={category} onChange={(e) => handleCategoryChange(e.target.value)} style={S.input}>
+            <select value={category} onChange={(e) => setCategory(e.target.value)} style={S.input}>
               {CATEGORIES.map((c) => (
                 <option key={c}>{c}</option>
               ))}
