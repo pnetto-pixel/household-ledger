@@ -963,7 +963,7 @@ function Header({ hideValues, onToggleHide, onLogout, onOpenSettings, saving, sa
             <LayoutDashboard size={14} color="#fff" />
           </div>
           <span style={{ fontWeight: 700, fontSize: 15, letterSpacing: -0.5, color: "#e5e7eb" }}>Household</span>
-          <span style={{ fontSize: 9, color: "#3f4651", fontWeight: 600 }}>v20</span>
+          <span style={{ fontSize: 9, color: "#3f4651", fontWeight: 600 }}>v21</span>
         </div>
         <SaveIndicator saving={saving} dirty={dirty} savedAt={savedAt} saveError={saveError} />
       </div>
@@ -3679,11 +3679,17 @@ function Empty({ children }) {
 
 const S = {
   app: {
-    // Full-height shell using the dynamic viewport (dvh = the visual viewport,
-    // which on iOS standalone spans the real screen incl. the home-indicator
-    // area). position:fixed anchored to the *layout* viewport instead, which
-    // excludes the bottom inset — leaving unused space below the tab bar.
-    height: "100dvh",
+    // Shell pinned to the full screen. With viewport-fit=cover active, the
+    // fixed containing block spans the real screen INCLUDING the safe-area
+    // insets, so the tab bar (last flex child) reaches the physical bottom and
+    // its env(safe-area-inset-bottom) padding fills the home-indicator area.
+    // (height:100dvh measured only the 812pt layout viewport, leaving the
+    // bottom inset uncovered as a black strip.)
+    position: "fixed",
+    top: 0,
+    bottom: 0,
+    left: 0,
+    right: 0,
     overflow: "hidden",
     background: "#0b0d10",
     color: "#e5e7eb",
