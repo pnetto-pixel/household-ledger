@@ -3798,9 +3798,10 @@ const S = {
     backdropFilter: "blur(20px) saturate(180%)",
     WebkitBackdropFilter: "blur(20px) saturate(180%)",
     borderTop: "1px solid rgba(255,255,255,0.08)",
-    // Reserve only part of the home-indicator inset so the bar hugs the bottom
-    // instead of leaving a tall empty band; still clears the indicator (~8pt).
-    padding: "3px 8px max(4px, calc(env(safe-area-inset-bottom) - 16px))",
+    // Reserve the full home-indicator inset so the bar's (gray) background
+    // fills all the way to the screen edge — reserving less exposes the dark
+    // shell background below the bar as a black strip on the iOS PWA.
+    padding: "3px 8px max(4px, env(safe-area-inset-bottom))",
     zIndex: 10,
     gap: 4,
   },
