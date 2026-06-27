@@ -16,6 +16,8 @@ import {
   Plus,
   ChevronDown,
   ChevronRight,
+  ChevronUp,
+  Check,
 } from "lucide-react";
 import {
   ResponsiveContainer,
@@ -637,13 +639,13 @@ export default function App() {
   const addAccount = useCallback((name) => {
     const n = (name || "").trim();
     if (!n || ACCOUNTS.includes(n)) return;
-    saveConfig({ accounts: sortNames([...ACCOUNTS, n]) });
+    saveConfig({ accounts: [...ACCOUNTS, n] }); // append; order is user-managed
   }, [saveConfig]);
 
   const renameAccount = useCallback((oldName, newName) => {
     const nn = (newName || "").trim();
     if (!nn || nn === oldName || ACCOUNTS.includes(nn) || !ACCOUNTS.includes(oldName)) return;
-    saveConfig({ accounts: sortNames(ACCOUNTS.map((a) => (a === oldName ? nn : a))) });
+    saveConfig({ accounts: ACCOUNTS.map((a) => (a === oldName ? nn : a)) }); // keep position
     setTransactions((prev) => {
       let ch = false;
       const next = prev.map((t) => (t.account === oldName ? ((ch = true), { ...t, account: nn }) : t));
@@ -673,14 +675,14 @@ export default function App() {
     const n = (name || "").trim();
     if (!n || CATEGORIES.includes(n)) return;
     if (kind === "income") saveConfig({ incomeCategories: [...INCOME_CATEGORIES, n] });
-    else saveConfig({ expenseCategories: sortNames([...EXPENSE_CATEGORIES, n]) });
+    else saveConfig({ expenseCategories: [...EXPENSE_CATEGORIES, n] }); // append; order user-managed
   }, [saveConfig]);
 
   const renameCategory = useCallback((oldName, newName) => {
     const nn = (newName || "").trim();
     if (!nn || nn === oldName || CATEGORIES.includes(nn)) return;
     if (EXPENSE_CATEGORIES.includes(oldName)) {
-      saveConfig({ expenseCategories: sortNames(EXPENSE_CATEGORIES.map((c) => (c === oldName ? nn : c))) });
+      saveConfig({ expenseCategories: EXPENSE_CATEGORIES.map((c) => (c === oldName ? nn : c)) }); // keep position
     } else if (INCOME_CATEGORIES.includes(oldName)) {
       saveConfig({ incomeCategories: INCOME_CATEGORIES.map((c) => (c === oldName ? nn : c)) });
     } else return;
@@ -702,6 +704,11 @@ export default function App() {
   const deleteCategory = useCallback((name) => {
     if (EXPENSE_CATEGORIES.includes(name)) saveConfig({ expenseCategories: EXPENSE_CATEGORIES.filter((c) => c !== name) });
     else if (INCOME_CATEGORIES.includes(name)) saveConfig({ incomeCategories: INCOME_CATEGORIES.filter((c) => c !== name) });
+  }, [saveConfig]);
+
+  const reorderAccounts = useCallback((names) => saveConfig({ accounts: names }), [saveConfig]);
+  const reorderCategories = useCallback((kind, names) => {
+    saveConfig(kind === "income" ? { incomeCategories: names } : { expenseCategories: names });
   }, [saveConfig]);
 
   // ---- Eye toggle ----------------------------------------------------------
@@ -798,6 +805,8 @@ export default function App() {
           onAddCategory={addCategory}
           onRenameCategory={renameCategory}
           onDeleteCategory={deleteCategory}
+          onReorderAccounts={reorderAccounts}
+          onReorderCategories={reorderCategories}
         />
       ) : null}
     </div>
@@ -2443,86 +2452,176 @@ function AccountMapSection({ transactions, accountMap, onSave }) {
 // Manage the user-editable lists (accounts + categories), persisted in Redis
 // via /api/config. Renames cascade into existing data (handled in App), and
 // items currently used by transactions can't be deleted (only renamed).
-function ManagedList({ title, items, usage, onAdd, onRename, onDelete }) {
+// One managed item: swipe left to reveal Edit/Delete, reorder via the up/down
+// chevrons, or (when editing) an inline name field with Save/Cancel below.
+function ManagedRow({ name, used, isFirst, isLast, editing, editVal, setEditVal, onStartEdit, onCommitEdit, onCancelEdit, onDelete, onMoveUp, onMoveDown }) {
+  const [dx, setDx] = useState(0);
+  const [open, setOpen] = useState(false);
+  const start = useRef(null);
+
+  const onTouchStart = (e) => {
+    start.current = { x: e.touches[0].clientX, y: e.touches[0].clientY, base: open ? -SWIPE_ACTION_WIDTH : 0, horiz: null };
+  };
+  const onTouchMove = (e) => {
+    if (!start.current) return;
+    const ddx = e.touches[0].clientX - start.current.x;
+    const ddy = e.touches[0].clientY - start.current.y;
+    if (start.current.horiz === null && (Math.abs(ddx) > 6 || Math.abs(ddy) > 6)) start.current.horiz = Math.abs(ddx) > Math.abs(ddy);
+    if (!start.current.horiz) return;
+    setDx(Math.max(-SWIPE_ACTION_WIDTH, Math.min(0, start.current.base + ddx)));
+  };
+  const onTouchEnd = () => {
+    if (!start.current) return;
+    const shouldOpen = dx < -SWIPE_ACTION_WIDTH / 2;
+    setOpen(shouldOpen);
+    setDx(shouldOpen ? -SWIPE_ACTION_WIDTH : 0);
+    start.current = null;
+  };
+  const translate = start.current ? dx : open ? -SWIPE_ACTION_WIDTH : 0;
+  const close = () => { setOpen(false); setDx(0); };
+
+  if (editing) {
+    return (
+      <div style={{ background: "#161a20", border: "1px solid #1e2530", borderRadius: 10, padding: 10 }}>
+        <input
+          autoFocus
+          value={editVal}
+          onChange={(e) => setEditVal(e.target.value)}
+          onKeyDown={(e) => { if (e.key === "Enter") onCommitEdit(); if (e.key === "Escape") onCancelEdit(); }}
+          style={{ width: "100%", boxSizing: "border-box", background: "#0f1216", color: "#e5e7eb", border: "1px solid #2a313c", borderRadius: 8, padding: "9px 11px", fontSize: 14 }}
+        />
+        <div style={{ display: "flex", gap: 6, justifyContent: "flex-end", marginTop: 6 }}>
+          <button onClick={onCommitEdit} style={{ display: "inline-flex", alignItems: "center", gap: 4, background: "#0A84FF", border: "none", color: "#fff", borderRadius: 8, padding: "5px 12px", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>
+            <Check size={13} /> Save
+          </button>
+          <button onClick={onCancelEdit} style={{ background: "transparent", border: "1px solid #2a313c", color: "#cbd5e1", borderRadius: 8, padding: "5px 12px", fontSize: 12, cursor: "pointer" }}>
+            Cancel
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ position: "relative", borderRadius: 10, overflow: "hidden" }}>
+      {/* Swipe action rail */}
+      <div style={{ position: "absolute", inset: 0, display: "flex", justifyContent: "flex-end" }}>
+        <button
+          onClick={() => { close(); onStartEdit(); }}
+          style={{ ...S.swipeAction, width: SWIPE_ACTION_WIDTH / 2, background: "#1e3a5f", color: "#93c5fd" }}
+        >
+          <Pencil size={16} /><span style={{ fontSize: 10, marginTop: 3 }}>Edit</span>
+        </button>
+        <button
+          onClick={() => { close(); if (!used) onDelete(); }}
+          disabled={!!used}
+          title={used ? `In use by ${used} transaction(s) — rename instead` : "Delete"}
+          style={{ ...S.swipeAction, width: SWIPE_ACTION_WIDTH / 2, background: "#7f1d1d", color: "#fca5a5", opacity: used ? 0.4 : 1 }}
+        >
+          <Trash2 size={16} /><span style={{ fontSize: 10, marginTop: 3 }}>Delete</span>
+        </button>
+      </div>
+
+      {/* Foreground row */}
+      <div
+        onTouchStart={onTouchStart}
+        onTouchMove={onTouchMove}
+        onTouchEnd={onTouchEnd}
+        style={{
+          display: "flex", alignItems: "center", gap: 8,
+          background: "#161a20", border: "1px solid #1e2530", borderRadius: 10,
+          padding: "8px 10px", position: "relative",
+          transform: `translateX(${translate}px)`,
+          transition: start.current ? "none" : "transform 0.2s ease",
+        }}
+      >
+        <div style={{ display: "flex", flexDirection: "column", flexShrink: 0 }}>
+          <button onClick={onMoveUp} disabled={isFirst} title="Move up" style={{ ...S.reorderBtn, opacity: isFirst ? 0.25 : 1 }}>
+            <ChevronUp size={15} />
+          </button>
+          <button onClick={onMoveDown} disabled={isLast} title="Move down" style={{ ...S.reorderBtn, opacity: isLast ? 0.25 : 1 }}>
+            <ChevronDown size={15} />
+          </button>
+        </div>
+        <div style={{ flex: 1, minWidth: 0, fontSize: 13, color: "#e5e7eb", overflowWrap: "anywhere" }}>
+          {name}
+          {used ? <span style={{ color: "#8b94a3", fontSize: 11 }}> · {used} txn{used === 1 ? "" : "s"}</span> : null}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ManagedList({ title, items, usage, onAdd, onRename, onDelete, onReorder }) {
   const [adding, setAdding] = useState("");
   const [editName, setEditName] = useState(null);
   const [editVal, setEditVal] = useState("");
 
   const startEdit = (name) => { setEditName(name); setEditVal(name); };
+  const cancelEdit = () => { setEditName(null); setEditVal(""); };
   const commitEdit = () => {
     const v = editVal.trim();
     if (v && v !== editName) onRename(editName, v);
-    setEditName(null);
-    setEditVal("");
+    cancelEdit();
   };
   const commitAdd = () => {
     const v = adding.trim();
     if (v) onAdd(v);
     setAdding("");
   };
-
-  const inputStyle = { flex: 1, minWidth: 0, background: "#0f1216", color: "#e5e7eb", border: "1px solid #2a313c", borderRadius: 8, padding: "7px 9px", fontSize: 13 };
+  const move = (idx, dir) => {
+    const j = idx + dir;
+    if (j < 0 || j >= items.length) return;
+    const next = [...items];
+    [next[idx], next[j]] = [next[j], next[idx]];
+    onReorder(next);
+  };
 
   return (
     <CollapsibleCard title={title} badge={items.length}>
       <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-        {items.map((name) => {
-          const used = usage[name] || 0;
-          const editingThis = editName === name;
-          return (
-            <div key={name} style={{ display: "flex", gap: 8, alignItems: "center" }}>
-              {editingThis ? (
-                <>
-                  <input
-                    autoFocus
-                    value={editVal}
-                    onChange={(e) => setEditVal(e.target.value)}
-                    onKeyDown={(e) => { if (e.key === "Enter") commitEdit(); if (e.key === "Escape") setEditName(null); }}
-                    style={inputStyle}
-                  />
-                  <button onClick={commitEdit} style={S.primaryBtn}>Save</button>
-                  <button onClick={() => setEditName(null)} style={S.secondaryBtn}>Cancel</button>
-                </>
-              ) : (
-                <>
-                  <div style={{ flex: 1, minWidth: 0, fontSize: 13, color: "#e5e7eb", overflowWrap: "anywhere" }}>
-                    {name}
-                    {used ? <span style={{ color: "#8b94a3", fontSize: 11 }}> · {used} txn{used === 1 ? "" : "s"}</span> : null}
-                  </div>
-                  <button onClick={() => startEdit(name)} title="Rename" style={S.iconMiniBtn}>
-                    <Pencil size={14} />
-                  </button>
-                  <button
-                    onClick={() => { if (!used) onDelete(name); }}
-                    disabled={!!used}
-                    title={used ? `In use by ${used} transaction(s) — rename instead` : "Delete"}
-                    style={{ ...S.iconMiniBtn, opacity: used ? 0.35 : 1, cursor: used ? "not-allowed" : "pointer" }}
-                  >
-                    <Trash2 size={14} />
-                  </button>
-                </>
-              )}
-            </div>
-          );
-        })}
+        {items.map((name, idx) => (
+          <ManagedRow
+            key={name}
+            name={name}
+            used={usage[name] || 0}
+            isFirst={idx === 0}
+            isLast={idx === items.length - 1}
+            editing={editName === name}
+            editVal={editVal}
+            setEditVal={setEditVal}
+            onStartEdit={() => startEdit(name)}
+            onCommitEdit={commitEdit}
+            onCancelEdit={cancelEdit}
+            onDelete={() => onDelete(name)}
+            onMoveUp={() => move(idx, -1)}
+            onMoveDown={() => move(idx, 1)}
+          />
+        ))}
       </div>
-      <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 8 }}>
+      {/* Add box: the text field takes most of the width; compact + button. */}
+      <div style={{ display: "flex", gap: 8, alignItems: "stretch", marginTop: 8 }}>
         <input
           value={adding}
           onChange={(e) => setAdding(e.target.value)}
           onKeyDown={(e) => { if (e.key === "Enter") commitAdd(); }}
           placeholder={`Add ${title.toLowerCase()}…`}
-          style={inputStyle}
+          style={{ flex: 1, minWidth: 0, background: "#0f1216", color: "#e5e7eb", border: "1px solid #2a313c", borderRadius: 8, padding: "9px 11px", fontSize: 14 }}
         />
-        <button onClick={commitAdd} disabled={!adding.trim()} style={{ ...S.primaryBtn, opacity: adding.trim() ? 1 : 0.4 }}>
-          <Plus size={14} style={{ verticalAlign: "-2px" }} /> Add
+        <button
+          onClick={commitAdd}
+          disabled={!adding.trim()}
+          title="Add"
+          style={{ flexShrink: 0, display: "grid", placeItems: "center", width: 42, background: "#0A84FF", border: "none", borderRadius: 8, color: "#fff", cursor: "pointer", opacity: adding.trim() ? 1 : 0.4 }}
+        >
+          <Plus size={18} />
         </button>
       </div>
     </CollapsibleCard>
   );
 }
 
-function SettingsModal({ config, transactions, accountMap, onSaveAccountMap, onClose, onAddAccount, onRenameAccount, onDeleteAccount, onAddCategory, onRenameCategory, onDeleteCategory }) {
+function SettingsModal({ config, transactions, accountMap, onSaveAccountMap, onClose, onAddAccount, onRenameAccount, onDeleteAccount, onAddCategory, onRenameCategory, onDeleteCategory, onReorderAccounts, onReorderCategories }) {
   const usage = useMemo(() => {
     const acc = {}, cat = {};
     for (const t of transactions) {
@@ -2563,6 +2662,7 @@ function SettingsModal({ config, transactions, accountMap, onSaveAccountMap, onC
             onAdd={onAddAccount}
             onRename={onRenameAccount}
             onDelete={onDeleteAccount}
+            onReorder={onReorderAccounts}
           />
           <ManagedList
             title="Expense categories"
@@ -2571,6 +2671,7 @@ function SettingsModal({ config, transactions, accountMap, onSaveAccountMap, onC
             onAdd={(n) => onAddCategory("expense", n)}
             onRename={onRenameCategory}
             onDelete={onDeleteCategory}
+            onReorder={(names) => onReorderCategories("expense", names)}
           />
           <ManagedList
             title="Income categories"
@@ -2579,6 +2680,7 @@ function SettingsModal({ config, transactions, accountMap, onSaveAccountMap, onC
             onAdd={(n) => onAddCategory("income", n)}
             onRename={onRenameCategory}
             onDelete={onDeleteCategory}
+            onReorder={(names) => onReorderCategories("income", names)}
           />
         </div>
       </div>
@@ -4022,6 +4124,16 @@ const S = {
     alignItems: "center",
     justifyContent: "center",
     fontWeight: 600,
+  },
+  reorderBtn: {
+    background: "transparent",
+    border: "none",
+    color: "#8b94a3",
+    cursor: "pointer",
+    padding: 0,
+    display: "grid",
+    placeItems: "center",
+    height: 16,
   },
   dateGroupHeader: {
     display: "flex",
