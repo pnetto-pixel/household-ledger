@@ -777,6 +777,8 @@ export default function App() {
 
       <TabBar tab={tab} setTab={setTab} wide={isWide} />
 
+      <DebugViewport />
+
       {settingsOpen ? (
         <SettingsModal
           config={config}
@@ -948,6 +950,33 @@ function SaveIndicator({ saving, dirty, savedAt, saveError }) {
   return null;
 }
 
+// TEMP: measures the actual rendered elements (not isolated probes).
+function DebugViewport() {
+  const [info, setInfo] = useState("");
+  useEffect(() => {
+    const t = setTimeout(() => {
+      const root = document.getElementById("root");
+      const shell = root && root.firstElementChild;
+      const nav = document.querySelector("nav");
+      const sr = shell ? shell.getBoundingClientRect() : null;
+      const nr = nav ? nav.getBoundingClientRect() : null;
+      setInfo(
+        `inner ${window.innerHeight} | rootH ${root ? Math.round(root.getBoundingClientRect().height) : "?"} shellH ${sr ? Math.round(sr.height) : "?"} | navBottom ${nr ? Math.round(nr.bottom) : "?"} navH ${nr ? Math.round(nr.height) : "?"} | belowNav ${nr ? Math.round(window.innerHeight - nr.bottom) : "?"}`
+      );
+    }, 300);
+    return () => clearTimeout(t);
+  }, []);
+  return (
+    <div style={{
+      position: "fixed", top: "env(safe-area-inset-top)", left: 0, right: 0, zIndex: 9999,
+      background: "rgba(255,0,0,0.9)", color: "#fff", fontSize: 10, fontWeight: 700,
+      textAlign: "center", padding: "3px 6px", fontFamily: "monospace", pointerEvents: "none",
+    }}>
+      {info}
+    </div>
+  );
+}
+
 function Header({ hideValues, onToggleHide, onLogout, onOpenSettings, saving, savedAt, dirty, saveError }) {
   return (
     <header style={S.header}>
@@ -963,7 +992,7 @@ function Header({ hideValues, onToggleHide, onLogout, onOpenSettings, saving, sa
             <LayoutDashboard size={14} color="#fff" />
           </div>
           <span style={{ fontWeight: 700, fontSize: 15, letterSpacing: -0.5, color: "#e5e7eb" }}>Household</span>
-          <span style={{ fontSize: 9, color: "#3f4651", fontWeight: 600 }}>v26</span>
+          <span style={{ fontSize: 9, color: "#3f4651", fontWeight: 600 }}>v27</span>
         </div>
         <SaveIndicator saving={saving} dirty={dirty} savedAt={savedAt} saveError={saveError} />
       </div>
