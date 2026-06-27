@@ -265,6 +265,14 @@ const usd = new Intl.NumberFormat("en-US", {
   maximumFractionDigits: 2,
 });
 
+// Whole-dollar format (no cents) — used where space is tight, e.g. the
+// Dashboard period stat cards that otherwise overflow the row.
+const usd0 = new Intl.NumberFormat("en-US", {
+  style: "currency",
+  currency: "USD",
+  maximumFractionDigits: 0,
+});
+
 function getMeta(name) {
   const el = document.querySelector(`meta[name="${name}"]`);
   const v = el?.getAttribute("content") || "";
@@ -745,7 +753,7 @@ export default function App() {
         {loading ? (
           <div style={S.center}>Loading…</div>
         ) : tab === "dashboard" ? (
-          <Dashboard transactions={transactions} money={money} />
+          <Dashboard transactions={transactions} money={money} hideValues={hideValues} />
         ) : tab === "transactions" ? (
           <Transactions
             transactions={transactions}
@@ -1132,9 +1140,11 @@ function PeriodFilter({ year, month, setYear, setMonth, years }) {
 // Dashboard
 // ===========================================================================
 
-function Dashboard({ transactions, money }) {
+function Dashboard({ transactions, money, hideValues }) {
   const all = useMemo(() => computeTotals(transactions), [transactions]);
   const years = useMemo(() => availableYears(transactions), [transactions]);
+  // No-cents money for the tight 3-up stat card row.
+  const moneyShort = (n) => (hideValues ? "•••••" : usd0.format(n || 0));
 
   // Default the period to the current month.
   const [year, setYear] = useState(() => todayISO().slice(0, 4));
@@ -1199,9 +1209,9 @@ function Dashboard({ transactions, money }) {
       </div>
 
       <div style={S.cardRow}>
-        <StatCard label="Income" value={money(period.income)} accent="#34d399" small />
-        <StatCard label="Expenses" value={money(period.expenses)} accent="#f87171" small />
-        <StatCard label="Net" value={money(period.net)} accent={period.net >= 0 ? "#34d399" : "#f87171"} small />
+        <StatCard label="Income" value={moneyShort(period.income)} accent="#34d399" small />
+        <StatCard label="Expenses" value={moneyShort(period.expenses)} accent="#f87171" small />
+        <StatCard label="Net" value={moneyShort(period.net)} accent={period.net >= 0 ? "#34d399" : "#f87171"} small />
       </div>
 
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
@@ -1223,9 +1233,9 @@ function Dashboard({ transactions, money }) {
 
 function StatCard({ label, value, accent, small }) {
   return (
-    <div style={{ ...S.card, flex: 1, borderLeft: `3px solid ${accent || "#0A84FF"}`, paddingLeft: 14 }}>
-      <div style={{ color: "#8b94a3", fontSize: 10, fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.6 }}>{label}</div>
-      <div style={{ color: accent || "#e5e7eb", fontWeight: 700, fontSize: small ? 18 : 26, marginTop: 3, letterSpacing: -0.5 }}>
+    <div style={{ ...S.card, flex: 1, minWidth: 0, padding: 12, borderLeft: `3px solid ${accent || "#0A84FF"}`, paddingLeft: 12 }}>
+      <div style={{ color: "#8b94a3", fontSize: 10, fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.4 }}>{label}</div>
+      <div style={{ color: accent || "#e5e7eb", fontWeight: 700, fontSize: small ? 16 : 26, marginTop: 3, letterSpacing: -0.5, whiteSpace: "nowrap" }}>
         {value}
       </div>
     </div>
@@ -1579,16 +1589,6 @@ function Transactions({ transactions, money, hideValues, isWide, onDelete, onUpd
               Clear selection ({selectedIds.size})
             </button>
           ) : null}
-        </div>
-        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-          <button
-            onClick={() => handleExportCSV(filtered)}
-            disabled={hideValues}
-            title={hideValues ? "Show values to export" : "Export CSV"}
-            style={S.exportBtn(hideValues)}
-          >
-            CSV
-          </button>
         </div>
       </div>
 
@@ -3738,7 +3738,7 @@ const S = {
   txnListScroll: {
     paddingTop: 10,
   },
-  cardRow: { display: "flex", gap: 12 },
+  cardRow: { display: "flex", gap: 8 },
   card: {
     background: "#161a20",
     border: "1px solid #1e2530",
