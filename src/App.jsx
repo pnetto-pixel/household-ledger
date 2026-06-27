@@ -3794,11 +3794,13 @@ const S = {
     width: "100%",
     display: "flex",
     justifyContent: "space-evenly",
-    background: "rgba(11,13,16,0.88)",
+    background: "rgba(20,24,30,0.92)",
     backdropFilter: "blur(20px) saturate(180%)",
     WebkitBackdropFilter: "blur(20px) saturate(180%)",
     borderTop: "1px solid rgba(255,255,255,0.08)",
-    padding: "3px 8px max(3px, env(safe-area-inset-bottom))",
+    // Reserve only part of the home-indicator inset so the bar hugs the bottom
+    // instead of leaving a tall empty band; still clears the indicator (~8pt).
+    padding: "3px 8px max(4px, calc(env(safe-area-inset-bottom) - 16px))",
     zIndex: 10,
     gap: 4,
   },
