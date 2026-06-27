@@ -1548,7 +1548,7 @@ function Transactions({ transactions, money, hideValues, isWide, onDelete, onUpd
 
       {/* Filter chips — mobile only (desktop uses column-header filters in the table) */}
       {!isWide && (
-        <div style={{ display: "flex", gap: 6, overflowX: "auto", paddingBottom: 2, WebkitOverflowScrolling: "touch" }}>
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
           <HeaderFilter chip label="Type" value={typeFilter} options={["Income", "Expense", "Transfer"]} onChange={setTypeFilter} />
           <HeaderFilter chip label="Account" value={acctFilter} options={acctOptions} onChange={setAcctFilter} />
           <HeaderFilter chip label="Category" value={catFilter} options={catOptions} onChange={setCatFilter} />
