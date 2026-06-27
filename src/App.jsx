@@ -963,7 +963,7 @@ function Header({ hideValues, onToggleHide, onLogout, onOpenSettings, saving, sa
             <LayoutDashboard size={14} color="#fff" />
           </div>
           <span style={{ fontWeight: 700, fontSize: 15, letterSpacing: -0.5, color: "#e5e7eb" }}>Household</span>
-          <span style={{ fontSize: 9, color: "#3f4651", fontWeight: 600 }}>v12</span>
+          <span style={{ fontSize: 9, color: "#3f4651", fontWeight: 600 }}>v13</span>
         </div>
         <SaveIndicator saving={saving} dirty={dirty} savedAt={savedAt} saveError={saveError} />
       </div>
@@ -3799,10 +3799,11 @@ const S = {
     // strip). The bar's own background + safe-area padding then fills the
     // indicator area. Centered for the desktop maxWidth shell.
     position: "fixed",
-    // bottom:0 lands at the physical screen edge here, so no negative nudge
-    // (that pushed the bar — and its labels — off-screen). The small bottom
-    // padding below is the only clearance.
-    bottom: 0,
+    // bottom:0 anchors at the TOP of the home-indicator safe-area (~34px above
+    // the physical edge), which left a dark gap below the bar. Offset down by
+    // that inset so the bar reaches the physical edge; the padding-bottom then
+    // sets how far the labels clear the home indicator.
+    bottom: "calc(-1 * env(safe-area-inset-bottom))",
     left: "50%",
     transform: "translateX(-50%)",
     width: "100%",
@@ -3813,10 +3814,9 @@ const S = {
     // distinct gray block. Opaque so scrolled content doesn't show through.
     background: "#0b0d10",
     borderTop: "1px solid rgba(255,255,255,0.06)",
-    // Bar is fixed to bottom:0, so its background fills to the screen edge
-    // regardless of this padding. Use a small fixed bottom padding (not the
-    // safe-area inset) so the icons sit right at the bottom with no empty gap.
-    padding: "6px 8px 8px",
+    // Bar bottom is at the physical edge (via the negative offset above), so
+    // this bottom padding is the labels' clearance over the home indicator.
+    padding: "6px 8px 16px",
     zIndex: 10,
     gap: 4,
   },
