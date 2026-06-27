@@ -3643,8 +3643,9 @@ const S = {
   app: {
     // Fixed-height app shell: only <main> scrolls, so the header and tab bar
     // stay put (and tab content like the Transactions filters can pin to the
-    // top of the scroller).
-    height: "100dvh",
+    // top of the scroller). height:100% inherits the full screen via the
+    // html→body→#root chain (more reliable than 100dvh on iOS standalone).
+    height: "100%",
     overflow: "hidden",
     background: "#0b0d10",
     color: "#e5e7eb",
