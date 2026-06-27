@@ -1021,15 +1021,16 @@ function TabBar({ tab, setTab, wide }) {
             title={label}
             style={{ ...S.tabBtn, color: active ? "#0A84FF" : "#8b94a3", position: "relative" }}
           >
-            <div style={{ position: "relative", display: "flex", alignItems: "center", justifyContent: "center", padding: "6px 16px" }}>
+            <div style={{ position: "relative", display: "flex", alignItems: "center", justifyContent: "center", padding: "3px 14px" }}>
               {active && (
                 <div style={{
                   position: "absolute", inset: 0, background: "rgba(10,132,255,0.14)",
-                  borderRadius: 10, pointerEvents: "none",
+                  borderRadius: 9, pointerEvents: "none",
                 }} />
               )}
-              <Icon size={22} />
+              <Icon size={20} />
             </div>
+            <span style={{ fontSize: 10, marginTop: 2, fontWeight: active ? 600 : 500 }}>{label}</span>
           </button>
         );
       })}
@@ -3721,19 +3722,13 @@ const S = {
   },
   center: { textAlign: "center", color: "#8b94a3", padding: 40 },
   col: { display: "flex", flexDirection: "column", gap: 16 },
-  // The Transactions tab fills the scroller and splits into a fixed controls
-  // block (capped at half) and a list that scrolls in the remaining space.
+  // The Transactions tab flows naturally and scrolls as one block inside
+  // <main> (no fixed-height/50% locks — those fought the full-screen layout).
   txnTab: {
     display: "flex",
     flexDirection: "column",
-    height: "100%",
-    minHeight: 0,
   },
   txnControls: {
-    flex: "0 1 auto",
-    maxHeight: "50%",
-    overflowY: "auto",
-    background: "#0b0d10",
     display: "flex",
     flexDirection: "column",
     gap: 8,
@@ -3741,9 +3736,6 @@ const S = {
     borderBottom: "1px solid rgba(255,255,255,0.08)",
   },
   txnListScroll: {
-    flex: "1 1 0",
-    minHeight: 0,
-    overflowY: "auto",
     paddingTop: 10,
   },
   cardRow: { display: "flex", gap: 12 },
