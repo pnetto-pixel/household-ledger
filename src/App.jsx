@@ -3809,7 +3809,11 @@ const S = {
     backdropFilter: "blur(20px) saturate(180%)",
     WebkitBackdropFilter: "blur(20px) saturate(180%)",
     borderTop: "1px solid rgba(255,255,255,0.08)",
-    padding: "3px 8px max(4px, env(safe-area-inset-bottom))",
+    // Bar is fixed to bottom:0, so its background fills to the screen edge
+    // regardless of this padding. Reserve only part of the home-indicator
+    // inset so the icons sit low (less empty gray below) while still clearing
+    // the indicator (~8pt).
+    padding: "5px 8px max(10px, calc(env(safe-area-inset-bottom) - 18px))",
     zIndex: 10,
     gap: 4,
   },
