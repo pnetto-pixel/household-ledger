@@ -963,7 +963,7 @@ function Header({ hideValues, onToggleHide, onLogout, onOpenSettings, saving, sa
             <LayoutDashboard size={14} color="#fff" />
           </div>
           <span style={{ fontWeight: 700, fontSize: 15, letterSpacing: -0.5, color: "#e5e7eb" }}>Household</span>
-          <span style={{ fontSize: 9, color: "#3f4651", fontWeight: 600 }}>v21</span>
+          <span style={{ fontSize: 9, color: "#3f4651", fontWeight: 600 }}>v22</span>
         </div>
         <SaveIndicator saving={saving} dirty={dirty} savedAt={savedAt} saveError={saveError} />
       </div>
@@ -3679,15 +3679,15 @@ function Empty({ children }) {
 
 const S = {
   app: {
-    // Shell pinned to the full screen. With viewport-fit=cover active, the
-    // fixed containing block spans the real screen INCLUDING the safe-area
-    // insets, so the tab bar (last flex child) reaches the physical bottom and
-    // its env(safe-area-inset-bottom) padding fills the home-indicator area.
-    // (height:100dvh measured only the 812pt layout viewport, leaving the
-    // bottom inset uncovered as a black strip.)
+    // The fixed containing block / layout viewport is only the 812pt "safe"
+    // area — bottom:0 stops above the 34px home-indicator inset. Extend the
+    // shell's bottom edge DOWN into that inset with a negative offset (now that
+    // viewport-fit=cover exposes env()), so the shell reaches the physical
+    // edge and the tab bar (last flex child) sits on it; the tab bar's
+    // env(safe-area-inset-bottom) padding keeps the icons above the indicator.
     position: "fixed",
     top: 0,
-    bottom: 0,
+    bottom: "calc(-1 * env(safe-area-inset-bottom))",
     left: 0,
     right: 0,
     overflow: "hidden",
