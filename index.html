@@ -14,13 +14,20 @@
     <link rel="apple-touch-icon" href="/icon-192.png" />
     <title>Household Ledger</title>
     <style>
-      /* Chain full height html → body → #root so the app shell fills the real
-         screen on iOS standalone (where 100dvh alone can fall short and leave
-         a black band below the tab bar). */
-      html, body, #root { height: 100%; }
-      /* body background shows only in the iOS home-indicator safe-area strip
-         below the fixed shell; match the page so it blends in. */
-      body { margin: 0; background: #0b0d10; }
+      /* Lock the page so it can't scroll or rubber-band (the bounce was
+         revealing a black overscroll area over the fixed tab bar). The app's
+         own fixed shell handles all layout and internal scrolling. */
+      html, body {
+        margin: 0;
+        height: 100%;
+        overflow: hidden;
+        position: fixed;
+        inset: 0;
+        width: 100%;
+        background: #0b0d10;
+        overscroll-behavior: none;
+      }
+      #root { height: 100%; }
     </style>
   </head>
   <body>
