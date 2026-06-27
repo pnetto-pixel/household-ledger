@@ -963,7 +963,7 @@ function Header({ hideValues, onToggleHide, onLogout, onOpenSettings, saving, sa
             <LayoutDashboard size={14} color="#fff" />
           </div>
           <span style={{ fontWeight: 700, fontSize: 15, letterSpacing: -0.5, color: "#e5e7eb" }}>Household</span>
-          <span style={{ fontSize: 9, color: "#3f4651", fontWeight: 600 }}>v11</span>
+          <span style={{ fontSize: 9, color: "#3f4651", fontWeight: 600 }}>v12</span>
         </div>
         <SaveIndicator saving={saving} dirty={dirty} savedAt={savedAt} saveError={saveError} />
       </div>
@@ -3799,12 +3799,10 @@ const S = {
     // strip). The bar's own background + safe-area padding then fills the
     // indicator area. Centered for the desktop maxWidth shell.
     position: "fixed",
-    // In the iOS standalone PWA, fixed bottom:0 anchors at the safe-area
-    // boundary, not the physical screen edge — leaving the home-indicator
-    // inset (~34px) as gray space below the icons. Nudge the bar down to trim
-    // that gap, but never more than 20px (and never past the inset, so it
-    // doesn't clip labels on devices without a home indicator).
-    bottom: "max(-20px, calc(-1 * env(safe-area-inset-bottom)))",
+    // bottom:0 lands at the physical screen edge here, so no negative nudge
+    // (that pushed the bar — and its labels — off-screen). The small bottom
+    // padding below is the only clearance.
+    bottom: 0,
     left: "50%",
     transform: "translateX(-50%)",
     width: "100%",
