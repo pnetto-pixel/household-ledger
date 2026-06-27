@@ -1018,7 +1018,7 @@ function TabBar({ tab, setTab, wide }) {
             onClick={() => setTab(id)}
             style={{ ...S.tabBtn, color: active ? "#0A84FF" : "#8b94a3", position: "relative" }}
           >
-            <div style={{ position: "relative", display: "flex", alignItems: "center", justifyContent: "center", padding: "4px 12px" }}>
+            <div style={{ position: "relative", display: "flex", alignItems: "center", justifyContent: "center", padding: "3px 12px" }}>
               {active && (
                 <div style={{
                   position: "absolute", inset: 0, background: "rgba(10,132,255,0.12)",
@@ -2044,67 +2044,130 @@ function TxnRow({ t, money, onDelete, onEdit, selectMode = false, selected = fal
 // Mobile audit card — the desktop table row's info, stacked for narrow
 // screens, with inline-editable Account/Category, a Type badge, CK orig and a
 // selection checkbox.
+// Width of the action rail revealed by swiping the card left (two chips).
+const SWIPE_ACTION_WIDTH = 132;
+
 function TxnAuditCard({ t, money, selected, onToggleSelect, onInlineChange, onEdit, onDelete }) {
   const type = txnType(t.category);
   const amt = amountDisplay(t);
+
+  // Swipe-to-reveal: drag the card left to expose Edit/Delete chips. Tracks a
+  // horizontal-only gesture so taps on the inner selects/checkbox still work.
+  const [dx, setDx] = useState(0);
+  const [open, setOpen] = useState(false);
+  const start = useRef(null);
+
+  const onTouchStart = (e) => {
+    start.current = { x: e.touches[0].clientX, y: e.touches[0].clientY, base: open ? -SWIPE_ACTION_WIDTH : 0, horiz: null };
+  };
+  const onTouchMove = (e) => {
+    if (!start.current) return;
+    const cx = e.touches[0].clientX;
+    const cy = e.touches[0].clientY;
+    const ddx = cx - start.current.x;
+    const ddy = cy - start.current.y;
+    // Decide gesture axis once, then only act on horizontal swipes.
+    if (start.current.horiz === null && (Math.abs(ddx) > 6 || Math.abs(ddy) > 6)) {
+      start.current.horiz = Math.abs(ddx) > Math.abs(ddy);
+    }
+    if (!start.current.horiz) return;
+    let next = start.current.base + ddx;
+    next = Math.max(-SWIPE_ACTION_WIDTH, Math.min(0, next)); // clamp to [-width, 0]
+    setDx(next);
+  };
+  const onTouchEnd = () => {
+    if (!start.current) return;
+    const shouldOpen = dx < -SWIPE_ACTION_WIDTH / 2;
+    setOpen(shouldOpen);
+    setDx(shouldOpen ? -SWIPE_ACTION_WIDTH : 0);
+    start.current = null;
+  };
+
+  const translate = start.current ? dx : open ? -SWIPE_ACTION_WIDTH : 0;
+  const closeRail = () => { setOpen(false); setDx(0); };
+
   return (
-    <div
-      style={{
-        ...S.txnRow,
-        flexDirection: "column",
-        alignItems: "stretch",
-        gap: 10,
-        background: selected ? "#1a1f2e" : "#161a20",
-        outline: selected ? "1px solid #3b82f6" : undefined,
-      }}
-    >
-      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-        <input type="checkbox" checked={selected} onChange={() => onToggleSelect(t.id)} style={S.checkbox} />
-        <div style={{ minWidth: 0, flex: 1 }}>
-          <div style={{ fontSize: 14, color: "#e5e7eb", overflowWrap: "anywhere", lineHeight: 1.35 }}>
-            {t.description || t.category}
-          </div>
-          <div style={{ fontSize: 11, color: "#8b94a3", marginTop: 2 }}>
-            {t.date}
-            {t.srcAccount && !ACCOUNTS.includes(t.account) ? ` · src: ${t.srcAccount}` : ""}
-          </div>
-        </div>
-        <span style={{ color: amt.color, fontWeight: 600, fontSize: 14, whiteSpace: "nowrap" }}>
-          {amt.sign}{money(amt.value)}
-        </span>
-        <button onClick={() => onEdit(t)} style={S.deleteBtn} title="Edit">
-          <Pencil size={15} />
+    <div style={{ position: "relative", borderRadius: 14, overflow: "hidden" }}>
+      {/* Action rail behind the card */}
+      <div style={{ position: "absolute", inset: 0, display: "flex", justifyContent: "flex-end" }}>
+        <button
+          onClick={() => { closeRail(); onEdit(t); }}
+          style={{ ...S.swipeAction, width: SWIPE_ACTION_WIDTH / 2, background: "#1e3a5f", color: "#93c5fd" }}
+          title="Edit"
+        >
+          <Pencil size={17} />
+          <span style={{ fontSize: 10, marginTop: 3 }}>Edit</span>
         </button>
         {onDelete ? (
-          <button onClick={() => onDelete(t.id)} style={S.deleteBtn} title="Delete">
-            <Trash2 size={15} />
+          <button
+            onClick={() => { closeRail(); onDelete(t.id); }}
+            style={{ ...S.swipeAction, width: SWIPE_ACTION_WIDTH / 2, background: "#7f1d1d", color: "#fca5a5" }}
+            title="Delete"
+          >
+            <Trash2 size={17} />
+            <span style={{ fontSize: 10, marginTop: 3 }}>Delete</span>
           </button>
         ) : null}
       </div>
 
-      <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-        <span style={{ ...S.badge, color: TYPE_COLOR[type], borderColor: TYPE_COLOR[type] }}>{type}</span>
-        <select
-          value={ACCOUNTS.includes(t.account) ? t.account : ""}
-          onChange={(e) => onInlineChange(t, { account: e.target.value })}
-          style={{ ...S.cellSelect, flex: "1 1 140px", maxWidth: "none" }}
-        >
-          {!ACCOUNTS.includes(t.account) && (
-            <option value="">{t.account ? `${t.account} (unmapped)` : "—"}</option>
-          )}
-          {ACCOUNTS.map((a) => (
-            <option key={a}>{a}</option>
-          ))}
-        </select>
-        <select
-          value={CATEGORIES.includes(t.category) ? t.category : "Other"}
-          onChange={(e) => onInlineChange(t, { category: e.target.value })}
-          style={{ ...S.cellSelect, flex: "1 1 120px", maxWidth: "none" }}
-        >
-          {CATEGORIES.map((c) => (
-            <option key={c}>{c}</option>
-          ))}
-        </select>
+      {/* Foreground card (slides over the rail) */}
+      <div
+        onTouchStart={onTouchStart}
+        onTouchMove={onTouchMove}
+        onTouchEnd={onTouchEnd}
+        style={{
+          ...S.txnRow,
+          flexDirection: "column",
+          alignItems: "stretch",
+          gap: 10,
+          background: selected ? "#1a1f2e" : "#161a20",
+          outline: selected ? "1px solid #3b82f6" : undefined,
+          transform: `translateX(${translate}px)`,
+          transition: start.current ? "none" : "transform 0.2s ease",
+          position: "relative",
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <input type="checkbox" checked={selected} onChange={() => onToggleSelect(t.id)} style={S.checkbox} />
+          <div style={{ minWidth: 0, flex: 1 }}>
+            <div style={{ fontSize: 14, color: "#e5e7eb", overflowWrap: "anywhere", lineHeight: 1.35 }}>
+              {t.description || t.category}
+            </div>
+            {t.srcAccount && !ACCOUNTS.includes(t.account) ? (
+              <div style={{ fontSize: 11, color: "#8b94a3", marginTop: 2 }}>
+                src: {t.srcAccount}
+              </div>
+            ) : null}
+          </div>
+          <span style={{ color: amt.color, fontWeight: 600, fontSize: 14, whiteSpace: "nowrap" }}>
+            {amt.sign}{money(amt.value)}
+          </span>
+        </div>
+
+        <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+          <span style={{ ...S.badge, color: TYPE_COLOR[type], borderColor: TYPE_COLOR[type] }}>{type}</span>
+          <select
+            value={ACCOUNTS.includes(t.account) ? t.account : ""}
+            onChange={(e) => onInlineChange(t, { account: e.target.value })}
+            style={{ ...S.cellSelect, flex: "1 1 140px", maxWidth: "none" }}
+          >
+            {!ACCOUNTS.includes(t.account) && (
+              <option value="">{t.account ? `${t.account} (unmapped)` : "—"}</option>
+            )}
+            {ACCOUNTS.map((a) => (
+              <option key={a}>{a}</option>
+            ))}
+          </select>
+          <select
+            value={CATEGORIES.includes(t.category) ? t.category : "Other"}
+            onChange={(e) => onInlineChange(t, { category: e.target.value })}
+            style={{ ...S.cellSelect, flex: "1 1 120px", maxWidth: "none" }}
+          >
+            {CATEGORIES.map((c) => (
+              <option key={c}>{c}</option>
+            ))}
+          </select>
+        </div>
       </div>
     </div>
   );
@@ -3694,7 +3757,7 @@ const S = {
     backdropFilter: "blur(20px) saturate(180%)",
     WebkitBackdropFilter: "blur(20px) saturate(180%)",
     borderTop: "1px solid rgba(255,255,255,0.08)",
-    padding: "6px 8px max(6px, env(safe-area-inset-bottom))",
+    padding: "3px 8px max(3px, env(safe-area-inset-bottom))",
     zIndex: 10,
     gap: 4,
   },
@@ -3706,7 +3769,7 @@ const S = {
     flexDirection: "column",
     alignItems: "center",
     flex: 1,
-    padding: "2px 0",
+    padding: 0,
   },
   input: {
     width: "100%",
@@ -3918,6 +3981,15 @@ const S = {
     background: "#161a20",
     border: "1px solid #1e2530",
     borderRadius: 10,
+  },
+  swipeAction: {
+    border: "none",
+    cursor: "pointer",
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "center",
+    justifyContent: "center",
+    fontWeight: 600,
   },
   dateGroupHeader: {
     display: "flex",
