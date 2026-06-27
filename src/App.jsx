@@ -3713,9 +3713,9 @@ const S = {
   main: {
     flex: 1,
     minHeight: 0,
-    // Bottom padding clears the fixed tab bar (its content height + the
-    // home-indicator inset) so the last row isn't hidden behind it.
-    padding: "16px 16px calc(52px + env(safe-area-inset-bottom))",
+    // Bottom padding clears the fixed tab bar so the last row isn't hidden
+    // behind it (bar is ~64px tall incl. its small bottom padding).
+    padding: "16px 16px 72px",
     overflowY: "auto",
   },
   errorBar: {
@@ -3810,10 +3810,9 @@ const S = {
     WebkitBackdropFilter: "blur(20px) saturate(180%)",
     borderTop: "1px solid rgba(255,255,255,0.08)",
     // Bar is fixed to bottom:0, so its background fills to the screen edge
-    // regardless of this padding. Reserve only part of the home-indicator
-    // inset so the icons sit low (less empty gray below) while still clearing
-    // the indicator (~8pt).
-    padding: "5px 8px max(6px, calc(env(safe-area-inset-bottom) - 26px))",
+    // regardless of this padding. Use a small fixed bottom padding (not the
+    // safe-area inset) so the icons sit right at the bottom with no empty gap.
+    padding: "6px 8px 8px",
     zIndex: 10,
     gap: 4,
   },
