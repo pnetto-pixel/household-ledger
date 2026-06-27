@@ -963,7 +963,7 @@ function Header({ hideValues, onToggleHide, onLogout, onOpenSettings, saving, sa
             <LayoutDashboard size={14} color="#fff" />
           </div>
           <span style={{ fontWeight: 700, fontSize: 15, letterSpacing: -0.5, color: "#e5e7eb" }}>Household</span>
-          <span style={{ fontSize: 9, color: "#3f4651", fontWeight: 600 }}>v9</span>
+          <span style={{ fontSize: 9, color: "#3f4651", fontWeight: 600 }}>v10</span>
         </div>
         <SaveIndicator saving={saving} dirty={dirty} savedAt={savedAt} saveError={saveError} />
       </div>
@@ -3801,9 +3801,10 @@ const S = {
     position: "fixed",
     // In the iOS standalone PWA, fixed bottom:0 anchors at the safe-area
     // boundary, not the physical screen edge — leaving the home-indicator
-    // inset (~34px) as gray space below the icons. Push the bar down by that
-    // inset so it reaches the physical bottom and the icons sit low.
-    bottom: "calc(-1 * env(safe-area-inset-bottom))",
+    // inset (~34px) as gray space below the icons. Nudge the bar down to trim
+    // that gap, but never more than 20px (and never past the inset, so it
+    // doesn't clip labels on devices without a home indicator).
+    bottom: "max(-20px, calc(-1 * env(safe-area-inset-bottom)))",
     left: "50%",
     transform: "translateX(-50%)",
     width: "100%",
