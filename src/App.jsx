@@ -3713,7 +3713,9 @@ const S = {
   main: {
     flex: 1,
     minHeight: 0,
-    padding: "16px 16px 24px",
+    // Bottom padding clears the fixed tab bar (its content height + the
+    // home-indicator inset) so the last row isn't hidden behind it.
+    padding: "16px 16px calc(52px + env(safe-area-inset-bottom))",
     overflowY: "auto",
   },
   errorBar: {
@@ -3790,17 +3792,23 @@ const S = {
     placeItems: "center",
   },
   tabBar: {
-    flexShrink: 0,
+    // Pinned to the physical bottom edge. A fixed bottom:0 element reliably
+    // reaches the real screen bottom in the iOS standalone PWA (the flex-child
+    // approach left the bar above the home-indicator inset, exposing a dark
+    // strip). The bar's own background + safe-area padding then fills the
+    // indicator area. Centered for the desktop maxWidth shell.
+    position: "fixed",
+    bottom: 0,
+    left: "50%",
+    transform: "translateX(-50%)",
     width: "100%",
+    boxSizing: "border-box",
     display: "flex",
     justifyContent: "space-evenly",
     background: "rgba(20,24,30,0.92)",
     backdropFilter: "blur(20px) saturate(180%)",
     WebkitBackdropFilter: "blur(20px) saturate(180%)",
     borderTop: "1px solid rgba(255,255,255,0.08)",
-    // Reserve the full home-indicator inset so the bar's (gray) background
-    // fills all the way to the screen edge — reserving less exposes the dark
-    // shell background below the bar as a black strip on the iOS PWA.
     padding: "3px 8px max(4px, env(safe-area-inset-bottom))",
     zIndex: 10,
     gap: 4,
