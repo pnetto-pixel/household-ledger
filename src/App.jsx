@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
+import React, { useState, useEffect, useLayoutEffect, useMemo, useCallback, useRef } from "react";
+import { createPortal } from "react-dom";
 import {
   LayoutDashboard,
   List,
@@ -1743,25 +1744,65 @@ function formatDateHeader(dateStr) {
   return new Date(dateStr + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
 }
 
-// Hook: close a popover when clicking outside its ref.
-function useOutsideClose(ref, open, setOpen) {
+// Portal-based popover anchored under `anchorRef`. Rendered into document.body
+// with position:fixed so it escapes any ancestor with overflow clipping
+// (e.g. the txnControls / txnListScroll scroll containers). Closes on an
+// outside press; presses inside the anchor or the panel are ignored.
+function Popover({ open, setOpen, anchorRef, children, style }) {
+  const popRef = useRef(null);
+  const [pos, setPos] = useState(null);
+
+  useLayoutEffect(() => {
+    if (!open) return;
+    const update = () => {
+      const el = anchorRef.current;
+      if (!el) return;
+      const r = el.getBoundingClientRect();
+      const left = Math.max(8, Math.min(r.left, window.innerWidth - 8 - (style?.minWidth || 180)));
+      setPos({ top: r.bottom + 6, left, maxWidth: window.innerWidth - left - 8 });
+    };
+    update();
+    window.addEventListener("resize", update);
+    window.addEventListener("scroll", update, true);
+    return () => {
+      window.removeEventListener("resize", update);
+      window.removeEventListener("scroll", update, true);
+    };
+  }, [open, anchorRef, style]);
+
   useEffect(() => {
     if (!open) return;
     const onDoc = (e) => {
-      if (ref.current && !ref.current.contains(e.target)) setOpen(false);
+      if (anchorRef.current?.contains(e.target)) return;
+      if (popRef.current?.contains(e.target)) return;
+      setOpen(false);
     };
     document.addEventListener("mousedown", onDoc);
-    return () => document.removeEventListener("mousedown", onDoc);
-  }, [open, ref, setOpen]);
+    document.addEventListener("touchstart", onDoc);
+    return () => {
+      document.removeEventListener("mousedown", onDoc);
+      document.removeEventListener("touchstart", onDoc);
+    };
+  }, [open, anchorRef, setOpen]);
+
+  if (!open || !pos) return null;
+  return createPortal(
+    <div
+      ref={popRef}
+      style={{ ...S.headerPop, position: "fixed", top: pos.top, left: pos.left, marginTop: 0, maxWidth: pos.maxWidth, ...style }}
+    >
+      {children}
+    </div>,
+    document.body
+  );
 }
 
 // Clickable column-header filter with MULTI-select (checkbox list). `value` is
 // an array of selected options; empty = no filter (all). Highlights when active.
 function HeaderFilter({ label, value, options, onChange, chip }) {
   const [open, setOpen] = useState(false);
-  const ref = useRef(null);
+  const anchorRef = useRef(null);
   const active = value.length > 0;
-  useOutsideClose(ref, open, setOpen);
   const toggle = (o) =>
     onChange(value.includes(o) ? value.filter((x) => x !== o) : [...value, o]);
   const labelText = !active
@@ -1770,28 +1811,26 @@ function HeaderFilter({ label, value, options, onChange, chip }) {
     ? `${label}: ${value[0]}`
     : `${label} (${value.length})`;
   return (
-    <div ref={ref} style={{ position: "relative" }}>
+    <div ref={anchorRef} style={{ position: "relative" }}>
       <button onClick={() => setOpen((o) => !o)} style={chip ? S.chipBtn(active) : S.thBtn(active)} title="Filter">
         <span>{labelText}</span>
         <span style={{ fontSize: 9, opacity: 0.7 }}>▼</span>
       </button>
-      {open && (
-        <div style={S.headerPop}>
-          <button onClick={() => onChange([])} style={S.popItem(!active)}>
-            <span style={{ display: "inline-block", width: 14 }}>{!active ? "✓" : ""}</span>
-            All
-          </button>
-          {options.map((o) => {
-            const sel = value.includes(o);
-            return (
-              <button key={o} onClick={() => toggle(o)} style={S.popItem(sel)}>
-                <span style={{ display: "inline-block", width: 14 }}>{sel ? "✓" : ""}</span>
-                {o}
-              </button>
-            );
-          })}
-        </div>
-      )}
+      <Popover open={open} setOpen={setOpen} anchorRef={anchorRef}>
+        <button onClick={() => onChange([])} style={S.popItem(!active)}>
+          <span style={{ display: "inline-block", width: 14 }}>{!active ? "✓" : ""}</span>
+          All
+        </button>
+        {options.map((o) => {
+          const sel = value.includes(o);
+          return (
+            <button key={o} onClick={() => toggle(o)} style={S.popItem(sel)}>
+              <span style={{ display: "inline-block", width: 14 }}>{sel ? "✓" : ""}</span>
+              {o}
+            </button>
+          );
+        })}
+      </Popover>
     </div>
   );
 }
@@ -1800,10 +1839,9 @@ function HeaderFilter({ label, value, options, onChange, chip }) {
 // From/To day-level range (passed as props when available).
 function DateHeaderFilter({ years, dateYears, setDateYears, dateMonths, setDateMonths, chip, from, to, setFrom, setTo }) {
   const [open, setOpen] = useState(false);
-  const ref = useRef(null);
+  const anchorRef = useRef(null);
   const hasRange = !!(from || to);
   const active = dateYears.length > 0 || dateMonths.length > 0 || hasRange;
-  useOutsideClose(ref, open, setOpen);
   const toggle = (arr, set, v) =>
     set(arr.includes(v) ? arr.filter((x) => x !== v) : [...arr, v]);
   const labelText = !active
@@ -1812,13 +1850,12 @@ function DateHeaderFilter({ years, dateYears, setDateYears, dateMonths, setDateM
     ? `Date: ${from || "…"} → ${to || "…"}`
     : `Date (${[...dateYears, ...dateMonths.map((m) => (MONTHS.find((x) => x.v === m) || {}).l)].join(", ")})`;
   return (
-    <div ref={ref} style={{ position: "relative" }}>
+    <div ref={anchorRef} style={{ position: "relative" }}>
       <button onClick={() => setOpen((o) => !o)} style={chip ? S.chipBtn(active) : S.thBtn(active)} title="Filter by date">
         <span>{labelText}</span>
         <span style={{ fontSize: 9, opacity: 0.7 }}>▼</span>
       </button>
-      {open && (
-        <div style={{ ...S.headerPop, display: "flex", flexDirection: "column", gap: 8, minWidth: 240 }}>
+      <Popover open={open} setOpen={setOpen} anchorRef={anchorRef} style={{ display: "flex", flexDirection: "column", gap: 8, minWidth: 240 }}>
           {/* From/To range — only when setFrom/setTo are provided */}
           {setFrom && setTo && (
             <div>
@@ -1862,8 +1899,7 @@ function DateHeaderFilter({ years, dateYears, setDateYears, dateMonths, setDateM
               })}
             </div>
           </div>
-        </div>
-      )}
+      </Popover>
     </div>
   );
 }
@@ -3641,11 +3677,15 @@ function Empty({ children }) {
 
 const S = {
   app: {
-    // Fixed-height app shell: only <main> scrolls, so the header and tab bar
-    // stay put (and tab content like the Transactions filters can pin to the
-    // top of the scroller). height:100% inherits the full screen via the
-    // html→body→#root chain (more reliable than 100dvh on iOS standalone).
-    height: "100%",
+    // Fixed-height app shell pinned to the visual viewport edges. Only <main>
+    // scrolls, so the header and tab bar stay put. position:fixed + inset:0 is
+    // the reliable way to fill the real screen on iOS standalone, where
+    // 100dvh / 100% can resolve short and leave a black band under the tab bar.
+    position: "fixed",
+    top: 0,
+    bottom: 0,
+    left: 0,
+    right: 0,
     overflow: "hidden",
     background: "#0b0d10",
     color: "#e5e7eb",
