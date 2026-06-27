@@ -184,6 +184,16 @@ valores do mapa de contas; categoria atualiza transações + chaves de
 orçamento. Itens em uso por transações não podem ser excluídos (renomear,
 sim).
 
+**Edição de itens (`ManagedRow`).** Cada item tem **ordem manual** via setas
+↑/↓ (handlers `reorderAccounts`/`reorderCategories` → `saveConfig` com a nova
+ordem); por isso contas e categorias de despesa **não são mais auto-ordenadas
+alfabeticamente** no add/rename (novos itens entram no fim, rename mantém a
+posição — a ordem persiste). **Swipe para a esquerda** revela os chips Edit /
+Delete (mesmo padrão de `TxnAuditCard`; Delete desabilitado se em uso). A
+**edição é inline**: campo de nome de largura total com botões pequenos
+**Save** (✓) / **Cancel** logo abaixo. A caixa de **adicionar** tem o input
+ocupando a largura toda + botão quadrado compacto `+`.
+
 ### Categorias
 
 Defaults de despesa (`DEFAULT_EXPENSE_CATEGORIES`): `Car, Dog,
@@ -237,14 +247,18 @@ Mobile-first, tema escuro iOS. Tab bar inferior fixa com 4 abas. A entrada de tr
 - **Cantos arredondados**: cards 16 px, modais 20 px, inputs/botões 12 px, linhas de transação 14 px.
 - **Paleta dark mode iOS**: superfícies `#161a20`, borders `#1e2530`, system blue `#0A84FF` em botões primários e links, cinza `#636366` no botão de exclusão. (Background anterior `#0b0d10` substituído.)
 - **Densidade mobile (PR #40)**: Header e TabBar compactados para maximizar a área de lista na tab Transactions. Header: padding vertical `8px/8px` (antes `14px/12px`), ícones 16 px (antes 18 px), IconButton padding 6 px (antes 8 px), SaveIndicator 10 px (antes 11 px). TabBar: padding `4px / max(4px, inset-bottom)` (antes `8px / max(8px, ...)`), ícones 18 px (antes 22 px), labels 9 px com `marginTop: 1px` (antes 10 px / 2 px), tabBtn padding 2 px (antes 4 px). O header ocupa bem abaixo de 25 % da altura da tela. Um design spec developer-ready com dimensões, cores hex, font weights, spacing, hover states e responsividade mobile+desktop está embutido em `src/App.jsx` (bloco de comentário acima do objeto de estilos `S`).
+- **Modernização Copilot-inspired**: Dashboard com **hero card** de saldo líquido (gradiente, glow, 40 px, split receita/despesa), StatCards com borda de acento à esquerda + label uppercase, `TxnRow` com **avatar colorido** da categoria (inicial + paleta estável via `catDotColor`/`CATEGORY_COLORS`), logo tile azul no header, e linhas de orçamento com dot da categoria + glow na barra estourada. As **legendas dos ícones** da tab bar (Dashboard/Analyze/Txns/Import) seguem visíveis.
+- **Tela cheia iOS PWA (full-bleed)**: o `viewport-fit=cover` só passa a valer com o meta limpo (sem `maximum-scale`) **e** uma reinstalação na tela inicial (o iOS faz snapshot do viewport no add-to-home-screen). A medição no device foi decisiva: `100dvh`/`100svh` = a *layout viewport* (812 pt no iPhone 16 Pro, que **exclui** a área do home indicator), enquanto `100vh`/`100lvh` = a tela física completa (874 pt). Por isso `html`/`body`/`#root` usam **`height: 100lvh`** com `overflow: hidden` (sem rubber-band) e o shell `height: 100%`. Resultado: a tab bar encosta na borda física real (medido `belowNav = 0`), sem faixa preta. `env(safe-area-inset-bottom)` no padding da barra mantém os ícones acima do home indicator; `env(safe-area-inset-top)` no header limpa a Dynamic Island.
 
 São **4 tabs**: Dashboard, Analyze, Transactions, Import. O app usa shell de
-altura fixa (`100dvh`): só o `<main>` faz scroll, então header e tab bar
-ficam fixos.
+altura cheia (`#root` em `100lvh` + shell `height:100%`): só o `<main>` faz
+scroll, então header e tab bar ficam fixos.
 
-1. **Dashboard** — saldo líquido, receitas/despesas totais, resumo do mês
-   corrente e transações recentes. Filtrável por mês/ano via `PeriodFilter`
-   (inicia no mês corrente).
+1. **Dashboard** — hero card com saldo líquido + split receita/despesa totais,
+   resumo do mês corrente (3 StatCards Income/Expense/Net) e transações
+   recentes. Filtrável por mês/ano via `PeriodFilter` (inicia no mês corrente).
+   Os 3 StatCards usam formato **sem centavos** (`usd0`) para caberem na
+   linha em telas estreitas.
 2. **Analyze** — sessão consolidada de análise (antigas tabs Charts + Analyze
    juntas). Começa com a parte de **Charts** (pizza de despesas por categoria
    e barras receita×despesa por mês, recharts + `PeriodFilter`), seguida de:
@@ -257,18 +271,21 @@ ficam fixos.
    - **Recorrentes / assinaturas** — detecção client-side por descrição exata
      em ≥ 2 meses distintos com valor ± 10 % da mediana; lista com valor
      típico, conta, frequência e último mês visto.
-3. **Transactions** — lista com busca textual livre, filtros por intervalo
-   de datas (from/to), categoria e conta, botão "Clear filters" e contador
-   de resultados. A aba é um flex column de altura fixa (`txnTab`): os menus
-   ficam num bloco **fixo** no topo (`txnControls`, teto de 50% da altura,
-   rola internamente se passar) e a lista ocupa o resto com seu próprio scroll
-   (`txnListScroll`) — garantindo ~metade da tela para as transações mesmo com
-   a barra de bulk aberta. O filtro de conta inclui um chip **"Unassigned"**
-   que agrupa as transações sem conta classificada. Suporta edição via
-   `EditModal` (PUT) e exclusão individual.
-   Botão **CSV** exporta as transações filtradas (campos: `date, description,
-   amount, category, account`); desabilitado quando o toggle do olho está
-   ativo. O botão JSON foi removido (PR #14).
+3. **Transactions** — busca textual livre + **chips de filtro** (Type /
+   Account / Category / Date) que abrem dropdowns via **portal** (`Popover`
+   em `position: fixed` no `document.body`, ancorado por `getBoundingClientRect`
+   — escapam de qualquer container com `overflow`, antes ficavam clipados). O
+   range from/to vive dentro do chip **Date**. A barra de resumo virou **pills
+   coloridos** (↑ income / ↓ expenses / = net). A lista é **agrupada por data**
+   com headers (`Today` / `Yesterday` / `Jun 25, 2026` via `formatDateHeader`)
+   e a data saiu de dentro de cada linha (liberou espaço para a descrição). O
+   filtro de conta inclui um chip **"Unassigned"**. A aba **flui e rola como um
+   bloco só** dentro do `<main>` (`txnTab`/`txnControls`/`txnListScroll` sem
+   mais as travas de `height:100%`/`maxHeight:50%`/scroll interno, que ficavam
+   estranhas no layout full-screen).
+   No mobile, **swipe da linha para a esquerda** revela os chips **Edit** (abre
+   `EditModal`) e **Delete** (`TxnAuditCard`). O **botão de export CSV foi
+   removido**. O botão JSON já tinha saído (PR #14).
 
    A auditoria de origem aparece como tooltip na célula de conta (desktop),
    linha "Source account (audit)" no `EditModal`, e `src:` no card mobile
@@ -369,6 +386,23 @@ O app inicia com array vazio quando não há dados salvos (sem SEED).
   Reclassify removidos
 - [x] Densidade mobile — Header e TabBar compactados (PR #40): header abaixo de
   25 % da altura da tela; design spec developer-ready embutido em `src/App.jsx`
+- [x] Modernização visual Copilot-inspired: Dashboard com hero card de saldo,
+  StatCards com borda de acento, avatares coloridos de categoria nas linhas e
+  orçamentos, logo tile no header; tab bar com ícone + legenda
+- [x] Transactions: chips de filtro com dropdown via portal (escapam de
+  `overflow`), range from/to dentro do chip Date, resumo em pills coloridos,
+  lista agrupada por data, data removida das linhas, swipe-to-reveal
+  Edit/Delete (`TxnAuditCard`); botão CSV removido; travas de altura da aba
+  removidas (flui/rola como bloco único)
+- [x] Dashboard StatCards sem centavos (`usd0`) para caberem na linha
+- [x] Settings: itens reordenáveis (setas ↑/↓, ordem persiste — fim do
+  auto-sort alfabético), swipe Edit/Delete, edição inline com Save/Cancel,
+  caixa de adicionar com input full-width + botão `+` compacto (`ManagedRow`)
+- [x] iOS PWA full-bleed: `viewport-fit=cover` (meta sem `maximum-scale` +
+  reinstalação), shell em `100lvh` (a tela física real; `100dvh` = só a
+  layout viewport de 812 pt no 16 Pro) com `html/body/#root` em `100lvh` +
+  `overflow:hidden`; tab bar encosta na borda física (`belowNav = 0`), sem
+  faixa preta nem rubber-band
 - [ ] Multiusuário / household compartilhado
 - [ ] PWA offline-first
 - [~] Integrações de import (bancos, cartões) — exportador Credit Karma para
