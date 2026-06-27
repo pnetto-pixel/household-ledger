@@ -403,3 +403,31 @@ O app inicia com array vazio quando não há dados salvos (sem SEED).
   compra) agora entra como `Other Income` negativo (clawback que abate o
   cashback ganho); o exporter preserva o sinal do CK (Deposit positivo,
   Adjustment negativo) em vez de negá-lo; antes ficava como `Transfer`
+- [x] Invariante de sinal confirmada (PR #48 + #49): `Deposit` do Apple Card
+  aparece como `Other Income +$X` e `Adjustment` como `Other Income −$X`
+  no ledger, com sinal idêntico ao do Credit Karma — importação via CSV
+  e importação direta via profile CK ambas preservam o sinal verbatim
+
+### Fase 5 — Inteligência e Auditoria
+
+- [ ] **Auditoria de classificação de categorias** — área no app (sugestão:
+  dentro do `SettingsModal` ou tab dedicada) onde o usuário pode ver e editar
+  as regras de auto-classificação que o app usa, a saber:
+  - **Mapa CK → ledger** (`mapCat` / `CAT` nos exportadores): de qual categoria
+    do Credit Karma cada ledger-category é mapeada (ex.: `GROCERIES` →
+    `Groceries`, `TRAVEL` → `Travel`). Poder renomear o destino ou criar
+    exceções por descrição/provider.
+  - **Heurísticas especiais** (ex.: Apple Daily Cash): listar as regras
+    embutidas, mostrar quais transações cada uma capturou, permitir ajuste
+    da descrição ou do provider-pattern.
+  - **Aliases de conta** (`ACCOUNT_ALIASES`): ver quais fragmentos de marca
+    casam com qual conta do ledger; adicionar/remover aliases; ver transações
+    afetadas antes de salvar.
+  - **Histórico de decisões** — por transação, um tooltip ou painel mostrando
+    por que foi classificada como X (qual regra/alias casou, se foi
+    classificação manual ou automática).
+  - **Sugestão de regras novas**: detectar automaticamente transações
+    recorrentes sem account match (Unassigned) ou com categoria `Other`, e
+    propor uma regra baseada em fragmentos da descrição/provider.
+  O objetivo é transformar a auto-classificação de uma caixa-preta em um
+  algoritmo auditável e refinável ao longo do tempo pelo usuário.

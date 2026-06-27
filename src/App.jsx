@@ -214,20 +214,19 @@ const txnType = (cat) =>
 
 const TYPE_COLOR = { Income: "#34d399", Expense: "#f87171", Transfer: "#8b94a3" };
 
-// Cash-flow presentation of a transaction's amount. The stored `amount` is
-// signed in the category's natural direction: positive is a normal income /
-// expense, negative is a reversal (a refund on an expense, a clawback/tax on
-// income). Income adds to cash flow, expense subtracts; a reversal flips the
-// shown sign and color. Transfer is shown as a plain magnitude.
+// Presentation of a transaction's amount. The rule is simple and category
+// independent: the sign comes straight from Credit Karma's `amount` and is
+// never altered. Negative → red with a "−"; positive → green, no sign. The
+// ONLY category that overrides this is Transfer: gray, no sign.
 // Returns { sign, color, value } where value is the (positive) magnitude.
 function amountDisplay(t) {
   const raw = Number(t.amount) || 0;
   if (isTransfer(t.category)) return { sign: "", color: TYPE_COLOR.Transfer, value: Math.abs(raw) };
-  const cf = (isIncome(t.category) ? 1 : -1) * raw;
+  const negative = raw < 0;
   return {
-    sign: cf > 0 ? "+" : cf < 0 ? "−" : "",
-    color: cf >= 0 ? TYPE_COLOR.Income : TYPE_COLOR.Expense,
-    value: Math.abs(cf),
+    sign: negative ? "−" : "",
+    color: negative ? TYPE_COLOR.Expense : TYPE_COLOR.Income,
+    value: Math.abs(raw),
   };
 }
 
