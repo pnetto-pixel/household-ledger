@@ -777,6 +777,8 @@ export default function App() {
 
       <TabBar tab={tab} setTab={setTab} wide={isWide} />
 
+      <DebugViewport />
+
       {settingsOpen ? (
         <SettingsModal
           config={config}
@@ -948,6 +950,42 @@ function SaveIndicator({ saving, dirty, savedAt, saveError }) {
   return null;
 }
 
+// TEMP diagnostic (top bar, so it doesn't cover the bottom strip): measures
+// each viewport unit separately to find which one equals the full screen.
+function DebugViewport() {
+  const [info, setInfo] = useState("");
+  useEffect(() => {
+    const measure = (h) => {
+      const p = document.createElement("div");
+      p.style.cssText = `position:fixed;top:0;left:0;width:1px;height:${h};visibility:hidden;pointer-events:none`;
+      document.body.appendChild(p);
+      const v = p.clientHeight;
+      p.remove();
+      return v;
+    };
+    const sab = (() => {
+      const p = document.createElement("div");
+      p.style.cssText = "position:fixed;height:env(safe-area-inset-bottom);visibility:hidden";
+      document.body.appendChild(p);
+      const v = p.clientHeight;
+      p.remove();
+      return v;
+    })();
+    setInfo(
+      `inner ${window.innerHeight} screen ${window.screen.height} gap ${window.screen.height - window.innerHeight} | dvh ${measure("100dvh")} lvh ${measure("100lvh")} svh ${measure("100svh")} vh ${measure("100vh")} | sab ${sab}`
+    );
+  }, []);
+  return (
+    <div style={{
+      position: "fixed", top: "env(safe-area-inset-top)", left: 0, right: 0, zIndex: 9999,
+      background: "rgba(255,0,0,0.9)", color: "#fff", fontSize: 10, fontWeight: 700,
+      textAlign: "center", padding: "3px 6px", fontFamily: "monospace", pointerEvents: "none",
+    }}>
+      {info}
+    </div>
+  );
+}
+
 function Header({ hideValues, onToggleHide, onLogout, onOpenSettings, saving, savedAt, dirty, saveError }) {
   return (
     <header style={S.header}>
@@ -963,7 +1001,7 @@ function Header({ hideValues, onToggleHide, onLogout, onOpenSettings, saving, sa
             <LayoutDashboard size={14} color="#fff" />
           </div>
           <span style={{ fontWeight: 700, fontSize: 15, letterSpacing: -0.5, color: "#e5e7eb" }}>Household</span>
-          <span style={{ fontSize: 9, color: "#3f4651", fontWeight: 600 }}>v22</span>
+          <span style={{ fontSize: 9, color: "#3f4651", fontWeight: 600 }}>v23</span>
         </div>
         <SaveIndicator saving={saving} dirty={dirty} savedAt={savedAt} saveError={saveError} />
       </div>
