@@ -2744,7 +2744,7 @@ function buildRow(raw, mapping, profile, accountMap) {
     const rawStr = String(rawAmount).trim();
     // Detect accounting-style parentheses notation: (47.50) means -47.50.
     // Some bank exports use this format for debits/negative amounts.
-    const parenMatch = rawStr.match(/^\(([0-9.,]+)\)$/);
+    const parenMatch = rawStr.match(/^\(\$?([0-9.,]+)\)$/);
     if (parenMatch) {
       amount = -(parseFloat(parenMatch[1].replace(/[$,]/g, "")) || 0);
     } else {
