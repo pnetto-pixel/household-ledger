@@ -980,7 +980,7 @@ function Header({ hideValues, onToggleHide, onLogout, onOpenSettings, saving, sa
             <LayoutDashboard size={14} color="#fff" />
           </div>
           <span style={{ fontWeight: 700, fontSize: 15, letterSpacing: -0.5, color: "#e5e7eb" }}>Household</span>
-          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.2.0</span>
+          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.3.0</span>
         </div>
         <SaveIndicator saving={saving} dirty={dirty} savedAt={savedAt} saveError={saveError} />
       </div>
@@ -1166,19 +1166,94 @@ function Dashboard({ transactions, money, hideValues }) {
   );
   const period = useMemo(() => computeTotals(periodTxns), [periodTxns]);
 
-  const recent = useMemo(
-    () =>
-      [...periodTxns]
-        .sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0))
-        .slice(0, 8),
-    [periodTxns]
-  );
+  const periodNetColor = period.net >= 0 ? "#34d399" : "#f87171";
+  const label = periodLabel(year, month);
 
-  const netColor = all.net >= 0 ? "#34d399" : "#f87171";
+  // ---- Category breakdown for the selected period -------------------------
+  // Determine same-day cutoff: if selected month == current month, use today;
+  // otherwise use the last day of the selected month (full month).
+  const cutoffDay = useMemo(() => {
+    const today = todayISO();
+    const currentYear = today.slice(0, 4);
+    const currentMonth = today.slice(5, 7);
+    const isCurrentMonth = year !== "All" && month !== "All" && year === currentYear && month === currentMonth;
+    if (isCurrentMonth) {
+      return today.slice(8, 10); // DD of today
+    }
+    if (year !== "All" && month !== "All") {
+      // last day of selected month
+      const lastDay = new Date(Number(year), Number(month), 0).getDate();
+      return String(lastDay).padStart(2, "0");
+    }
+    return null; // "All" period — no cutoff
+  }, [year, month]);
+
+  // Expenses by category for the selected period (up to cutoff day).
+  const catExpenses = useMemo(() => {
+    const map = new Map();
+    for (const t of periodTxns) {
+      if (isTransfer(t.category) || isIncome(t.category)) continue;
+      // Apply same-day cutoff when relevant.
+      if (cutoffDay !== null) {
+        const day = (t.date || "").slice(8, 10);
+        if (day > cutoffDay) continue;
+      }
+      const amt = Number(t.amount) || 0;
+      map.set(t.category, (map.get(t.category) || 0) + amt);
+    }
+    // Only categories with net positive spending (> 0), sorted highest first.
+    return [...map.entries()]
+      .filter(([, v]) => v > 0)
+      .sort((a, b) => b[1] - a[1]);
+  }, [periodTxns, cutoffDay]);
+
+  // Compute M/M and Y/Y pct change for each expense category.
+  // base: month prior (M/M) or same month last year (Y/Y), limited to same day.
+  const catChanges = useMemo(() => {
+    if (year === "All" || month === "All" || cutoffDay === null) return {};
+
+    const prevMonthYear = month === "01" ? String(Number(year) - 1) : year;
+    const prevMonthVal = month === "01" ? "12" : String(Number(month) - 1).padStart(2, "0");
+    const prevYear = String(Number(year) - 1);
+
+    // Build lookup: category → sum for a given YYYY-MM window up to cutoffDay.
+    const sumCat = (targetYear, targetMonth) => {
+      const map = new Map();
+      for (const t of transactions) {
+        if (isTransfer(t.category) || isIncome(t.category)) continue;
+        const d = t.date || "";
+        if (d.slice(0, 4) !== targetYear || d.slice(5, 7) !== targetMonth) continue;
+        const day = d.slice(8, 10);
+        if (day > cutoffDay) continue;
+        const amt = Number(t.amount) || 0;
+        map.set(t.category, (map.get(t.category) || 0) + amt);
+      }
+      return map;
+    };
+
+    const mmMap = sumCat(prevMonthYear, prevMonthVal);
+    const yyMap = sumCat(prevYear, month);
+
+    const result = {};
+    for (const [cat] of catExpenses) {
+      const current = catExpenses.find(([c]) => c === cat)?.[1] ?? 0;
+      const mmBase = mmMap.get(cat) || 0;
+      const yyBase = yyMap.get(cat) || 0;
+      result[cat] = {
+        mm: mmBase === 0 ? null : ((current - mmBase) / mmBase) * 100,
+        yy: yyBase === 0 ? null : ((current - yyBase) / yyBase) * 100,
+      };
+    }
+    return result;
+  }, [catExpenses, transactions, year, month, cutoffDay]);
 
   return (
     <div style={S.col}>
-      {/* Hero balance card */}
+      {/* Hero balance card — shows the SELECTED period */}
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+        <PeriodFilter year={year} month={month} setYear={setYear} setMonth={setMonth} years={years} />
+      </div>
+
       <div style={{
         background: "linear-gradient(145deg, #161a20 0%, #1b2236 100%)",
         border: "1px solid #1e2530",
@@ -1190,52 +1265,85 @@ function Dashboard({ transactions, money, hideValues }) {
       }}>
         <div style={{
           position: "absolute", top: -40, right: -40, width: 120, height: 120,
-          background: all.net >= 0 ? "rgba(52,211,153,0.13)" : "rgba(248,113,113,0.13)",
+          background: period.net >= 0 ? "rgba(52,211,153,0.13)" : "rgba(248,113,113,0.13)",
           borderRadius: "50%", filter: "blur(28px)", pointerEvents: "none",
         }} />
         <div style={{ fontSize: 10, color: "#8b94a3", fontWeight: 600, letterSpacing: 0.8, textTransform: "uppercase", marginBottom: 6 }}>
-          Net Balance
+          {label}
         </div>
-        <div style={{ fontSize: 40, fontWeight: 700, letterSpacing: -1.5, color: netColor, lineHeight: 1.1, marginBottom: 20 }}>
-          {money(all.net)}
+        <div style={{ fontSize: 40, fontWeight: 700, letterSpacing: -1.5, color: periodNetColor, lineHeight: 1.1, marginBottom: 20 }}>
+          {money(period.net)}
         </div>
         <div style={{ display: "flex", borderTop: "1px solid rgba(255,255,255,0.06)", paddingTop: 16 }}>
           <div style={{ flex: 1 }}>
-            <div style={{ fontSize: 10, color: "#8b94a3", fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.5 }}>Total Income</div>
-            <div style={{ fontSize: 17, fontWeight: 700, color: "#34d399", marginTop: 3 }}>{money(all.income)}</div>
+            <div style={{ fontSize: 10, color: "#8b94a3", fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.5 }}>Income</div>
+            <div style={{ fontSize: 17, fontWeight: 700, color: "#34d399", marginTop: 3 }}>{money(period.income)}</div>
           </div>
           <div style={{ width: 1, background: "rgba(255,255,255,0.06)", margin: "0 16px" }} />
           <div style={{ flex: 1 }}>
-            <div style={{ fontSize: 10, color: "#8b94a3", fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.5 }}>Total Expenses</div>
-            <div style={{ fontSize: 17, fontWeight: 700, color: "#f87171", marginTop: 3 }}>{money(all.expenses)}</div>
+            <div style={{ fontSize: 10, color: "#8b94a3", fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.5 }}>Expenses</div>
+            <div style={{ fontSize: 17, fontWeight: 700, color: "#f87171", marginTop: 3 }}>{money(period.expenses)}</div>
           </div>
         </div>
       </div>
 
-      {/* Period selector row */}
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 4 }}>
-        <h3 style={S.sectionTitle}>{periodLabel(year, month)}</h3>
-        <PeriodFilter year={year} month={month} setYear={setYear} setMonth={setMonth} years={years} />
-      </div>
-
+      {/* All Time chips */}
+      <h3 style={S.sectionTitle}>All Time</h3>
       <div style={S.cardRow}>
-        <StatCard label="Income" value={moneyShort(period.income)} accent="#34d399" small />
-        <StatCard label="Expenses" value={moneyShort(period.expenses)} accent="#f87171" small />
-        <StatCard label="Net" value={moneyShort(period.net)} accent={period.net >= 0 ? "#34d399" : "#f87171"} small />
+        <StatCard label="Income" value={moneyShort(all.income)} accent="#34d399" small />
+        <StatCard label="Expenses" value={moneyShort(all.expenses)} accent="#f87171" small />
+        <StatCard label="Net" value={moneyShort(all.net)} accent={all.net >= 0 ? "#34d399" : "#f87171"} small />
       </div>
 
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-        <h3 style={S.sectionTitle}>Recent</h3>
-        {recent.length > 0 && <span style={{ fontSize: 11, color: "#636366" }}>{recent.length} transactions</span>}
-      </div>
-      {recent.length === 0 ? (
-        <Empty>No transactions in this period.</Empty>
-      ) : (
-        <div style={S.list}>
-          {recent.map((t) => (
-            <TxnRow key={t.id} t={t} money={money} />
-          ))}
-        </div>
+      {/* Category breakdown for the selected period */}
+      {year !== "All" && month !== "All" && (
+        <>
+          <h3 style={S.sectionTitle}>{label} — by Category</h3>
+          {catExpenses.length === 0 ? (
+            <Empty>No expenses in this period.</Empty>
+          ) : (
+            <div style={{ ...S.card, padding: "8px 0" }}>
+              {catExpenses.map(([cat, total], idx) => {
+                const dotColor = catDotColor(cat);
+                const changes = catChanges[cat] || { mm: null, yy: null };
+                return (
+                  <div key={cat} style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 12,
+                    padding: "10px 16px",
+                    borderBottom: idx < catExpenses.length - 1 ? "1px solid #1a1f26" : "none",
+                  }}>
+                    {/* Category avatar */}
+                    <div style={{
+                      width: 34, height: 34, borderRadius: 10, flexShrink: 0,
+                      background: `${dotColor}1a`,
+                      border: `1px solid ${dotColor}35`,
+                      display: "grid", placeItems: "center",
+                      color: dotColor, fontSize: 13, fontWeight: 700,
+                    }}>
+                      {cat[0]}
+                    </div>
+                    {/* Name + badges */}
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 14, color: "#e5e7eb", fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                        {cat}
+                      </div>
+                      <div style={{ display: "flex", gap: 5, marginTop: 4, flexWrap: "wrap" }}>
+                        <ChangeBadge label="M/M" pct={changes.mm} hideValues={hideValues} />
+                        <ChangeBadge label="Y/Y" pct={changes.yy} hideValues={hideValues} />
+                      </div>
+                    </div>
+                    {/* Amount */}
+                    <div style={{ fontWeight: 700, fontSize: 14, color: "#f87171", whiteSpace: "nowrap" }}>
+                      {moneyShort(total)}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </>
       )}
     </div>
   );
@@ -1249,6 +1357,45 @@ function StatCard({ label, value, accent, small }) {
         {value}
       </div>
     </div>
+  );
+}
+
+// Inline badge showing M/M or Y/Y percentage change for an expense category.
+// For expenses: a rise in spending is bad (red), a drop is good (green).
+// pct = null means no comparison data; pct = 0 is a real 0 % change.
+function ChangeBadge({ label, pct, hideValues }) {
+  if (hideValues) return null;
+  const noData = pct === null || pct === undefined;
+  const color = noData
+    ? "#8b94a3"
+    : pct > 0
+    ? "#f87171"   // more spending → red (worse)
+    : pct < 0
+    ? "#34d399"   // less spending → green (better)
+    : "#8b94a3";  // unchanged → muted
+  const bg = noData
+    ? "rgba(139,148,163,0.1)"
+    : pct > 0
+    ? "rgba(248,113,113,0.1)"
+    : pct < 0
+    ? "rgba(52,211,153,0.1)"
+    : "rgba(139,148,163,0.1)";
+  const text = noData ? `${label} —` : `${label} ${pct > 0 ? "+" : ""}${Math.round(pct)}%`;
+  return (
+    <span style={{
+      display: "inline-flex",
+      alignItems: "center",
+      background: bg,
+      color,
+      borderRadius: 6,
+      padding: "2px 6px",
+      fontSize: 10,
+      fontWeight: 600,
+      letterSpacing: 0.2,
+      whiteSpace: "nowrap",
+    }}>
+      {text}
+    </span>
   );
 }
 
