@@ -1,4 +1,4 @@
-# Household Ledger
+# Household Ledger · v1.0.2
 
 Aplicativo mobile-first de controle financeiro doméstico. Registra
 transações da casa (despesas e receitas) por categoria e conta, com
@@ -8,6 +8,23 @@ dashboard, análise (gráficos + tendências + orçamentos), e importação de C
 Construído a partir do mesmo scaffold do **aa-findocs**: React 18 + Vite no
 front-end, funções serverless na Vercel e Redis (ioredis) como armazenamento
 persistente por usuário.
+
+---
+
+## Versionamento
+
+A versão do app é exibida no header ao lado de "Household" (`src/App.jsx`) e no título deste documento.
+
+Regra de bump:
+- **Patch** (`x.x.+1`) — qualquer alteração pequena: bugfix, ajuste de UI, texto, estilo
+- **Minor** (`x.+1.0`) — feature nova ou mudança de comportamento relevante
+- **Major** (`+1.0.0`) — redesign, mudança de arquitetura, breaking change
+
+A cada PR, atualize a versão em **dois lugares**:
+1. `src/App.jsx` — a string `v1.x.x` no span ao lado de "Household"
+2. `household-ledger.md` — o `· v1.x.x` no título `# Household Ledger`
+
+Versão atual: **v1.0.2** (PR #51 dedup fuzzy + CSV fix, PR #52 header version, PR #53 fix `($x.xx)`)
 
 ---
 
