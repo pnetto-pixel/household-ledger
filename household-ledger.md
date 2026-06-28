@@ -1,4 +1,4 @@
-# Household Ledger · v1.0.6
+# Household Ledger · v1.1.0
 
 Aplicativo mobile-first de controle financeiro doméstico. Registra
 transações da casa (despesas e receitas) por categoria e conta, com
@@ -24,7 +24,7 @@ A cada PR, atualize a versão em **dois lugares**:
 1. `src/App.jsx` — a string `v1.x.x` no span ao lado de "Household"
 2. `household-ledger.md` — o `· v1.x.x` no título `# Household Ledger`
 
-Versão atual: **v1.0.6** (net = abs(income) − abs(expenses) em todas as tabs)
+Versão atual: **v1.1.0** (lazy loading na tab Transactions — infinite scroll via IntersectionObserver)
 
 ---
 
@@ -310,6 +310,12 @@ scroll, então header e tab bar ficam fixos.
    `ReclassifyModal` — foi removida; a fonte de verdade para contas é a
    tabela de/para por URN.)
 
+   **Lazy loading:** a lista renderiza no máximo 75 itens inicialmente e carrega
+   mais 50 a cada vez que o usuário rola até o fim (IntersectionObserver no
+   sentinel). Totais e seleção em massa sempre operam sobre a lista filtrada
+   completa. Quando há mais itens além do visível, um indicador "Showing X of
+   Y — scroll for more" aparece no fim da lista.
+
    **Seleção e edição em massa:** cada linha tem checkbox (sempre visível);
    "Select all" marca/desmarca a lista filtrada corrente. Com ao menos uma
    seleção, aparece a **barra de bulk**: definir categoria, definir conta,
@@ -470,6 +476,11 @@ O app inicia com array vazio quando não há dados salvos (sem SEED).
   aparece como `Other Income +$X` e `Adjustment` como `Other Income −$X`
   no ledger, com sinal idêntico ao do Credit Karma — importação via CSV
   e importação direta via profile CK ambas preservam o sinal verbatim
+- [x] Lazy loading na tab Transactions (PR #61, SHA 62e12a9): `visibleCount`
+  state (inicial 75, incremento 50) via IntersectionObserver em sentinel no
+  fim da lista; DOM renderiza `filtered.slice(0, visibleCount)`, mas totais e
+  seleção operam sobre `filtered` completo; indicador "Showing X of Y — scroll
+  for more" quando há mais itens; sem mudanças server-side nem novas dependências
 - [x] Bugfix duplo no import de CSV (PR #51): (1) dedup fuzzy sem `sourceId`
   — critério multicampo (`account` + centavos + data ±1 dia + palavra em
   comum na descrição) com índice `account|cents`; fast-path por `sourceId`
