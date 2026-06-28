@@ -980,7 +980,7 @@ function Header({ hideValues, onToggleHide, onLogout, onOpenSettings, saving, sa
             <LayoutDashboard size={14} color="#fff" />
           </div>
           <span style={{ fontWeight: 700, fontSize: 15, letterSpacing: -0.5, color: "#e5e7eb" }}>Household</span>
-          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.0.6</span>
+          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.1.0</span>
         </div>
         <SaveIndicator saving={saving} dirty={dirty} savedAt={savedAt} saveError={saveError} />
       </div>
@@ -1396,6 +1396,10 @@ function Transactions({ transactions, money, hideValues, isWide, onDelete, onUpd
   const [dateYears, setDateYears] = useState([]);
   const [dateMonths, setDateMonths] = useState([]);
 
+  // Lazy-loading state: how many filtered rows are currently rendered.
+  const [visibleCount, setVisibleCount] = useState(75);
+  const sentinelRef = useRef(null);
+
   const years = useMemo(() => availableYears(transactions), [transactions]);
 
   // Distinct values present in the data — drive the column-header filters.
@@ -1491,6 +1495,27 @@ function Transactions({ transactions, money, hideValues, isWide, onDelete, onUpd
       .sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));
   }, [transactions, catFilter, acctFilter, typeFilter, query, year, month, from, to, dateYears, dateMonths, isWide]);
 
+  // Reset visible window whenever filters change.
+  useEffect(() => {
+    setVisibleCount(75);
+  }, [filtered]);
+
+  // IntersectionObserver: load 50 more rows when the sentinel enters the viewport.
+  useEffect(() => {
+    const sentinel = sentinelRef.current;
+    if (!sentinel) return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting) {
+          setVisibleCount((prev) => prev + 50);
+        }
+      },
+      { rootMargin: "200px" }
+    );
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [filtered]); // re-bind whenever filtered changes (sentinel may remount)
+
   // Audit summary for the filtered set.
   const summary = useMemo(() => {
     let income = 0, expenses = 0, transfer = 0;
@@ -1530,11 +1555,15 @@ function Transactions({ transactions, money, hideValues, isWide, onDelete, onUpd
 
   const allSelected = filtered.length > 0 && filtered.every((t) => selectedIds.has(t.id));
 
-  // Group mobile transactions by date for section headers.
+  // Slice to the currently-visible window (lazy load). All totals/selection
+  // logic above continues to operate on the full `filtered` array.
+  const visible = filtered.slice(0, visibleCount);
+
+  // Group mobile transactions by date for section headers — only visible rows.
   const groupedByDate = useMemo(() => {
     const groups = [];
     let lastDate = null;
-    for (const t of filtered) {
+    for (const t of visible) {
       if (t.date !== lastDate) {
         groups.push({ date: t.date, txns: [t] });
         lastDate = t.date;
@@ -1543,7 +1572,7 @@ function Transactions({ transactions, money, hideValues, isWide, onDelete, onUpd
       }
     }
     return groups;
-  }, [filtered]);
+  }, [visible]);
 
   const net = Math.abs(summary.income) - Math.abs(summary.expenses);
 
@@ -1678,7 +1707,7 @@ function Transactions({ transactions, money, hideValues, isWide, onDelete, onUpd
         <Empty>{hasFilters ? "No transactions match your filters." : "Nothing here."}</Empty>
       ) : isWide ? (
         <TxnTable
-          rows={filtered}
+          rows={visible}
           money={money}
           selectedIds={selectedIds}
           allSelected={allSelected}
@@ -1729,6 +1758,15 @@ function Transactions({ transactions, money, hideValues, isWide, onDelete, onUpd
               ))}
             </React.Fragment>
           ))}
+        </div>
+      )}
+      {/* Sentinel for IntersectionObserver — triggers loading more rows */}
+      {filtered.length > 0 && (
+        <div ref={sentinelRef} style={{ height: 1, marginTop: 4 }} aria-hidden="true" />
+      )}
+      {filtered.length > 0 && visible.length < filtered.length && (
+        <div style={S.loadMoreHint}>
+          Showing {visible.length} of {filtered.length} — scroll for more
         </div>
       )}
       </div>
@@ -4311,6 +4349,12 @@ const S = {
     padding: "2px 10px 4px",
     textTransform: "uppercase",
     letterSpacing: 0.4,
+  },
+  loadMoreHint: {
+    textAlign: "center",
+    fontSize: 11,
+    color: "#4b5563",
+    padding: "8px 0 4px",
   },
   chipBtn: (active) => ({
     display: "inline-flex",
