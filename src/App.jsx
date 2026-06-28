@@ -2883,7 +2883,7 @@ function markDuplicates(rows, existing) {
     const rDay = dateToDayInt(r.date);
     return candidates.some((c) => {
       const dayDiff = Math.abs(dateToDayInt(c.date) - rDay);
-      return dayDiff <= 1 && descOverlap(r.description, c.description);
+      return dayDiff <= 2 && descOverlap(r.description, c.description);
     });
   };
 
