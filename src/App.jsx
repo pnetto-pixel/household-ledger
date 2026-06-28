@@ -980,7 +980,7 @@ function Header({ hideValues, onToggleHide, onLogout, onOpenSettings, saving, sa
             <LayoutDashboard size={14} color="#fff" />
           </div>
           <span style={{ fontWeight: 700, fontSize: 15, letterSpacing: -0.5, color: "#e5e7eb" }}>Household</span>
-          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.1.0</span>
+          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.2.0</span>
         </div>
         <SaveIndicator saving={saving} dirty={dirty} savedAt={savedAt} saveError={saveError} />
       </div>
@@ -1350,7 +1350,7 @@ function Charts({ transactions, hideValues }) {
                 <XAxis dataKey="month" tick={{ fill: "#8b94a3", fontSize: 11 }} />
                 <YAxis tick={{ fill: "#8b94a3", fontSize: 11 }} tickFormatter={fmtAxis} width={48} />
                 {!hideValues && <Tooltip formatter={(v) => usd.format(v)} />}
-                <Legend wrapperStyle={{ fontSize: 12 }} />
+                <Legend iconType="circle" wrapperStyle={{ fontSize: 11, paddingTop: 8 }} />
                 <Bar dataKey="income" name="Income" fill="#34d399" radius={[4, 4, 0, 0]} />
                 <Bar dataKey="expenses" name="Expenses" fill="#f87171" radius={[4, 4, 0, 0]} />
               </BarChart>
@@ -2380,7 +2380,7 @@ function EditModal({ txn, onClose, onSave }) {
 }
 
 // A titled card with a chevron header that collapses its body.
-function CollapsibleCard({ title, badge, defaultOpen = false, children }) {
+function CollapsibleCard({ title, badge, defaultOpen = false, icon: Icon, children }) {
   const [open, setOpen] = useState(defaultOpen);
   return (
     <div style={{ marginBottom: 10, border: "1px solid #2a313c", borderRadius: 12, overflow: "hidden", background: "#12161c" }}>
@@ -2390,10 +2390,11 @@ function CollapsibleCard({ title, badge, defaultOpen = false, children }) {
         style={{ width: "100%", display: "flex", alignItems: "center", gap: 8, padding: "11px 12px", background: "transparent", border: "none", cursor: "pointer", textAlign: "left" }}
       >
         {open ? <ChevronDown size={16} color="#8b94a3" /> : <ChevronRight size={16} color="#8b94a3" />}
-        <span style={{ ...S.sectionTitle, margin: 0 }}>{title}</span>
+        {Icon ? <Icon size={14} style={{ marginRight: 6 }} /> : null}
+        <span style={{ ...S.sectionTitle, margin: 0, fontWeight: 600 }}>{title}</span>
         {badge != null ? <span style={{ marginLeft: "auto", fontSize: 11, color: "#8b94a3" }}>{badge}</span> : null}
       </button>
-      {open ? <div style={{ padding: "0 12px 12px" }}>{children}</div> : null}
+      {open ? <div style={{ padding: "0 14px 16px" }}>{children}</div> : null}
     </div>
   );
 }
@@ -2453,7 +2454,8 @@ function AccountMapSection({ transactions, accountMap, onSave }) {
                 style={{ display: "flex", gap: 10, alignItems: "flex-start", padding: "8px 10px", borderRadius: 10, background: "#161a20" }}
               >
                 <div style={{ minWidth: 0, flex: 1 }}>
-                  <div style={{ fontSize: 13, color: "#e5e7eb", overflowWrap: "anywhere", lineHeight: 1.35 }}>
+                  <div style={{ fontSize: 13, color: "#e5e7eb", overflowWrap: "anywhere", lineHeight: 1.35, display: "flex", alignItems: "center", flexWrap: "wrap", gap: 4 }}>
+                    <span style={{ width: 8, height: 8, borderRadius: "50%", display: "inline-block", marginRight: 6, background: draft[c.urn] ? "#34d399" : "#fbbf24", flexShrink: 0 }} />
                     {c.label || "—"} {c.last4 ? <span style={{ color: "#8b94a3" }}>· ••{c.last4}</span> : null}
                   </div>
                   <div style={{ fontSize: 11, color: "#8b94a3", marginTop: 2 }}>
@@ -2496,7 +2498,14 @@ function AccountMapSection({ transactions, accountMap, onSave }) {
 function ManagedRow({ name, used, isFirst, isLast, editing, editVal, setEditVal, onStartEdit, onCommitEdit, onCancelEdit, onDelete, onMoveUp, onMoveDown }) {
   const [dx, setDx] = useState(0);
   const [open, setOpen] = useState(false);
+  const [confirming, setConfirming] = useState(false);
   const start = useRef(null);
+
+  useEffect(() => {
+    if (!confirming) return;
+    const t = setTimeout(() => setConfirming(false), 2500);
+    return () => clearTimeout(t);
+  }, [confirming]);
 
   const onTouchStart = (e) => {
     start.current = { x: e.touches[0].clientX, y: e.touches[0].clientY, base: open ? -SWIPE_ACTION_WIDTH : 0, horiz: null };
@@ -2552,12 +2561,16 @@ function ManagedRow({ name, used, isFirst, isLast, editing, editVal, setEditVal,
           <Pencil size={16} /><span style={{ fontSize: 10, marginTop: 3 }}>Edit</span>
         </button>
         <button
-          onClick={() => { close(); if (!used) onDelete(); }}
+          onClick={() => {
+            if (used) return;
+            if (!confirming) { setConfirming(true); }
+            else { close(); setConfirming(false); onDelete(); }
+          }}
           disabled={!!used}
-          title={used ? `In use by ${used} transaction(s) — rename instead` : "Delete"}
+          title={used ? `In use by ${used} transaction(s) — rename instead` : confirming ? "Click again to confirm" : "Delete"}
           style={{ ...S.swipeAction, width: SWIPE_ACTION_WIDTH / 2, background: "#7f1d1d", color: "#fca5a5", opacity: used ? 0.4 : 1 }}
         >
-          <Trash2 size={16} /><span style={{ fontSize: 10, marginTop: 3 }}>Delete</span>
+          <Trash2 size={16} /><span style={{ fontSize: 10, marginTop: 3 }}>{confirming ? "Confirm?" : "Delete"}</span>
         </button>
       </div>
 
@@ -2673,7 +2686,7 @@ function SettingsModal({ config, transactions, accountMap, onSaveAccountMap, onC
   return (
     <div style={S.modalOverlay} onClick={onClose} role="dialog" aria-modal="true">
       <div
-        style={{ ...S.modalCard, maxWidth: 560, width: "92vw", display: "flex", flexDirection: "column" }}
+        style={{ ...S.modalCard, maxWidth: 560, width: "92vw", display: "flex", flexDirection: "column", overflowY: "hidden" }}
         onClick={(e) => e.stopPropagation()}
         aria-label="Settings"
       >
@@ -2722,6 +2735,14 @@ function SettingsModal({ config, transactions, accountMap, onSaveAccountMap, onC
             onReorder={(names) => onReorderCategories("income", names)}
           />
         </div>
+        <footer style={{ padding: "12px 16px", borderTop: "1px solid #2c2c2e", display: "flex", justifyContent: "flex-end", flexShrink: 0 }}>
+          <button
+            onClick={onClose}
+            style={{ background: "#3a3a3c", color: "#fff", border: "none", borderRadius: 8, padding: "8px 20px", cursor: "pointer", fontSize: 14 }}
+          >
+            Close
+          </button>
+        </footer>
       </div>
     </div>
   );
@@ -3344,7 +3365,7 @@ function Trends({ transactions, hideValues, money }) {
                   width={44}
                 />
                 {!hideValues && <Tooltip formatter={(v) => usd.format(v)} />}
-                <Legend wrapperStyle={{ fontSize: 11 }} />
+                <Legend iconType="circle" wrapperStyle={{ fontSize: 11, paddingTop: 8 }} />
                 {top5.cats.map((c, i) => (
                   <Line
                     key={c}
@@ -3365,7 +3386,7 @@ function Trends({ transactions, hideValues, money }) {
       {stackedData.cats.length > 0 && (
         <>
           <div style={S.sectionSubtitle}>Monthly Expense Mix</div>
-          <div style={{ ...S.card, height: 260 }}>
+          <div style={{ ...S.card, height: 260, marginBottom: 16 }}>
             <ResponsiveContainer width="100%" height="100%">
               <BarChart
                 data={stackedData.data}
@@ -3526,7 +3547,7 @@ function Budgets({ transactions, budgets, onUpdateBudget, budgetSaving, money, c
           // Clamp to 0–100: a category net-refunded below zero shows an empty bar.
           const pct = limit > 0 ? Math.max(0, Math.min((spent / limit) * 100, 100)) : 0;
           const barColor =
-            pct >= 100 ? "#f87171" : pct >= 80 ? "#fbbf24" : "#34d399";
+            pct >= 100 ? "#f87171" : pct >= 75 ? "#fbbf24" : "#34d399";
           const isEditing = editCat === cat;
 
           const dotColor = catDotColor(cat);
@@ -3562,7 +3583,7 @@ function Budgets({ transactions, budgets, onUpdateBudget, budgetSaving, money, c
                     {cat}
                   </span>
                   <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                    {limit > 0 && pct >= 80 && (
+                    {limit > 0 && (
                       <span style={{ fontSize: 10, fontWeight: 700, color: barColor, textTransform: "uppercase", letterSpacing: 0.4 }}>
                         {pct >= 100 ? "Over" : `${Math.round(pct)}%`}
                       </span>
@@ -3582,7 +3603,7 @@ function Budgets({ transactions, budgets, onUpdateBudget, budgetSaving, money, c
                         ...S.progressBar,
                         width: `${pct}%`,
                         background: barColor,
-                        boxShadow: pct >= 80 ? `0 0 6px ${barColor}60` : undefined,
+                        boxShadow: pct >= 100 ? "0 0 10px 2px #ff453a" : pct >= 75 ? `0 0 6px ${barColor}60` : undefined,
                       }}
                     />
                   </div>
@@ -3684,10 +3705,49 @@ function Recurrents({ transactions, money }) {
       const filteredMonths = new Set(inRange.map((t) => monthKey(t.date)));
       if (filteredMonths.size < 2) continue;
 
-      const lastMonth = [...filteredMonths].sort().at(-1);
+      const sortedMonthKeys = [...filteredMonths].sort();
+      const lastMonth = sortedMonthKeys.at(-1);
       const lastTxn = inRange
         .filter((t) => monthKey(t.date) === lastMonth)
         .sort((a, b) => (a.date < b.date ? 1 : -1))[0];
+
+      // Compute individual occurrence dates (one per distinct month, use last txn date in that month)
+      const occurrenceDates = sortedMonthKeys.map((mk) => {
+        const best = inRange
+          .filter((t) => monthKey(t.date) === mk)
+          .sort((a, b) => (a.date < b.date ? 1 : -1))[0];
+        return best ? best.date : mk + "-01";
+      });
+
+      // Compute intervals between consecutive dates (in days)
+      const intervals = [];
+      for (let i = 1; i < occurrenceDates.length; i++) {
+        intervals.push(dateToDayInt(occurrenceDates[i]) - dateToDayInt(occurrenceDates[i - 1]));
+      }
+
+      // Median interval
+      let medianInterval = 0;
+      if (intervals.length > 0) {
+        const sortedIntervals = [...intervals].sort((a, b) => a - b);
+        const mi = Math.floor(sortedIntervals.length / 2);
+        medianInterval = sortedIntervals.length % 2 === 0
+          ? (sortedIntervals[mi - 1] + sortedIntervals[mi]) / 2
+          : sortedIntervals[mi];
+      }
+
+      // Infer frequency label
+      let frequency = "irregular";
+      if (medianInterval >= 6 && medianInterval <= 8) frequency = "weekly";
+      else if (medianInterval >= 25 && medianInterval <= 35) frequency = "monthly";
+      else if (medianInterval >= 330 && medianInterval <= 380) frequency = "annual";
+
+      // Estimate next occurrence
+      let nextEst = null;
+      if (medianInterval > 0 && lastTxn) {
+        const nextDay = dateToDayInt(lastTxn.date) + Math.round(medianInterval);
+        const nextDate = new Date(nextDay * 86400000);
+        nextEst = nextDate.toLocaleDateString("en-US", { month: "short", year: "numeric" });
+      }
 
       results.push({
         description: (txns[0].description || "").trim(),
@@ -3695,6 +3755,8 @@ function Recurrents({ transactions, money }) {
         account: lastTxn?.account || txns[0].account || "",
         months: filteredMonths.size,
         lastMonth,
+        frequency,
+        nextEst,
       });
     }
 
@@ -3710,6 +3772,9 @@ function Recurrents({ transactions, money }) {
       </Empty>
     );
 
+  const freqLabels = { monthly: "Mensal", annual: "Anual", weekly: "Semanal", irregular: "Irregular" };
+  const freqColors = { monthly: "#3b82f6", annual: "#f59e0b", weekly: "#10b981", irregular: "#6b7280" };
+
   return (
     <div style={S.list}>
       {recurrents.map((r) => (
@@ -3723,13 +3788,25 @@ function Recurrents({ transactions, money }) {
                 overflow: "hidden",
                 textOverflow: "ellipsis",
                 whiteSpace: "nowrap",
+                display: "flex",
+                alignItems: "center",
               }}
             >
-              {r.description}
+              <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{r.description}</span>
+              {r.frequency && (
+                <span style={{ fontSize: 10, padding: "2px 6px", borderRadius: 10, color: "#fff", marginLeft: 6, background: freqColors[r.frequency] || "#6b7280", flexShrink: 0 }}>
+                  {freqLabels[r.frequency] || r.frequency}
+                </span>
+              )}
             </div>
             <div style={{ fontSize: 11, color: "#8b94a3", marginTop: 2 }}>
               {r.account} · {r.months} months · last {r.lastMonth}
             </div>
+            {r.nextEst && (
+              <div style={{ fontSize: 11, color: "#8e8e93", marginTop: 1 }}>
+                Próx. estimada: {r.nextEst}
+              </div>
+            )}
           </div>
           <span style={{ fontWeight: 600, fontSize: 14, color: "#f87171", whiteSpace: "nowrap" }}>
             {money(r.amount)}

@@ -1,4 +1,4 @@
-# Household Ledger · v1.1.0
+# Household Ledger · v1.2.0
 
 Aplicativo mobile-first de controle financeiro doméstico. Registra
 transações da casa (despesas e receitas) por categoria e conta, com
@@ -24,7 +24,7 @@ A cada PR, atualize a versão em **dois lugares**:
 1. `src/App.jsx` — a string `v1.x.x` no span ao lado de "Household"
 2. `household-ledger.md` — o `· v1.x.x` no título `# Household Ledger`
 
-Versão atual: **v1.1.0** (lazy loading na tab Transactions — infinite scroll via IntersectionObserver)
+Versão atual: **v1.2.0** (design polish nas tabs Settings e Analyze — PR #62)
 
 ---
 
@@ -206,10 +206,16 @@ sim).
 ordem); por isso contas e categorias de despesa **não são mais auto-ordenadas
 alfabeticamente** no add/rename (novos itens entram no fim, rename mantém a
 posição — a ordem persiste). **Swipe para a esquerda** revela os chips Edit /
-Delete (mesmo padrão de `TxnAuditCard`; Delete desabilitado se em uso). A
-**edição é inline**: campo de nome de largura total com botões pequenos
-**Save** (✓) / **Cancel** logo abaixo. A caixa de **adicionar** tem o input
-ocupando a largura toda + botão quadrado compacto `+`.
+Delete (mesmo padrão de `TxnAuditCard`; Delete desabilitado se em uso). O chip
+de delete é vermelho (`#f87171`) e requer **confirmação em 2 cliques**; sem
+segundo clique, reseta em 2,5 s. A **edição é inline**: campo de nome de
+largura total com botões pequenos **Save** (✓) / **Cancel** logo abaixo. A
+caixa de **adicionar** tem o input ocupando a largura toda + botão quadrado
+compacto `+`. O `SettingsModal` tem botão "Close" no footer fixo
+(`flexShrink:0`) para fechar sem rolar até o fim.
+
+**AccountMapSection** exibe um status dot por card: verde se o URN já tem conta
+mapeada, âmbar se não mapeado.
 
 ### Categorias
 
@@ -287,7 +293,14 @@ scroll, então header e tab bar ficam fixos.
      ao ultrapassar 100%; persistidos no Redis via `/api/budgets`.
    - **Recorrentes / assinaturas** — detecção client-side por descrição exata
      em ≥ 2 meses distintos com valor ± 10 % da mediana; lista com valor
-     típico, conta, frequência e último mês visto.
+     típico, conta, frequência e último mês visto. Cada item exibe um
+     **frequency badge** colorido (mensal/anual/semanal/irregular) e subtexto
+     "Próx. estimada: [data]".
+   - **Orçamentos** — threshold de alerta amarelo ajustado de 80 % para
+     **75 %**; percentual usado sempre visível (não só ao ultrapassar);
+     glow vermelho intensificado ao estourar.
+   - **Tendências** — margem de 16 px antes da tabela comparativa;
+     legenda com `iconType="circle"` e `paddingTop: 8`.
 3. **Transactions** — busca textual livre + **chips de filtro** (Type /
    Account / Category / Date) que abrem dropdowns via **portal** (`Popover`
    em `position: fixed` no `document.body`, ancorado por `getBoundingClientRect`
@@ -433,6 +446,16 @@ O app inicia com array vazio quando não há dados salvos (sem SEED).
 - [x] Settings: itens reordenáveis (setas ↑/↓, ordem persiste — fim do
   auto-sort alfabético), swipe Edit/Delete, edição inline com Save/Cancel,
   caixa de adicionar com input full-width + botão `+` compacto (`ManagedRow`)
+- [x] Design polish Settings + Analyze (PR #62, v1.2.0): `CollapsibleCard`
+  com suporte a prop `icon` + fontWeight 600 no título + padding interno
+  maior; `AccountMapSection` com status dot verde/âmbar por card
+  (mapeado/não-mapeado); `ManagedRow` com delete chip vermelho (`#f87171`)
+  e confirmação em 2 cliques com auto-reset em 2,5 s; `SettingsModal` com
+  botão "Close" no footer fixo (`flexShrink:0`); orçamentos com threshold
+  amarelo em 75 % (antes 80 %), % usada sempre visível e glow vermelho
+  intensificado; recorrentes com frequency badge colorido + subtexto "Próx.
+  estimada: [data]"; tendências com `marginBottom:16` antes da tabela e
+  Legend com `iconType="circle"` e `paddingTop:8`
 - [x] iOS PWA full-bleed: `viewport-fit=cover` (meta sem `maximum-scale` +
   reinstalação), shell em `100lvh` (a tela física real; `100dvh` = só a
   layout viewport de 812 pt no 16 Pro) com `html/body/#root` em `100lvh` +
