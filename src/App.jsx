@@ -2855,7 +2855,6 @@ function markDuplicates(rows, existing) {
   const fuzzyIdx = new Map();
 
   const addToFuzzyIdx = (t) => {
-    if (t.sourceId) return; // fuzzy only applies when no sourceId
     const cents = Math.round((Number(t.amount) || 0) * 100);
     const key = `${t.account || ""}|${cents}`;
     if (!fuzzyIdx.has(key)) fuzzyIdx.set(key, []);
