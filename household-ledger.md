@@ -1,4 +1,4 @@
-# Household Ledger · v1.2.0
+# Household Ledger · v1.3.0
 
 Aplicativo mobile-first de controle financeiro doméstico. Registra
 transações da casa (despesas e receitas) por categoria e conta, com
@@ -24,7 +24,7 @@ A cada PR, atualize a versão em **dois lugares**:
 1. `src/App.jsx` — a string `v1.x.x` no span ao lado de "Household"
 2. `household-ledger.md` — o `· v1.x.x` no título `# Household Ledger`
 
-Versão atual: **v1.2.0** (design polish nas tabs Settings e Analyze — PR #62)
+Versão atual: **v1.3.0** (Dashboard redesign — PR #63)
 
 ---
 
@@ -277,11 +277,22 @@ São **4 tabs**: Dashboard, Analyze, Transactions, Import. O app usa shell de
 altura cheia (`#root` em `100lvh` + shell `height:100%`): só o `<main>` faz
 scroll, então header e tab bar ficam fixos.
 
-1. **Dashboard** — hero card com saldo líquido + split receita/despesa totais,
-   resumo do mês corrente (3 StatCards Income/Expense/Net) e transações
-   recentes. Filtrável por mês/ano via `PeriodFilter` (inicia no mês corrente).
-   Os 3 StatCards usam formato **sem centavos** (`usd0`) para caberem na
-   linha em telas estreitas.
+1. **Dashboard** — `PeriodFilter` (seletor ano/mês) fica acima do hero e
+   controla o período exibido. **Hero card** mostra o saldo líquido, receita
+   e despesa do **período selecionado** (antes era all-time). Abaixo do hero,
+   seção **"All Time"** com 3 StatCards (Income / Expenses / Net) totais
+   históricos (`usd0`, sem centavos, para caberem na linha em telas estreitas).
+   O bloco **"Recent" (transações recentes) foi removido** do Dashboard
+   (componente `TxnRow` permanece na aba Transactions).
+   Novo bloco **"by Category"**: gastos do mês selecionado por categoria,
+   ordenados do maior para o menor (só categorias com gasto > 0; Transfer e
+   categorias de receita excluídas). Cada categoria exibe avatar colorido,
+   valor e dois badges de variação percentual — **M/M** (vs. mês anterior) e
+   **Y/Y** (vs. mesmo mês do ano anterior). Comparações usam cutoff do mesmo
+   dia (mês corrente → até hoje; mês passado → mês completo). Base 0 exibe
+   "—"; alta de gasto = vermelho, queda = verde. Respeita o toggle de
+   privacidade (olho). O bloco só aparece quando há ano+mês específico
+   selecionado.
 2. **Analyze** — sessão consolidada de análise (antigas tabs Charts + Analyze
    juntas). Começa com a parte de **Charts** (pizza de despesas por categoria
    e barras receita×despesa por mês, recharts + `PeriodFilter`), seguida de:
@@ -446,6 +457,13 @@ O app inicia com array vazio quando não há dados salvos (sem SEED).
 - [x] Settings: itens reordenáveis (setas ↑/↓, ordem persiste — fim do
   auto-sort alfabético), swipe Edit/Delete, edição inline com Save/Cancel,
   caixa de adicionar com input full-width + botão `+` compacto (`ManagedRow`)
+- [x] Dashboard redesign v1.3.0 (PR #63): `PeriodFilter` movido para acima do
+  hero; hero card exibe net/income/expenses do **período selecionado**; 3
+  StatCards rebatizados "All Time" (totais históricos); bloco "Recent" removido;
+  novo bloco **"by Category"** com gastos do mês selecionado ordenados
+  decrescentes + badges **M/M** e **Y/Y** com cutoff de dia equivalente,
+  cor por direção (vermelho = alta, verde = queda), base-zero exibe "—",
+  respeita olho de privacidade; bloco visível só com ano+mês selecionado
 - [x] Design polish Settings + Analyze (PR #62, v1.2.0): `CollapsibleCard`
   com suporte a prop `icon` + fontWeight 600 no título + padding interno
   maior; `AccountMapSection` com status dot verde/âmbar por card
