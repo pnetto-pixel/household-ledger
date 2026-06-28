@@ -2736,9 +2736,28 @@ function buildRow(raw, mapping, profile, accountMap) {
   // path used to apply Math.abs (a sign transformation) and no longer does.
   // Direction in the cash-flow view still comes from the category (income vs
   // expense); a reversal keeps the source's own negative sign.
-  const amount = profile && profile.normalizeAmount
-    ? profile.normalizeAmount(rawAmount)
-    : (parseFloat(String(rawAmount).replace(/[$,]/g, "")) || 0);
+  let amount;
+  if (profile && profile.normalizeAmount) {
+    amount = profile.normalizeAmount(rawAmount);
+  } else {
+    const rawStr = String(rawAmount).trim();
+    // Detect accounting-style parentheses notation: (47.50) means -47.50.
+    // Some bank exports use this format for debits/negative amounts.
+    const parenMatch = rawStr.match(/^\(([0-9.,]+)\)$/);
+    if (parenMatch) {
+      amount = -(parseFloat(parenMatch[1].replace(/[$,]/g, "")) || 0);
+    } else {
+      // Skip rows where the amount column contains a non-numeric string that
+      // isn't in parentheses notation — this catches repeated CSV header rows
+      // that some bank exports insert mid-file to separate account sections.
+      // These are silently ignored (counted as skipped, not as errors).
+      const cleaned = rawStr.replace(/[$,]/g, "");
+      if (rawStr !== "" && isNaN(Number(cleaned)) && !rawStr.startsWith("-") && !rawStr.startsWith("+")) {
+        return { _skipped: true };
+      }
+      amount = parseFloat(cleaned) || 0;
+    }
+  }
   if (!Number.isFinite(amount) || amount === 0) return null;
 
   let date = val("date");
@@ -2792,25 +2811,89 @@ function txnFingerprint(t) {
   return `${t.date || ""}|${amt}|${desc}|${t.account || ""}`;
 }
 
+// Stop words excluded from the fuzzy description overlap check.
+const DEDUP_STOP_WORDS = new Set([
+  "the", "at", "de", "da", "do", "em", "um", "uma", "para", "com",
+  "and", "in", "on", "of", "to", "a", "an", "is", "it", "by", "or",
+]);
+
+// Extract significant words (>=3 chars, not stop words) from a description
+// for fuzzy duplicate detection.
+function descWords(desc) {
+  return String(desc || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, " ")
+    .split(/\s+/)
+    .filter((w) => w.length >= 3 && !DEDUP_STOP_WORDS.has(w));
+}
+
+// Check if two descriptions share at least one significant word.
+function descOverlap(descA, descB) {
+  const wordsA = new Set(descWords(descA));
+  if (wordsA.size === 0) return false;
+  return descWords(descB).some((w) => wordsA.has(w));
+}
+
+// Parse YYYY-MM-DD into a UTC day integer for date-diff calculations.
+function dateToDayInt(dateStr) {
+  const d = new Date(String(dateStr || "") + "T00:00:00Z");
+  return isNaN(d.getTime()) ? 0 : Math.floor(d.getTime() / 86400000);
+}
+
 // Flag duplicates in a batch of built rows against existing transactions and
 // against earlier rows in the same batch. Hybrid key: when both sides carry a
 // source id, compare by id (so two genuinely distinct but identical-looking
-// purchases are never merged); otherwise compare by content fingerprint.
+// purchases are never merged); otherwise compare by content fingerprint first,
+// then fall back to fuzzy matching (same account + same cents + ±1 day +
+// at least 1 word in common).
 function markDuplicates(rows, existing) {
   const idSet = new Set();
   const fpNoId = new Set();
   const fpAll = new Set();
+  // Index for fuzzy matching: key = "account|amount_cents" -> array of txns
+  const fuzzyIdx = new Map();
+
+  const addToFuzzyIdx = (t) => {
+    if (t.sourceId) return; // fuzzy only applies when no sourceId
+    const cents = Math.round((Number(t.amount) || 0) * 100);
+    const key = `${t.account || ""}|${cents}`;
+    if (!fuzzyIdx.has(key)) fuzzyIdx.set(key, []);
+    fuzzyIdx.get(key).push(t);
+  };
+
   const remember = (t) => {
     const fp = txnFingerprint(t);
     fpAll.add(fp);
     if (t.sourceId) idSet.add(t.sourceId);
-    else fpNoId.add(fp);
+    else {
+      fpNoId.add(fp);
+      addToFuzzyIdx(t);
+    }
   };
   for (const t of existing) remember(t);
+
+  const isFuzzyDup = (r) => {
+    // Only run fuzzy check for rows without a sourceId.
+    if (r.sourceId) return false;
+    const cents = Math.round((Number(r.amount) || 0) * 100);
+    const key = `${r.account || ""}|${cents}`;
+    const candidates = fuzzyIdx.get(key);
+    if (!candidates || candidates.length === 0) return false;
+    const rDay = dateToDayInt(r.date);
+    return candidates.some((c) => {
+      const dayDiff = Math.abs(dateToDayInt(c.date) - rDay);
+      return dayDiff <= 1 && descOverlap(r.description, c.description);
+    });
+  };
+
   return rows.map((r) => {
-    const dup = r.sourceId
-      ? idSet.has(r.sourceId) || fpNoId.has(txnFingerprint(r))
-      : fpAll.has(txnFingerprint(r));
+    const exactFp = txnFingerprint(r);
+    let dup;
+    if (r.sourceId) {
+      dup = idSet.has(r.sourceId) || fpNoId.has(exactFp);
+    } else {
+      dup = fpAll.has(exactFp) || isFuzzyDup(r);
+    }
     remember(r);
     return { ...r, _dup: dup };
   });
@@ -2898,9 +2981,17 @@ function ImportTransactions({ onImport, accountMap, config, transactions }) {
     if (file) parseFile(file);
   };
 
-  const csvRows = useMemo(() => {
-    if (rawRows.length === 0) return [];
-    return rawRows.map((r) => buildRow(r, mapping, profile, accountMap)).filter(Boolean);
+  const { csvRows, skippedCount } = useMemo(() => {
+    if (rawRows.length === 0) return { csvRows: [], skippedCount: 0 };
+    const built = rawRows.map((r) => buildRow(r, mapping, profile, accountMap));
+    let skipped = 0;
+    const valid = [];
+    for (const row of built) {
+      if (!row) continue; // null = amount 0 or invalid
+      if (row._skipped) { skipped++; continue; } // repeated header row / non-numeric amount
+      valid.push(row);
+    }
+    return { csvRows: valid, skippedCount: skipped };
   }, [rawRows, mapping, profile, accountMap, config]);
 
   // Flag duplicates against existing data + within the batch.
@@ -3025,7 +3116,7 @@ function ImportTransactions({ onImport, accountMap, config, transactions }) {
 
           <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", fontSize: 12, color: "#8b94a3" }}>
             <span>
-              {csvRows.length} rows · <span style={{ color: "#cbd5e1" }}>{selectedCount} selected</span>
+              {rawRows.length} parsed · {csvRows.length} valid{skippedCount > 0 ? <span style={{ color: "#fbbf24" }}> · {skippedCount} skipped (non-numeric rows)</span> : null} · <span style={{ color: "#cbd5e1" }}>{selectedCount} selected</span>
               {dupCount ? <span style={{ color: "#fbbf24" }}> · {dupCount} duplicate{dupCount === 1 ? "" : "s"} auto-unchecked</span> : null}
             </span>
             <button onClick={selectAll} style={S.linkBtn}>Select all</button>
