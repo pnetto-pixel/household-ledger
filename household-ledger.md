@@ -1,4 +1,4 @@
-# Household Ledger · v1.0.4
+# Household Ledger · v1.0.5
 
 Aplicativo mobile-first de controle financeiro doméstico. Registra
 transações da casa (despesas e receitas) por categoria e conta, com
@@ -24,7 +24,7 @@ A cada PR, atualize a versão em **dois lugares**:
 1. `src/App.jsx` — a string `v1.x.x` no span ao lado de "Household"
 2. `household-ledger.md` — o `· v1.x.x` no título `# Household Ledger`
 
-Versão atual: **v1.0.4** (PR #51 dedup fuzzy + CSV fix, PR #52 header version, PR #53 fix `($x.xx)`, PR #55 dedup ±2 dias, PR #57 fuzzy index inclui CK)
+Versão atual: **v1.0.5** (PR #51–58 acima + fix real do fuzzy index para transações CK com sourceId)
 
 ---
 

@@ -980,7 +980,7 @@ function Header({ hideValues, onToggleHide, onLogout, onOpenSettings, saving, sa
             <LayoutDashboard size={14} color="#fff" />
           </div>
           <span style={{ fontWeight: 700, fontSize: 15, letterSpacing: -0.5, color: "#e5e7eb" }}>Household</span>
-          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.0.4</span>
+          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.0.5</span>
         </div>
         <SaveIndicator saving={saving} dirty={dirty} savedAt={savedAt} saveError={saveError} />
       </div>
@@ -2865,10 +2865,8 @@ function markDuplicates(rows, existing) {
     const fp = txnFingerprint(t);
     fpAll.add(fp);
     if (t.sourceId) idSet.add(t.sourceId);
-    else {
-      fpNoId.add(fp);
-      addToFuzzyIdx(t);
-    }
+    else fpNoId.add(fp);
+    addToFuzzyIdx(t);
   };
   for (const t of existing) remember(t);
 
