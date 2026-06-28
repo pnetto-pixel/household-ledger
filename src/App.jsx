@@ -1198,7 +1198,7 @@ function Dashboard({ transactions, money, hideValues }) {
         const day = (t.date || "").slice(8, 10);
         if (day > cutoffDay) continue;
       }
-      const amt = Number(t.amount) || 0;
+      const amt = Math.abs(Number(t.amount) || 0);
       map.set(t.category, (map.get(t.category) || 0) + amt);
     }
     // Only categories with net positive spending (> 0), sorted highest first.
@@ -1225,7 +1225,7 @@ function Dashboard({ transactions, money, hideValues }) {
         if (d.slice(0, 4) !== targetYear || d.slice(5, 7) !== targetMonth) continue;
         const day = d.slice(8, 10);
         if (day > cutoffDay) continue;
-        const amt = Number(t.amount) || 0;
+        const amt = Math.abs(Number(t.amount) || 0);
         map.set(t.category, (map.get(t.category) || 0) + amt);
       }
       return map;
@@ -1235,8 +1235,7 @@ function Dashboard({ transactions, money, hideValues }) {
     const yyMap = sumCat(prevYear, month);
 
     const result = {};
-    for (const [cat] of catExpenses) {
-      const current = catExpenses.find(([c]) => c === cat)?.[1] ?? 0;
+    for (const [cat, current] of catExpenses) {
       const mmBase = mmMap.get(cat) || 0;
       const yyBase = yyMap.get(cat) || 0;
       result[cat] = {
