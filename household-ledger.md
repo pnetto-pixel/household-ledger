@@ -306,7 +306,10 @@ scroll, então header e tab bar ficam fixos.
      pendentes; sem UI de mapeamento.
    - **CSV** (uso único, backfill do histórico) — mapeamento manual de
      colunas (`IMPORT_FIELDS`, `guessMapping`, selects por campo com hints de
-     fallback).
+     fallback). Suporta valores contábeis com parênteses (`(47.50)` →
+     `-47.50`) e detecta cabeçalhos repetidos no meio do arquivo (retorna
+     `_skipped` em vez de descartar silenciosamente). O summary de diagnóstico
+     exibe `N parsed · M valid · K skipped · X selected`.
    Quando nenhum sinal de conta existe, a linha fica **Unassigned** (não mais
    "ATT Reward"). OFX/QFX e os profiles Chase foram removidos (o mapa de
    contas por URN cobre o caso Chase).
@@ -315,10 +318,19 @@ scroll, então header e tab bar ficam fixos.
    duplicadas vêm **desmarcadas** (badge `DUP`), com filtro "Only duplicates"
    e Select/Deselect all — só as marcadas são importadas. A detecção
    (`markDuplicates`) compara contra os dados existentes **e** dentro do
-   próprio lote: quando os dois lados têm `sourceId` (id do CK), compara por
-   id — assim dois gastos reais idênticos nunca são fundidos; senão, usa um
-   **fingerprint** `data │ valor(centavos, com sinal) │ descrição normalizada
-   │ conta` (`txnFingerprint`). O export do CK emite a coluna `source_id`.
+   próprio lote em dois estágios (PR #51):
+
+   - **Fast-path por `sourceId`** (Credit Karma): quando os dois lados têm
+     `sourceId`, compara por id — assim dois gastos reais idênticos nunca são
+     fundidos. Mantido intacto.
+   - **Fuzzy sem `sourceId`** (CSV genérico): critério multicampo —
+     mesmo `account` + mesmo `amount` em centavos exatos + data ±1 dia +
+     ao menos 1 palavra em comum na descrição (≥3 chars, excluindo stop
+     words). Índice por `account|cents` para eficiência (O(n + m×k)).
+     Substitui o fingerprint anterior `data│valor│descrição│conta` que
+     falhava quando o `sourceId` estava ausente.
+
+   O export do CK emite a coluna `source_id`.
 
 **Toggle do olho** no cabeçalho esconde/mostra todos os valores
 monetários globalmente (persistido em `localStorage`).
@@ -441,6 +453,12 @@ O app inicia com array vazio quando não há dados salvos (sem SEED).
   aparece como `Other Income +$X` e `Adjustment` como `Other Income −$X`
   no ledger, com sinal idêntico ao do Credit Karma — importação via CSV
   e importação direta via profile CK ambas preservam o sinal verbatim
+- [x] Bugfix duplo no import de CSV (PR #51): (1) dedup fuzzy sem `sourceId`
+  — critério multicampo (`account` + centavos + data ±1 dia + palavra em
+  comum na descrição) com índice `account|cents`; fast-path por `sourceId`
+  mantido; (2) parsing de valores contábeis com parênteses (`(47.50)` →
+  `-47.50`) + detecção de cabeçalhos repetidos no meio do arquivo
+  (`_skipped`); UI de import exibe `N parsed · M valid · K skipped · X selected`
 
 ### Fase 5 — Inteligência e Auditoria
 
