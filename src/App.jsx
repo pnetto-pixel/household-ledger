@@ -980,7 +980,7 @@ function Header({ hideValues, onToggleHide, onLogout, onOpenSettings, saving, sa
             <LayoutDashboard size={14} color="#fff" />
           </div>
           <span style={{ fontWeight: 700, fontSize: 15, letterSpacing: -0.5, color: "#e5e7eb" }}>Household</span>
-          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.0.5</span>
+          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.0.6</span>
         </div>
         <SaveIndicator saving={saving} dirty={dirty} savedAt={savedAt} saveError={saveError} />
       </div>
@@ -1069,7 +1069,7 @@ function computeTotals(rows) {
     if (isIncome(t.category)) income += amt;
     else expenses += amt;
   }
-  return { income, expenses, net: income - expenses };
+  return { income, expenses, net: Math.abs(income) - Math.abs(expenses) };
 }
 
 // ===========================================================================
@@ -1545,7 +1545,7 @@ function Transactions({ transactions, money, hideValues, isWide, onDelete, onUpd
     return groups;
   }, [filtered]);
 
-  const net = summary.income - summary.expenses;
+  const net = Math.abs(summary.income) - Math.abs(summary.expenses);
 
   return (
     <div style={S.txnTab}>
