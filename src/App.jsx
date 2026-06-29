@@ -980,7 +980,7 @@ function Header({ hideValues, onToggleHide, onLogout, onOpenSettings, saving, sa
             <LayoutDashboard size={14} color="#fff" />
           </div>
           <span style={{ fontWeight: 700, fontSize: 15, letterSpacing: -0.5, color: "#e5e7eb" }}>Household</span>
-          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.5.5</span>
+          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.5.6</span>
         </div>
         <SaveIndicator saving={saving} dirty={dirty} savedAt={savedAt} saveError={saveError} />
       </div>
@@ -1246,6 +1246,62 @@ function Dashboard({ transactions, money, hideValues }) {
     return result;
   }, [catExpenses, transactions, year, month, cutoffDay]);
 
+  // Daily pace for Dashboard: driven by the selected month vs the one before.
+  const dashboardPaceData = useMemo(() => {
+    if (year === "All" || month === "All") return null;
+    const curMonthKey = `${year}-${month}`;
+    const today = todayISO();
+    const todayMonth = today.slice(0, 7);
+    const todayDay = parseInt(today.slice(8, 10), 10);
+    const cy = Number(year);
+    const cm = Number(month);
+    const prevDate = new Date(cy, cm - 2, 1);
+    const prevMonthKey = `${prevDate.getFullYear()}-${String(prevDate.getMonth() + 1).padStart(2, "0")}`;
+    const buildByDay = (monthKey) => {
+      const byDay = new Map();
+      for (const t of transactions) {
+        if (isTransfer(t.category) || isIncome(t.category)) continue;
+        if (!t.date || !t.date.startsWith(monthKey)) continue;
+        const day = parseInt(t.date.slice(8, 10), 10);
+        byDay.set(day, (byDay.get(day) || 0) + Math.abs(Number(t.amount) || 0));
+      }
+      return byDay;
+    };
+    const curByDay = buildByDay(curMonthKey);
+    const prevByDay = buildByDay(prevMonthKey);
+    const daysInPrev = new Date(prevDate.getFullYear(), prevDate.getMonth() + 1, 0).getDate();
+    const daysInCur = new Date(cy, cm, 0).getDate();
+    const curMaxDay = curMonthKey === todayMonth ? todayDay : daysInCur;
+    const maxDay = Math.max(daysInPrev, daysInCur);
+    const data = [];
+    let curRunning = 0;
+    let prevRunning = 0;
+    for (let d = 1; d <= maxDay; d++) {
+      if (d <= curMaxDay) curRunning += curByDay.get(d) || 0;
+      if (d <= daysInPrev) prevRunning += prevByDay.get(d) || 0;
+      data.push({
+        day: d,
+        current: d <= curMaxDay ? curRunning : null,
+        previous: d <= daysInPrev ? prevRunning : null,
+      });
+    }
+    const monthLabel = (key) => {
+      const [y, m] = key.split("-").map(Number);
+      return new Date(y, m - 1, 1).toLocaleString("default", { month: "short" }) + "/" + String(y).slice(2);
+    };
+    return {
+      data,
+      curLabel: monthLabel(curMonthKey),
+      prevLabel: monthLabel(prevMonthKey),
+      todayDay: curMonthKey === todayMonth ? todayDay : null,
+    };
+  }, [transactions, year, month]);
+
+  const fmtK = (v) => {
+    if (hideValues) return "";
+    return `$${(Math.abs(Number(v) || 0) / 1000).toFixed(1)}K`;
+  };
+
   return (
     <div style={S.col}>
       {/* Hero balance card — shows the SELECTED period */}
@@ -1286,13 +1342,7 @@ function Dashboard({ transactions, money, hideValues }) {
         </div>
       </div>
 
-      {/* All Time chips */}
-      <h3 style={S.sectionTitle}>All Time</h3>
-      <div style={S.cardRow}>
-        <StatCard label="Income" value={moneyShort(all.income)} accent="#34d399" small />
-        <StatCard label="Expenses" value={moneyShort(all.expenses)} accent="#f87171" small />
-        <StatCard label="Net" value={moneyShort(all.net)} accent={all.net >= 0 ? "#34d399" : "#f87171"} small />
-      </div>
+      <DailyPaceCard paceData={dashboardPaceData} hideValues={hideValues} fmtK={fmtK} />
 
       {/* Category breakdown for the selected period */}
       {year !== "All" && month !== "All" && (
@@ -1344,6 +1394,14 @@ function Dashboard({ transactions, money, hideValues }) {
           )}
         </>
       )}
+
+      {/* All Time chips — moved to end of page */}
+      <h3 style={S.sectionTitle}>All Time</h3>
+      <div style={S.cardRow}>
+        <StatCard label="Income" value={moneyShort(all.income)} accent="#34d399" small />
+        <StatCard label="Expenses" value={moneyShort(all.expenses)} accent="#f87171" small />
+        <StatCard label="Net" value={moneyShort(all.net)} accent={all.net >= 0 ? "#34d399" : "#f87171"} small />
+      </div>
     </div>
   );
 }
@@ -1641,72 +1699,6 @@ function Charts({ transactions, hideValues }) {
     return rows.sort((a, b) => (a.bucket < b.bucket ? -1 : 1));
   }, [scoped, granularity]);
 
-  // Daily pace data: most recent month vs previous month, always from full dataset.
-  const dailyPaceData = useMemo(() => {
-    const today = todayISO();
-    const todayMonth = today.slice(0, 7);
-    const todayDay = parseInt(today.slice(8, 10), 10);
-
-    const expenseMonths = new Set();
-    for (const t of transactions) {
-      if (isTransfer(t.category) || isIncome(t.category)) continue;
-      if (t.date && t.date.length >= 7) expenseMonths.add(t.date.slice(0, 7));
-    }
-    if (expenseMonths.size === 0) return null;
-
-    const sortedMonths = [...expenseMonths].sort();
-    const curMonthKey = sortedMonths[sortedMonths.length - 1];
-
-    const [cy, cm] = curMonthKey.split("-").map(Number);
-    const prevDate = new Date(cy, cm - 2, 1);
-    const prevMonthKey = `${prevDate.getFullYear()}-${String(prevDate.getMonth() + 1).padStart(2, "0")}`;
-
-    const buildByDay = (monthKey) => {
-      const byDay = new Map();
-      for (const t of transactions) {
-        if (isTransfer(t.category) || isIncome(t.category)) continue;
-        if (!t.date || !t.date.startsWith(monthKey)) continue;
-        const day = parseInt(t.date.slice(8, 10), 10);
-        byDay.set(day, (byDay.get(day) || 0) + Math.abs(Number(t.amount) || 0));
-      }
-      return byDay;
-    };
-
-    const curByDay = buildByDay(curMonthKey);
-    const prevByDay = buildByDay(prevMonthKey);
-
-    const [pY, pM] = prevMonthKey.split("-").map(Number);
-    const daysInPrev = new Date(pY, pM, 0).getDate();
-    const daysInCur = new Date(cy, cm, 0).getDate();
-    const curMaxDay = curMonthKey === todayMonth ? todayDay : daysInCur;
-    const maxDay = Math.max(daysInPrev, daysInCur);
-
-    const data = [];
-    let curRunning = 0;
-    let prevRunning = 0;
-    for (let d = 1; d <= maxDay; d++) {
-      if (d <= curMaxDay) curRunning += curByDay.get(d) || 0;
-      if (d <= daysInPrev) prevRunning += prevByDay.get(d) || 0;
-      data.push({
-        day: d,
-        current: d <= curMaxDay ? curRunning : null,
-        previous: d <= daysInPrev ? prevRunning : null,
-      });
-    }
-
-    const monthLabel = (key) => {
-      const [y, m] = key.split("-").map(Number);
-      return new Date(y, m - 1, 1).toLocaleString("default", { month: "short" }) + "/" + String(y).slice(2);
-    };
-
-    return {
-      data,
-      curLabel: monthLabel(curMonthKey),
-      prevLabel: monthLabel(prevMonthKey),
-      todayDay: curMonthKey === todayMonth ? todayDay : null,
-    };
-  }, [transactions]);
-
   if (transactions.length === 0) {
     return <Empty>No data to chart yet.</Empty>;
   }
@@ -1797,8 +1789,6 @@ function Charts({ transactions, hideValues }) {
         fmtKTooltip={fmtKFull}
         fmtBucketLabel={bucketLabel}
       />
-
-      <DailyPaceCard paceData={dailyPaceData} hideValues={hideValues} fmtK={fmtK} />
 
       <>
         <h3 style={S.sectionTitle}>Income vs Expenses</h3>
