@@ -980,7 +980,7 @@ function Header({ hideValues, onToggleHide, onLogout, onOpenSettings, saving, sa
             <LayoutDashboard size={14} color="#fff" />
           </div>
           <span style={{ fontWeight: 700, fontSize: 15, letterSpacing: -0.5, color: "#e5e7eb" }}>Household</span>
-          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.5.14</span>
+          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.5.15</span>
         </div>
         <SaveIndicator saving={saving} dirty={dirty} savedAt={savedAt} saveError={saveError} />
       </div>
@@ -1231,8 +1231,23 @@ function Dashboard({ transactions, money, hideValues }) {
       return map;
     };
 
+    // Full-month totals (no cutoff) for reference display.
+    const sumCatFull = (targetYear, targetMonth) => {
+      const map = new Map();
+      for (const t of transactions) {
+        if (isTransfer(t.category) || isIncome(t.category)) continue;
+        const d = t.date || "";
+        if (d.slice(0, 4) !== targetYear || d.slice(5, 7) !== targetMonth) continue;
+        const amt = Number(t.amount) || 0;
+        map.set(t.category, (map.get(t.category) || 0) + amt);
+      }
+      return map;
+    };
+
     const mmMap = sumCat(prevMonthYear, prevMonthVal);
     const yyMap = sumCat(prevYear, month);
+    const mmFullMap = sumCatFull(prevMonthYear, prevMonthVal);
+    const yyFullMap = sumCatFull(prevYear, month);
 
     const result = {};
     for (const [cat, current] of catExpenses) {
@@ -1241,6 +1256,8 @@ function Dashboard({ transactions, money, hideValues }) {
       result[cat] = {
         mm: mmBase >= 0 ? null : ((-current - (-mmBase)) / (-mmBase)) * 100,
         yy: yyBase >= 0 ? null : ((-current - (-yyBase)) / (-yyBase)) * 100,
+        mmTotal: mmFullMap.get(cat) ?? null,
+        yyTotal: yyFullMap.get(cat) ?? null,
       };
     }
     return result;
@@ -1384,9 +1401,17 @@ function Dashboard({ transactions, money, hideValues }) {
                         <ChangeBadge label="Y/Y" pct={changes.yy} hideValues={hideValues} />
                       </div>
                     </div>
-                    {/* Amount */}
-                    <div style={{ fontWeight: 700, fontSize: 14, color: total < 0 ? "#f87171" : "#34d399", whiteSpace: "nowrap" }}>
-                      {moneyShort(Math.abs(total))}
+                    {/* Amount + reference totals */}
+                    <div style={{ textAlign: "right", whiteSpace: "nowrap" }}>
+                      <div style={{ fontWeight: 700, fontSize: 14, color: total < 0 ? "#f87171" : "#34d399" }}>
+                        {moneyShort(total)}
+                      </div>
+                      {(changes.mmTotal != null || changes.yyTotal != null) && (
+                        <div style={{ fontSize: 10, color: "#6b7280", marginTop: 2, display: "flex", flexDirection: "column", gap: 1, alignItems: "flex-end" }}>
+                          {changes.mmTotal != null && <span>prev {moneyShort(changes.mmTotal)}</span>}
+                          {changes.yyTotal != null && <span>ly {moneyShort(changes.yyTotal)}</span>}
+                        </div>
+                      )}
                     </div>
                   </div>
                 );
