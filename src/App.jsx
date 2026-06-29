@@ -980,7 +980,7 @@ function Header({ hideValues, onToggleHide, onLogout, onOpenSettings, saving, sa
             <LayoutDashboard size={14} color="#fff" />
           </div>
           <span style={{ fontWeight: 700, fontSize: 15, letterSpacing: -0.5, color: "#e5e7eb" }}>Household</span>
-          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.5.18</span>
+          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.5.19</span>
         </div>
         <SaveIndicator saving={saving} dirty={dirty} savedAt={savedAt} saveError={saveError} />
       </div>
@@ -1199,10 +1199,12 @@ function Dashboard({ transactions, money, hideValues }) {
     const mm = computeTotals(mmTxns);
     const yy = computeTotals(yyTxns);
     const pct = (cur, base) => base === 0 ? null : ((cur - base) / Math.abs(base)) * 100;
+    // Expenses are negative — compare magnitudes so +% means more spending.
+    const pctExp = (cur, base) => base === 0 ? null : ((-cur - (-base)) / Math.abs(base)) * 100;
     return {
       mm, yy,
-      mmPctExp: pct(period.expenses, mm.expenses),
-      yyPctExp: pct(period.expenses, yy.expenses),
+      mmPctExp: pctExp(period.expenses, mm.expenses),
+      yyPctExp: pctExp(period.expenses, yy.expenses),
       mmPctInc: pct(period.income, mm.income),
       yyPctInc: pct(period.income, yy.income),
     };
