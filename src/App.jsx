@@ -980,7 +980,7 @@ function Header({ hideValues, onToggleHide, onLogout, onOpenSettings, saving, sa
             <LayoutDashboard size={14} color="#fff" />
           </div>
           <span style={{ fontWeight: 700, fontSize: 15, letterSpacing: -0.5, color: "#e5e7eb" }}>Household</span>
-          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.5.20</span>
+          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.5.21</span>
         </div>
         <SaveIndicator saving={saving} dirty={dirty} savedAt={savedAt} saveError={saveError} />
       </div>
@@ -1151,7 +1151,9 @@ function PeriodFilter({ year, month, setYear, setMonth, years }) {
 // ===========================================================================
 
 function Dashboard({ transactions, money, hideValues }) {
-  const all = useMemo(() => computeTotals(transactions), [transactions]);
+  const all = useMemo(() => computeTotals(
+    catFilter === "All" ? transactions : transactions.filter((t) => t.category === catFilter)
+  ), [transactions, catFilter]);
   const years = useMemo(() => availableYears(transactions), [transactions]);
   // No-cents money for the tight 3-up stat card row.
   const moneyShort = (n) => (hideValues ? "•••••" : usd0.format(n || 0));
