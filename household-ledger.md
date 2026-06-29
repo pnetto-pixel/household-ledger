@@ -1,4 +1,4 @@
-# Household Ledger · v1.5.5
+# Household Ledger · v1.5.6
 
 Aplicativo mobile-first de controle financeiro doméstico. Registra
 transações da casa (despesas e receitas) por categoria e conta, com
@@ -24,7 +24,7 @@ A cada PR, atualize a versão em **dois lugares**:
 1. `src/App.jsx` — a string `v1.x.x` no span ao lado de "Household"
 2. `household-ledger.md` — o `· v1.x.x` no título `# Household Ledger`
 
-Versão atual: **v1.5.5** (DailyPaceCard — AreaChart de gasto cumulativo diário no Analyze → Charts)
+Versão atual: **v1.5.6** (DailyPaceCard movido para o Dashboard, entre o hero card e o bloco "by Category"; vinculado ao PeriodFilter do Dashboard; "All Time" StatCards movidos para o rodapé do Dashboard)
 
 ---
 
@@ -280,19 +280,26 @@ scroll, então header e tab bar ficam fixos.
 1. **Dashboard** — `PeriodFilter` (seletor ano/mês) fica acima do hero e
    controla o período exibido. **Hero card** mostra o saldo líquido, receita
    e despesa do **período selecionado** (antes era all-time). Abaixo do hero,
-   seção **"All Time"** com 3 StatCards (Income / Expenses / Net) totais
-   históricos (`usd0`, sem centavos, para caberem na linha em telas estreitas).
+   **`DailyPaceCard`** (v1.5.6) — AreaChart de gasto cumulativo diário com
+   duas séries vinculadas ao período selecionado pelo `PeriodFilter`: mês
+   selecionado (laranja `#F97316`, linha sólida + fill semi-transparente) e
+   mês anterior (cinza `#8b94a3`, linha tracejada + fill sutil). Eixo X =
+   dia do mês; eixo Y = despesa cumulativa em formato `$X.XK`. Exibe
+   ReferenceLine "Today" quando o mês exibido é o mês corrente do calendário.
+   Transfers excluídas; `cursor={false}`. Abaixo do DailyPaceCard, bloco
+   **"by Category"**: gastos do mês selecionado por categoria, ordenados do
+   maior para o menor (só categorias com gasto > 0; Transfer e categorias de
+   receita excluídas). Cada categoria exibe avatar colorido, valor e dois
+   badges de variação percentual — **M/M** (vs. mês anterior) e **Y/Y**
+   (vs. mesmo mês do ano anterior). Comparações usam cutoff do mesmo dia
+   (mês corrente → até hoje; mês passado → mês completo). Base 0 exibe "—";
+   alta de gasto = vermelho, queda = verde. Respeita o toggle de privacidade
+   (olho). O bloco só aparece quando há ano+mês específico selecionado.
+   Ao final da página, seção **"All Time"** com 3 StatCards (Income /
+   Expenses / Net) totais históricos (`usd0`, sem centavos, para caberem na
+   linha em telas estreitas).
    O bloco **"Recent" (transações recentes) foi removido** do Dashboard
    (componente `TxnRow` permanece na aba Transactions).
-   Novo bloco **"by Category"**: gastos do mês selecionado por categoria,
-   ordenados do maior para o menor (só categorias com gasto > 0; Transfer e
-   categorias de receita excluídas). Cada categoria exibe avatar colorido,
-   valor e dois badges de variação percentual — **M/M** (vs. mês anterior) e
-   **Y/Y** (vs. mesmo mês do ano anterior). Comparações usam cutoff do mesmo
-   dia (mês corrente → até hoje; mês passado → mês completo). Base 0 exibe
-   "—"; alta de gasto = vermelho, queda = verde. Respeita o toggle de
-   privacidade (olho). O bloco só aparece quando há ano+mês específico
-   selecionado.
 2. **Analyze** — sessão consolidada de análise (antigas tabs Charts + Analyze
    juntas). Começa com a parte de **Charts**: no topo da seção há um
    **segmented control de granularidade** (M / Quarter / Half / Year) e um
@@ -303,15 +310,7 @@ scroll, então header e tab bar ficam fixos.
    **`MonthlyBarCard`** — barras de Income ou Expense agrupadas na
    granularidade selecionada, com toggle de pills no topo (default: Income);
    valores de expense sempre positivos (`Math.abs`); respeita `hideValues`.
-   Segundo card: **`DailyPaceCard`** (v1.5.5) — AreaChart de gasto cumulativo
-   diário com duas séries: mês atual (laranja `#F97316`, linha sólida + fill
-   semi-transparente) e mês anterior (cinza `#8b94a3`, linha tracejada + fill
-   sutil). Eixo X = dia do mês; eixo Y = despesa cumulativa em formato `$X.XK`.
-   Exibe uma ReferenceLine "Today" quando o mês exibido é o mês corrente do
-   calendário. Sempre reflete os dois meses mais recentes com dados de despesa,
-   independentemente do filtro de range de anos / granularidade dos outros cards.
-   Transfers excluídas; `cursor={false}` consistente com o restante do app.
-   Terceiro card: **"Income vs Expenses"** (barras agrupadas na mesma
+   Segundo card: **"Income vs Expenses"** (barras agrupadas na mesma
    granularidade; título antes era "Income vs Expenses (Monthly)"). Eixo Y e
    tooltip dos dois cards de barras exibem valores em formato `0.00K` (ex.
    `$1.50K`); lógica de fallback de mês único (`isSingleMonth`) removida.
@@ -500,6 +499,13 @@ O app inicia com array vazio quando não há dados salvos (sem SEED).
   "Today" quando exibindo o mês corrente; sempre reflete os dois meses mais
   recentes com dados de despesa, ignorando o filtro de range/granularidade dos
   outros cards; Transfers excluídas; `cursor={false}`
+- [x] DailyPaceCard v1.5.6: movido do Analyze → Charts para o **Dashboard**,
+  posicionado entre o hero card e o bloco "by Category"; as duas séries passam
+  a ser controladas pelo `PeriodFilter` do Dashboard (mês selecionado = laranja
+  sólido; mês anterior = cinza tracejado) em vez de sempre refletir os dois
+  meses mais recentes com dados; os 3 StatCards "All Time" (Income / Expenses /
+  Net) foram movidos para o **rodapé** do Dashboard (antes ficavam logo abaixo
+  do hero)
 - [x] Charts v1.5.0 (PR #67): **granularidade selecionável** (segmented control
   M / Quarter / Half / Year) + **filtro de range de anos** (From/To) no topo
   da seção Charts, substituindo os dropdowns Ano+Mês do Charts (o
