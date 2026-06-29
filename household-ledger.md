@@ -1,4 +1,4 @@
-# Household Ledger · v1.5.2
+# Household Ledger · v1.5.5
 
 Aplicativo mobile-first de controle financeiro doméstico. Registra
 transações da casa (despesas e receitas) por categoria e conta, com
@@ -24,7 +24,7 @@ A cada PR, atualize a versão em **dois lugares**:
 1. `src/App.jsx` — a string `v1.x.x` no span ao lado de "Household"
 2. `household-ledger.md` — o `· v1.x.x` no título `# Household Ledger`
 
-Versão atual: **v1.5.2** (formato dos valores do Charts em `0.0K` — uma casa decimal)
+Versão atual: **v1.5.5** (DailyPaceCard — AreaChart de gasto cumulativo diário no Analyze → Charts)
 
 ---
 
@@ -303,10 +303,19 @@ scroll, então header e tab bar ficam fixos.
    **`MonthlyBarCard`** — barras de Income ou Expense agrupadas na
    granularidade selecionada, com toggle de pills no topo (default: Income);
    valores de expense sempre positivos (`Math.abs`); respeita `hideValues`.
-   Segundo card: **"Income vs Expenses"** (barras agrupadas na mesma
+   Segundo card: **`DailyPaceCard`** (v1.5.5) — AreaChart de gasto cumulativo
+   diário com duas séries: mês atual (laranja `#F97316`, linha sólida + fill
+   semi-transparente) e mês anterior (cinza `#8b94a3`, linha tracejada + fill
+   sutil). Eixo X = dia do mês; eixo Y = despesa cumulativa em formato `$X.XK`.
+   Exibe uma ReferenceLine "Today" quando o mês exibido é o mês corrente do
+   calendário. Sempre reflete os dois meses mais recentes com dados de despesa,
+   independentemente do filtro de range de anos / granularidade dos outros cards.
+   Transfers excluídas; `cursor={false}` consistente com o restante do app.
+   Terceiro card: **"Income vs Expenses"** (barras agrupadas na mesma
    granularidade; título antes era "Income vs Expenses (Monthly)"). Eixo Y e
-   tooltip dos dois cards exibem valores em formato `0.00K` (ex. `$1.50K`);
-   lógica de fallback de mês único (`isSingleMonth`) removida. Seguida de:
+   tooltip dos dois cards de barras exibem valores em formato `0.00K` (ex.
+   `$1.50K`); lógica de fallback de mês único (`isSingleMonth`) removida.
+   Seguida de:
    - **Tendências mês a mês** — LineChart com top-5 categorias de despesa por
      volume nos últimos 12 meses; StackedBarChart com mix de todas as
      categorias por mês; tabela comparativa mês atual vs. anterior (delta $/%).
@@ -484,6 +493,13 @@ O app inicia com array vazio quando não há dados salvos (sem SEED).
 - [x] Charts v1.5.1: o filtro de range de anos abre com **From/To no ano mais
   recente** dos dados (em vez de todo o histórico), para o app abrir já focado
   no período atual
+- [x] DailyPaceCard v1.5.5: AreaChart de gasto cumulativo diário adicionado ao
+  Analyze → Charts entre o `MonthlyBarCard` e o card "Income vs Expenses"; duas
+  séries (mês atual laranja `#F97316` sólido + mês anterior cinza `#8b94a3`
+  tracejado); eixo X = dia do mês, eixo Y = cumulativo em `$X.XK`; ReferenceLine
+  "Today" quando exibindo o mês corrente; sempre reflete os dois meses mais
+  recentes com dados de despesa, ignorando o filtro de range/granularidade dos
+  outros cards; Transfers excluídas; `cursor={false}`
 - [x] Charts v1.5.0 (PR #67): **granularidade selecionável** (segmented control
   M / Quarter / Half / Year) + **filtro de range de anos** (From/To) no topo
   da seção Charts, substituindo os dropdowns Ano+Mês do Charts (o
