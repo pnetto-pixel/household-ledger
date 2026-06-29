@@ -980,7 +980,7 @@ function Header({ hideValues, onToggleHide, onLogout, onOpenSettings, saving, sa
             <LayoutDashboard size={14} color="#fff" />
           </div>
           <span style={{ fontWeight: 700, fontSize: 15, letterSpacing: -0.5, color: "#e5e7eb" }}>Household</span>
-          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.5.6</span>
+          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.5.7</span>
         </div>
         <SaveIndicator saving={saving} dirty={dirty} savedAt={savedAt} saveError={saveError} />
       </div>
@@ -1567,64 +1567,88 @@ function DailyPaceCard({ paceData, hideValues, fmtK }) {
   return (
     <>
       <h3 style={S.sectionTitle}>Daily Spending Pace</h3>
-      <div style={{ ...S.card, height: 280 }}>
-        <ResponsiveContainer width="100%" height="100%">
-          <AreaChart data={data} margin={{ top: 8, right: 8, left: 8, bottom: 8 }}>
-            <defs>
-              <linearGradient id="curGrad" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="5%" stopColor="#F97316" stopOpacity={0.18} />
-                <stop offset="95%" stopColor="#F97316" stopOpacity={0} />
-              </linearGradient>
-              <linearGradient id="prevGrad" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="5%" stopColor="#8b94a3" stopOpacity={0.08} />
-                <stop offset="95%" stopColor="#8b94a3" stopOpacity={0} />
-              </linearGradient>
-            </defs>
-            <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" />
-            <XAxis dataKey="day" tick={{ fill: "#8b94a3", fontSize: 11 }} />
-            <YAxis tick={{ fill: "#8b94a3", fontSize: 11 }} tickFormatter={fmtK} width={56} />
-            {!hideValues && (
-              <Tooltip
-                cursor={false}
-                formatter={(v, name) => [fmtK(v), name]}
-                labelFormatter={(d) => `Day ${d}`}
-                contentStyle={{ background: "#161a20", border: "1px solid #1e2530", borderRadius: 10, fontSize: 12 }}
-                itemStyle={{ color: "#e5e7eb" }}
-                labelStyle={{ color: "#8b94a3" }}
+      <div style={{ ...S.card, padding: 0, overflow: "hidden" }}>
+        {/* Minimal inline legend — colored line swatches, no heavy recharts Legend */}
+        <div style={{ display: "flex", gap: 14, padding: "12px 16px 0" }}>
+          <span style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 10, color: "#8b94a3" }}>
+            <span style={{ display: "inline-block", width: 14, height: 2, background: "#F97316", borderRadius: 1 }} />
+            {curLabel}
+          </span>
+          <span style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 10, color: "#6b7280" }}>
+            <span style={{ display: "inline-block", width: 14, borderTop: "1.5px dashed #6b7280" }} />
+            {prevLabel}
+          </span>
+        </div>
+        <div style={{ height: 220 }}>
+          <ResponsiveContainer width="100%" height="100%">
+            <AreaChart data={data} margin={{ top: 8, right: 52, left: -12, bottom: 4 }}>
+              <defs>
+                <linearGradient id="curGrad" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor="#F97316" stopOpacity={0.28} />
+                  <stop offset="100%" stopColor="#F97316" stopOpacity={0} />
+                </linearGradient>
+                <linearGradient id="prevGrad" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor="#6b7280" stopOpacity={0.1} />
+                  <stop offset="100%" stopColor="#6b7280" stopOpacity={0} />
+                </linearGradient>
+              </defs>
+              <XAxis
+                dataKey="day"
+                tick={{ fill: "#6b7280", fontSize: 10 }}
+                tickLine={false}
+                axisLine={false}
+                interval="preserveStartEnd"
               />
-            )}
-            <Legend iconType="circle" wrapperStyle={{ fontSize: 11, paddingTop: 8 }} />
-            {todayDay != null && (
-              <ReferenceLine
-                x={todayDay}
-                stroke="rgba(255,255,255,0.25)"
-                strokeDasharray="3 3"
-                label={{ value: "Today", fill: "#8b94a3", fontSize: 9, position: "insideTopRight" }}
+              <YAxis
+                orientation="right"
+                tick={{ fill: "#6b7280", fontSize: 10 }}
+                tickLine={false}
+                axisLine={false}
+                tickFormatter={fmtK}
+                width={50}
               />
-            )}
-            <Area
-              type="monotone"
-              dataKey="previous"
-              name={prevLabel}
-              stroke="#8b94a3"
-              strokeWidth={1.5}
-              strokeDasharray="4 3"
-              fill="url(#prevGrad)"
-              dot={false}
-              connectNulls={false}
-            />
-            <Area
-              type="monotone"
-              dataKey="current"
-              name={curLabel}
-              stroke="#F97316"
-              strokeWidth={2}
-              fill="url(#curGrad)"
-              dot={false}
-              connectNulls={false}
-            />
-          </AreaChart>
-        </ResponsiveContainer>
+              {!hideValues && (
+                <Tooltip
+                  cursor={false}
+                  formatter={(v, name) => [fmtK(v), name]}
+                  labelFormatter={(d) => `Day ${d}`}
+                  contentStyle={{ background: "#161a20", border: "1px solid #1e2530", borderRadius: 10, fontSize: 12 }}
+                  itemStyle={{ color: "#e5e7eb" }}
+                  labelStyle={{ color: "#8b94a3" }}
+                />
+              )}
+              {todayDay != null && (
+                <ReferenceLine
+                  x={todayDay}
+                  stroke="rgba(255,255,255,0.18)"
+                  strokeDasharray="3 3"
+                  label={{ value: "Today", fill: "#6b7280", fontSize: 9, position: "insideTopRight" }}
+                />
+              )}
+              <Area
+                type="monotone"
+                dataKey="previous"
+                name={prevLabel}
+                stroke="#6b7280"
+                strokeWidth={1.5}
+                strokeDasharray="4 3"
+                fill="url(#prevGrad)"
+                dot={false}
+                connectNulls={false}
+              />
+              <Area
+                type="monotone"
+                dataKey="current"
+                name={curLabel}
+                stroke="#F97316"
+                strokeWidth={2}
+                fill="url(#curGrad)"
+                dot={false}
+                connectNulls={false}
+              />
+            </AreaChart>
+          </ResponsiveContainer>
+        </div>
       </div>
     </>
   );
