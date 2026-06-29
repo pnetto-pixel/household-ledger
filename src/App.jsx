@@ -30,6 +30,9 @@ import {
   CartesianGrid,
   LineChart,
   Line,
+  AreaChart,
+  Area,
+  ReferenceLine,
 } from "recharts";
 import Papa from "papaparse";
 
@@ -977,7 +980,7 @@ function Header({ hideValues, onToggleHide, onLogout, onOpenSettings, saving, sa
             <LayoutDashboard size={14} color="#fff" />
           </div>
           <span style={{ fontWeight: 700, fontSize: 15, letterSpacing: -0.5, color: "#e5e7eb" }}>Household</span>
-          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.5.4</span>
+          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.5.5</span>
         </div>
         <SaveIndicator saving={saving} dirty={dirty} savedAt={savedAt} saveError={saveError} />
       </div>
@@ -1496,6 +1499,80 @@ function bucketLabel(key) {
 }
 
 // ===========================================================================
+// DailyPaceCard — cumulative daily spending: this month vs previous month
+// ===========================================================================
+
+function DailyPaceCard({ paceData, hideValues, fmtK }) {
+  if (!paceData || paceData.data.length === 0) return null;
+  const { data, curLabel, prevLabel, todayDay } = paceData;
+
+  return (
+    <>
+      <h3 style={S.sectionTitle}>Daily Spending Pace</h3>
+      <div style={{ ...S.card, height: 280 }}>
+        <ResponsiveContainer width="100%" height="100%">
+          <AreaChart data={data} margin={{ top: 8, right: 8, left: 8, bottom: 8 }}>
+            <defs>
+              <linearGradient id="curGrad" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="5%" stopColor="#F97316" stopOpacity={0.18} />
+                <stop offset="95%" stopColor="#F97316" stopOpacity={0} />
+              </linearGradient>
+              <linearGradient id="prevGrad" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="5%" stopColor="#8b94a3" stopOpacity={0.08} />
+                <stop offset="95%" stopColor="#8b94a3" stopOpacity={0} />
+              </linearGradient>
+            </defs>
+            <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" />
+            <XAxis dataKey="day" tick={{ fill: "#8b94a3", fontSize: 11 }} />
+            <YAxis tick={{ fill: "#8b94a3", fontSize: 11 }} tickFormatter={fmtK} width={56} />
+            {!hideValues && (
+              <Tooltip
+                cursor={false}
+                formatter={(v, name) => [fmtK(v), name]}
+                labelFormatter={(d) => `Day ${d}`}
+                contentStyle={{ background: "#161a20", border: "1px solid #1e2530", borderRadius: 10, fontSize: 12 }}
+                itemStyle={{ color: "#e5e7eb" }}
+                labelStyle={{ color: "#8b94a3" }}
+              />
+            )}
+            <Legend iconType="circle" wrapperStyle={{ fontSize: 11, paddingTop: 8 }} />
+            {todayDay != null && (
+              <ReferenceLine
+                x={todayDay}
+                stroke="rgba(255,255,255,0.25)"
+                strokeDasharray="3 3"
+                label={{ value: "Today", fill: "#8b94a3", fontSize: 9, position: "insideTopRight" }}
+              />
+            )}
+            <Area
+              type="monotone"
+              dataKey="previous"
+              name={prevLabel}
+              stroke="#8b94a3"
+              strokeWidth={1.5}
+              strokeDasharray="4 3"
+              fill="url(#prevGrad)"
+              dot={false}
+              connectNulls={false}
+            />
+            <Area
+              type="monotone"
+              dataKey="current"
+              name={curLabel}
+              stroke="#F97316"
+              strokeWidth={2}
+              fill="url(#curGrad)"
+              dot={false}
+              connectNulls={false}
+            />
+          </AreaChart>
+        </ResponsiveContainer>
+      </div>
+    </>
+  );
+}
+
+// ===========================================================================
 // Charts
 // ===========================================================================
 
@@ -1563,6 +1640,72 @@ function Charts({ transactions, hideValues }) {
     const rows = [...map.values()].map((r) => ({ ...r, expenses: Math.abs(r.expenses) }));
     return rows.sort((a, b) => (a.bucket < b.bucket ? -1 : 1));
   }, [scoped, granularity]);
+
+  // Daily pace data: most recent month vs previous month, always from full dataset.
+  const dailyPaceData = useMemo(() => {
+    const today = todayISO();
+    const todayMonth = today.slice(0, 7);
+    const todayDay = parseInt(today.slice(8, 10), 10);
+
+    const expenseMonths = new Set();
+    for (const t of transactions) {
+      if (isTransfer(t.category) || isIncome(t.category)) continue;
+      if (t.date && t.date.length >= 7) expenseMonths.add(t.date.slice(0, 7));
+    }
+    if (expenseMonths.size === 0) return null;
+
+    const sortedMonths = [...expenseMonths].sort();
+    const curMonthKey = sortedMonths[sortedMonths.length - 1];
+
+    const [cy, cm] = curMonthKey.split("-").map(Number);
+    const prevDate = new Date(cy, cm - 2, 1);
+    const prevMonthKey = `${prevDate.getFullYear()}-${String(prevDate.getMonth() + 1).padStart(2, "0")}`;
+
+    const buildByDay = (monthKey) => {
+      const byDay = new Map();
+      for (const t of transactions) {
+        if (isTransfer(t.category) || isIncome(t.category)) continue;
+        if (!t.date || !t.date.startsWith(monthKey)) continue;
+        const day = parseInt(t.date.slice(8, 10), 10);
+        byDay.set(day, (byDay.get(day) || 0) + Math.abs(Number(t.amount) || 0));
+      }
+      return byDay;
+    };
+
+    const curByDay = buildByDay(curMonthKey);
+    const prevByDay = buildByDay(prevMonthKey);
+
+    const [pY, pM] = prevMonthKey.split("-").map(Number);
+    const daysInPrev = new Date(pY, pM, 0).getDate();
+    const daysInCur = new Date(cy, cm, 0).getDate();
+    const curMaxDay = curMonthKey === todayMonth ? todayDay : daysInCur;
+    const maxDay = Math.max(daysInPrev, daysInCur);
+
+    const data = [];
+    let curRunning = 0;
+    let prevRunning = 0;
+    for (let d = 1; d <= maxDay; d++) {
+      if (d <= curMaxDay) curRunning += curByDay.get(d) || 0;
+      if (d <= daysInPrev) prevRunning += prevByDay.get(d) || 0;
+      data.push({
+        day: d,
+        current: d <= curMaxDay ? curRunning : null,
+        previous: d <= daysInPrev ? prevRunning : null,
+      });
+    }
+
+    const monthLabel = (key) => {
+      const [y, m] = key.split("-").map(Number);
+      return new Date(y, m - 1, 1).toLocaleString("default", { month: "short" }) + "/" + String(y).slice(2);
+    };
+
+    return {
+      data,
+      curLabel: monthLabel(curMonthKey),
+      prevLabel: monthLabel(prevMonthKey),
+      todayDay: curMonthKey === todayMonth ? todayDay : null,
+    };
+  }, [transactions]);
 
   if (transactions.length === 0) {
     return <Empty>No data to chart yet.</Empty>;
@@ -1654,6 +1797,8 @@ function Charts({ transactions, hideValues }) {
         fmtKTooltip={fmtKFull}
         fmtBucketLabel={bucketLabel}
       />
+
+      <DailyPaceCard paceData={dailyPaceData} hideValues={hideValues} fmtK={fmtK} />
 
       <>
         <h3 style={S.sectionTitle}>Income vs Expenses</h3>
