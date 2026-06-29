@@ -1,4 +1,4 @@
-# Household Ledger · v1.3.0
+# Household Ledger · v1.4.0
 
 Aplicativo mobile-first de controle financeiro doméstico. Registra
 transações da casa (despesas e receitas) por categoria e conta, com
@@ -24,7 +24,7 @@ A cada PR, atualize a versão em **dois lugares**:
 1. `src/App.jsx` — a string `v1.x.x` no span ao lado de "Household"
 2. `household-ledger.md` — o `· v1.x.x` no título `# Household Ledger`
 
-Versão atual: **v1.3.0** (Dashboard redesign — PR #63)
+Versão atual: **v1.4.0** (Analyze — MonthlyBarCard com toggle Income/Expense — PR #65)
 
 ---
 
@@ -294,8 +294,13 @@ scroll, então header e tab bar ficam fixos.
    privacidade (olho). O bloco só aparece quando há ano+mês específico
    selecionado.
 2. **Analyze** — sessão consolidada de análise (antigas tabs Charts + Analyze
-   juntas). Começa com a parte de **Charts** (pizza de despesas por categoria
-   e barras receita×despesa por mês, recharts + `PeriodFilter`), seguida de:
+   juntas). Começa com a parte de **Charts** (recharts + `PeriodFilter`):
+   primeiro card **`MonthlyBarCard`** — barras mensais de Income ou Expense
+   (valores absolutos) alternadas por um toggle de pills no topo do card
+   (default: Income); respeita `PeriodFilter` (em mês único exibe fallback
+   igual ao card vizinho) e `hideValues`. O card "Spending by Category"
+   (PieChart) foi removido. Segundo card: **"Income vs Expenses (Monthly)"**
+   (barras agrupadas, inalterado). Seguida de:
    - **Tendências mês a mês** — LineChart com top-5 categorias de despesa por
      volume nos últimos 12 meses; StackedBarChart com mix de todas as
      categorias por mês; tabela comparativa mês atual vs. anterior (delta $/%).
@@ -464,6 +469,12 @@ O app inicia com array vazio quando não há dados salvos (sem SEED).
   decrescentes + badges **M/M** e **Y/Y** com cutoff de dia equivalente,
   cor por direção (vermelho = alta, verde = queda), base-zero exibe "—",
   respeita olho de privacidade; bloco visível só com ano+mês selecionado
+- [x] Analyze redesign v1.4.0 (PR #65): card "Spending by Category" (PieChart)
+  substituído por **`MonthlyBarCard`** — barras mensais de Income ou Expense
+  (valores absolutos) com toggle de pills no topo (default Income); respeita
+  `PeriodFilter` e `hideValues`; card "Income vs Expenses (Monthly)" (barras
+  agrupadas) mantido inalterado abaixo; `PieChart` e `useMemo` `byCategory`
+  removidos (código morto)
 - [x] Design polish Settings + Analyze (PR #62, v1.2.0): `CollapsibleCard`
   com suporte a prop `icon` + fontWeight 600 no título + padding interno
   maior; `AccountMapSection` com status dot verde/âmbar por card
