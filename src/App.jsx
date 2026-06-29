@@ -977,7 +977,7 @@ function Header({ hideValues, onToggleHide, onLogout, onOpenSettings, saving, sa
             <LayoutDashboard size={14} color="#fff" />
           </div>
           <span style={{ fontWeight: 700, fontSize: 15, letterSpacing: -0.5, color: "#e5e7eb" }}>Household</span>
-          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.5.2</span>
+          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.5.3</span>
         </div>
         <SaveIndicator saving={saving} dirty={dirty} savedAt={savedAt} saveError={saveError} />
       </div>
@@ -1404,7 +1404,7 @@ function MonthlyBarCard({ byBucket, hideValues, fmtK, fmtKTooltip, fmtBucketLabe
 
   const isInc = view === "income";
   const dataKey = isInc ? "income" : "expenses";
-  const barColor = isInc ? "#34d399" : "#f87171";
+  const barColor = isInc ? "#06B6D4" : "#F97316";
   const cardTitle = isInc ? "Income" : "Expense";
 
   return (
@@ -1432,7 +1432,7 @@ function MonthlyBarCard({ byBucket, hideValues, fmtK, fmtKTooltip, fmtBucketLabe
         ) : (
           <ResponsiveContainer width="100%" height="100%">
             <BarChart data={byBucket} margin={{ top: 8, right: 8, left: 8, bottom: 8 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#1f2937" />
+              <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" />
               <XAxis dataKey="bucket" tick={{ fill: "#8b94a3", fontSize: 11 }} tickFormatter={fmtBucketLabel} />
               <YAxis tick={{ fill: "#8b94a3", fontSize: 11 }} tickFormatter={fmtK} width={56} />
               {!hideValues && (
@@ -1662,7 +1662,7 @@ function Charts({ transactions, hideValues }) {
           ) : (
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={byBucket} margin={{ top: 8, right: 8, left: 8, bottom: 8 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#1f2937" />
+                <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" />
                 <XAxis dataKey="bucket" tick={{ fill: "#8b94a3", fontSize: 11 }} tickFormatter={bucketLabel} />
                 <YAxis tick={{ fill: "#8b94a3", fontSize: 11 }} tickFormatter={fmtK} width={56} />
                 {!hideValues && (
@@ -1675,8 +1675,8 @@ function Charts({ transactions, hideValues }) {
                   />
                 )}
                 <Legend iconType="circle" wrapperStyle={{ fontSize: 11, paddingTop: 8 }} />
-                <Bar dataKey="income" name="Income" fill="#34d399" radius={[4, 4, 0, 0]} />
-                <Bar dataKey="expenses" name="Expenses" fill="#f87171" radius={[4, 4, 0, 0]} />
+                <Bar dataKey="income" name="Income" fill="#06B6D4" radius={[4, 4, 0, 0]} />
+                <Bar dataKey="expenses" name="Expenses" fill="#F97316" radius={[4, 4, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
           )}
@@ -3675,7 +3675,7 @@ function Trends({ transactions, hideValues, money }) {
 
   if (months.length === 0) return <Empty>Not enough data for trend analysis.</Empty>;
 
-  const lineColors = ["#60a5fa", "#f87171", "#34d399", "#fbbf24", "#a78bfa"];
+  const lineColors = ["#06B6D4", "#F97316", "#A78BFA", "#10B981", "#FBBF24"];
 
   return (
     <>
@@ -3686,7 +3686,7 @@ function Trends({ transactions, hideValues, money }) {
           <div style={{ ...S.card, height: 260 }}>
             <ResponsiveContainer width="100%" height="100%">
               <LineChart data={top5.data} margin={{ top: 8, right: 8, left: 4, bottom: 8 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#1f2937" />
+                <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" />
                 <XAxis
                   dataKey="month"
                   tick={{ fill: "#8b94a3", fontSize: 10 }}
@@ -3725,7 +3725,7 @@ function Trends({ transactions, hideValues, money }) {
                 data={stackedData.data}
                 margin={{ top: 8, right: 8, left: 4, bottom: 8 }}
               >
-                <CartesianGrid strokeDasharray="3 3" stroke="#1f2937" />
+                <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" />
                 <XAxis
                   dataKey="month"
                   tick={{ fill: "#8b94a3", fontSize: 10 }}
