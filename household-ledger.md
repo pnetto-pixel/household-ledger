@@ -1,4 +1,4 @@
-# Household Ledger · v1.5.10
+# Household Ledger · v1.5.11
 
 Aplicativo mobile-first de controle financeiro doméstico. Registra
 transações da casa (despesas e receitas) por categoria e conta, com
@@ -24,7 +24,7 @@ A cada PR, atualize a versão em **dois lugares**:
 1. `src/App.jsx` — a string `v1.x.x` no span ao lado de "Household"
 2. `household-ledger.md` — o `· v1.x.x` no título `# Household Ledger`
 
-Versão atual: **v1.5.10** (bugfix do cálculo do NET: `net = income − expenses` sem `Math.abs`; pill de expenses fica positiva/verde quando reembolsos dominam o período)
+Versão atual: **v1.5.11** (correção do cálculo do NET: como o `amount` é um fluxo de caixa sinalizado do Credit Karma — despesa negativa, entrada positiva — o NET correto é a soma de todos os fluxos: `net = income + expenses`. Substitui a fórmula `income − expenses` da v1.5.10, que estava errada para essa convenção; pill de expenses fica verde/`↑` quando os reembolsos superam as despesas)
 
 ---
 
@@ -123,19 +123,20 @@ Persistido no Redis como `{ transactions: [...], savedAt }`. Os campos
 `srcAccount` e `ckCategory` só existem quando a fonte do import os fornece;
 servem para auditar as decisões de classificação de conta e categoria.
 
-**Sinal do `amount`.** O valor é sinalizado na **direção natural da
-categoria**: positivo é uma despesa/receita normal; **negativo é uma
-reversão** — um refund numa categoria de despesa (reduz as despesas) ou um
-clawback numa categoria de receita (reduz a receita). As agregações somam o
-valor sinalizado (`income += amount`, `expenses += amount`,
-`net = income − expenses`), então um refund de despesa entra como crédito
-sem precisar trocar de categoria. Na UI o sinal/cor da linha segue o
-**fluxo de caixa**: entrada (refund de despesa ou receita) em verde com
-`+`, saída (despesa ou clawback de receita) em vermelho com `−`. O
-exportador Credit Karma **nunca altera o sinal do CK** (invariante): o
-Credit Karma já entrega cada transação na direção natural da categoria
-(normal positivo, reversão negativo), que é exatamente o que o display de
-fluxo de caixa espera, então o `amount` cru é preservado verbatim — só as
+**Sinal do `amount`.** O valor é um **fluxo de caixa sinalizado**,
+preservado verbatim do Credit Karma e **independente da categoria**:
+**saída (despesa) é negativa**, **entrada (receita, refund de despesa ou
+crédito) é positiva**. As agregações somam o valor sinalizado dentro de
+cada balde (`income += amount`, `expenses += amount`) e o NET é a **soma de
+todos os fluxos**: `net = income + expenses`. Como `expenses` já é a soma
+com sinal, um refund numa categoria de despesa (que chega positivo) abate o
+gasto daquele balde; quando os refunds superam as despesas no período,
+`expenses` fica **positivo** e contribui positivamente para o NET (ex.:
+income 0, expenses +247.29 → net +247.29). ⚠️ **Não use `income − expenses`
+nem `Math.abs`** — ambos invertem o sinal quando os refunds dominam (era o
+bug da v1.5.10). Na UI o sinal/cor da linha segue o mesmo fluxo de caixa:
+entrada em verde, saída (despesa) em vermelho com `−`. O exportador Credit
+Karma e o import **nunca alteram o sinal do CK** (invariante) — só as
 **categorias** são remapeadas (ex.: Apple Daily Cash → `Other Income`).
 Não há mais calibração de sinal nem `Math.abs` no export. **O import também
 preserva o sinal em todos os caminhos** (`buildRow`): tanto o profile Credit
@@ -336,11 +337,12 @@ scroll, então header e tab bar ficam fixos.
    em `position: fixed` no `document.body`, ancorado por `getBoundingClientRect`
    — escapam de qualquer container com `overflow`, antes ficavam clipados). O
    range from/to vive dentro do chip **Date**. A barra de resumo virou **pills
-   coloridos** (↑ income / ↓ expenses / = net). A pill de expenses exibe `↓`
-   em vermelho quando `summary.expenses > 0`; quando reembolsos superam as
-   despesas do período (`summary.expenses <= 0`), exibe o valor como positivo
-   com `↑` e cor verde (`#34d399`). O NET é calculado como `income − expenses`
-   sem `Math.abs` — exibe positivo quando os reembolsos dominam o período. A lista é **agrupada por data**
+   coloridos** (↑ income / ↓ expenses / = net). A pill de expenses exibe a
+   magnitude com `↓` em vermelho quando há saída líquida (`summary.expenses < 0`);
+   quando reembolsos superam as despesas do período (`summary.expenses >= 0`),
+   exibe a magnitude com `↑` e cor verde (`#34d399`). O NET é calculado como
+   `income + expenses` (soma dos fluxos sinalizados) — fica positivo quando os
+   reembolsos dominam o período. A lista é **agrupada por data**
    com headers (`Today` / `Yesterday` / `Jun 25, 2026` via `formatDateHeader`)
    e a data saiu de dentro de cada linha (liberou espaço para a descrição). O
    filtro de conta inclui um chip **"Unassigned"**. A aba **flui e rola como um
@@ -588,6 +590,17 @@ O app inicia com array vazio quando não há dados salvos (sem SEED).
   invertia o sinal quando reembolsos superavam despesas no período (exibia
   −$247 em vez de +$247); pill de expenses agora exibe valor positivo com
   `↑` e cor verde (`#34d399`) quando `summary.expenses <= 0`
+- [x] Correção do cálculo do NET (v1.5.11): a v1.5.10 trocou `Math.abs` por
+  `income − expenses`, mas como o `amount` é fluxo de caixa sinalizado
+  (despesa negativa, entrada positiva) a fórmula correta é
+  **`net = income + expenses`** (soma dos fluxos). `income − expenses`
+  continuava errado quando os refunds dominavam (`expenses` positivo →
+  exibia −$247.29) e ainda inflava o NET em meses normais (`expenses`
+  negativo). Corrigido em `computeTotals` e na aba Transactions; a pill de
+  expenses passou a usar `↓` vermelho para saída líquida (`expenses < 0`) e
+  `↑` verde para entrada líquida (`expenses >= 0`), sempre exibindo a
+  magnitude. Atualizada a seção "Sinal do `amount`" para refletir a
+  convenção real do Credit Karma
 
 ### Fase 5 — Inteligência e Auditoria
 
