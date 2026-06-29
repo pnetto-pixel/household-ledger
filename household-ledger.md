@@ -1,4 +1,4 @@
-# Household Ledger · v1.5.11
+# Household Ledger · v1.5.12
 
 Aplicativo mobile-first de controle financeiro doméstico. Registra
 transações da casa (despesas e receitas) por categoria e conta, com
@@ -24,7 +24,7 @@ A cada PR, atualize a versão em **dois lugares**:
 1. `src/App.jsx` — a string `v1.x.x` no span ao lado de "Household"
 2. `household-ledger.md` — o `· v1.x.x` no título `# Household Ledger`
 
-Versão atual: **v1.5.11** (correção do cálculo do NET: como o `amount` é um fluxo de caixa sinalizado do Credit Karma — despesa negativa, entrada positiva — o NET correto é a soma de todos os fluxos: `net = income + expenses`. Substitui a fórmula `income − expenses` da v1.5.10, que estava errada para essa convenção; pill de expenses fica verde/`↑` quando os reembolsos superam as despesas)
+Versão atual: **v1.5.12** (bugfix DailyPaceCard: `buildByDay` usava `Math.abs` nos amounts, somando refunds como despesas em vez de abatê-los, inflando o cumulativo do gráfico vs o hero card. Corrigido para usar `-signed` espelhando `computeTotals`.)
 
 ---
 
