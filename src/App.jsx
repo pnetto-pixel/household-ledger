@@ -21,9 +21,6 @@ import {
 } from "lucide-react";
 import {
   ResponsiveContainer,
-  PieChart,
-  Pie,
-  Cell,
   BarChart,
   Bar,
   XAxis,
@@ -980,7 +977,7 @@ function Header({ hideValues, onToggleHide, onLogout, onOpenSettings, saving, sa
             <LayoutDashboard size={14} color="#fff" />
           </div>
           <span style={{ fontWeight: 700, fontSize: 15, letterSpacing: -0.5, color: "#e5e7eb" }}>Household</span>
-          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.3.0</span>
+          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.4.0</span>
         </div>
         <SaveIndicator saving={saving} dirty={dirty} savedAt={savedAt} saveError={saveError} />
       </div>
@@ -1399,6 +1396,67 @@ function ChangeBadge({ label, pct, hideValues }) {
 }
 
 // ===========================================================================
+// MonthlyBarCard — Income or Expense bars per month, with toggle
+// ===========================================================================
+
+function MonthlyBarCard({ byMonth, isSingleMonth, hideValues, fmtAxis }) {
+  const [view, setView] = useState("income");
+
+  if (isSingleMonth) {
+    return (
+      <>
+        <h3 style={S.sectionTitle}>Monthly</h3>
+        <p style={{ color: "#8b94a3", fontSize: 12, margin: "4px 0 0", textAlign: "center" }}>
+          Monthly comparison not available for single-month view.
+        </p>
+      </>
+    );
+  }
+
+  const isInc = view === "income";
+  const dataKey = isInc ? "income" : "expenses";
+  const barColor = isInc ? "#34d399" : "#f87171";
+  const cardTitle = isInc ? "Income by Month" : "Expense by Month";
+
+  return (
+    <>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+        <h3 style={{ ...S.sectionTitle, margin: "4px 0 0" }}>{cardTitle}</h3>
+        <div style={{ display: "flex", gap: 4 }}>
+          <button
+            onClick={() => setView("income")}
+            style={S.togglePill(view === "income")}
+          >
+            Income
+          </button>
+          <button
+            onClick={() => setView("expense")}
+            style={S.togglePill(view === "expense")}
+          >
+            Expense
+          </button>
+        </div>
+      </div>
+      <div style={{ ...S.card, height: 280 }}>
+        {byMonth.length === 0 ? (
+          <Empty>No data to chart yet.</Empty>
+        ) : (
+          <ResponsiveContainer width="100%" height="100%">
+            <BarChart data={byMonth} margin={{ top: 8, right: 8, left: 8, bottom: 8 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#1f2937" />
+              <XAxis dataKey="month" tick={{ fill: "#8b94a3", fontSize: 11 }} tickFormatter={(v) => v.slice(5)} />
+              <YAxis tick={{ fill: "#8b94a3", fontSize: 11 }} tickFormatter={fmtAxis} width={48} />
+              {!hideValues && <Tooltip formatter={(v) => usd.format(v)} labelFormatter={(v) => v} />}
+              <Bar dataKey={dataKey} name={isInc ? "Income" : "Expenses"} fill={barColor} radius={[4, 4, 0, 0]} />
+            </BarChart>
+          </ResponsiveContainer>
+        )}
+      </div>
+    </>
+  );
+}
+
+// ===========================================================================
 // Charts
 // ===========================================================================
 
@@ -1412,19 +1470,6 @@ function Charts({ transactions, hideValues }) {
     () => transactions.filter((t) => matchPeriod(t.date, year, month)),
     [transactions, year, month]
   );
-
-  const byCategory = useMemo(() => {
-    const map = new Map();
-    for (const t of scoped) {
-      if (isTransfer(t.category) || isIncome(t.category)) continue;
-      const amt = Number(t.amount) || 0; // signed: refunds reduce the category
-      map.set(t.category, (map.get(t.category) || 0) + amt);
-    }
-    return [...map.entries()]
-      .map(([name, value]) => ({ name, value }))
-      .filter((e) => e.value > 0) // a net-refunded category isn't a pie slice
-      .sort((a, b) => b.value - a.value);
-  }, [scoped]);
 
   const byMonth = useMemo(() => {
     const map = new Map();
@@ -1456,31 +1501,7 @@ function Charts({ transactions, hideValues }) {
         <PeriodFilter year={year} month={month} setYear={setYear} setMonth={setMonth} years={years} />
       </div>
       {scoped.length === 0 ? <Empty>No data for {label}.</Empty> : null}
-      <h3 style={S.sectionTitle}>Spending by Category</h3>
-      <div style={{ ...S.card, height: 280 }}>
-        {byCategory.length === 0 ? (
-          <Empty>No expenses recorded.</Empty>
-        ) : (
-          <ResponsiveContainer width="100%" height="100%">
-            <PieChart>
-              <Pie
-                data={byCategory}
-                dataKey="value"
-                nameKey="name"
-                cx="50%"
-                cy="50%"
-                outerRadius={90}
-                label={hideValues ? false : (d) => d.name}
-              >
-                {byCategory.map((entry, i) => (
-                  <Cell key={entry.name} fill={CATEGORY_COLORS[i % CATEGORY_COLORS.length]} />
-                ))}
-              </Pie>
-              {!hideValues && <Tooltip formatter={(v) => usd.format(v)} />}
-            </PieChart>
-          </ResponsiveContainer>
-        )}
-      </div>
+      <MonthlyBarCard byMonth={byMonth} isSingleMonth={isSingleMonth} hideValues={hideValues} fmtAxis={fmtAxis} />
 
       {isSingleMonth ? (
         <p style={{ color: "#8b94a3", fontSize: 12, margin: "4px 0 0", textAlign: "center" }}>
@@ -4600,5 +4621,17 @@ const S = {
     fontSize: 13,
     fontWeight: active ? 600 : 400,
     cursor: "pointer",
+  }),
+  // Toggle pill used in MonthlyBarCard (Income / Expense selector)
+  togglePill: (active) => ({
+    background: active ? "#0A84FF" : "transparent",
+    border: active ? "1px solid #0A84FF" : "1px solid #3a3f4a",
+    color: active ? "#fff" : "#8b94a3",
+    borderRadius: 999,
+    padding: "4px 12px",
+    fontSize: 12,
+    fontWeight: active ? 600 : 400,
+    cursor: "pointer",
+    transition: "background 0.15s, color 0.15s",
   }),
 };
