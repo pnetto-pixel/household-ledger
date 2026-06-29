@@ -980,7 +980,7 @@ function Header({ hideValues, onToggleHide, onLogout, onOpenSettings, saving, sa
             <LayoutDashboard size={14} color="#fff" />
           </div>
           <span style={{ fontWeight: 700, fontSize: 15, letterSpacing: -0.5, color: "#e5e7eb" }}>Household</span>
-          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.5.8</span>
+          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.5.9</span>
         </div>
         <SaveIndicator saving={saving} dirty={dirty} savedAt={savedAt} saveError={saveError} />
       </div>
@@ -1569,7 +1569,7 @@ function DailyPaceCard({ paceData, hideValues, fmtK }) {
       <h3 style={S.sectionTitle}>Daily Spending Pace</h3>
       <div style={{ ...S.card, padding: 0, overflow: "hidden" }}>
         {/* Minimal inline legend — colored line swatches, no heavy recharts Legend */}
-        <div style={{ display: "flex", gap: 14, padding: "12px 16px 0" }}>
+        <div style={{ display: "flex", gap: 14, padding: "12px 16px 0", justifyContent: "center" }}>
           <span style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 10, color: "#8b94a3" }}>
             <span style={{ display: "inline-block", width: 14, height: 2, background: "#F97316", borderRadius: 1 }} />
             {curLabel}
@@ -1592,6 +1592,7 @@ function DailyPaceCard({ paceData, hideValues, fmtK }) {
                   <stop offset="100%" stopColor="#6b7280" stopOpacity={0} />
                 </linearGradient>
               </defs>
+              <CartesianGrid vertical={false} stroke="rgba(255,255,255,0.05)" />
               <XAxis
                 dataKey="day"
                 tick={{ fill: "#6b7280", fontSize: 10 }}
