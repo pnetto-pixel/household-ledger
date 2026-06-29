@@ -1,4 +1,4 @@
-# Household Ledger · v1.5.17
+# Household Ledger · v1.5.18
 
 Aplicativo mobile-first de controle financeiro doméstico. Registra
 transações da casa (despesas e receitas) por categoria e conta, com
@@ -24,7 +24,7 @@ A cada PR, atualize a versão em **dois lugares**:
 1. `src/App.jsx` — a string `v1.x.x` no span ao lado de "Household"
 2. `household-ledger.md` — o `· v1.x.x` no título `# Household Ledger`
 
-Versão atual: **v1.5.17** (bugfix card "by category": categorias com refunds superiores às despesas (total >= 0) eram exibidas incorretamente; filtro trocado para `v < 0`; display trocado para `-total`; M/M e Y/Y agora tratam base >= 0 como sem comparável para evitar sinal invertido.)
+Versão atual: **v1.5.18** (bugfix card "by category": categorias com refunds superiores às despesas (total >= 0) eram exibidas incorretamente; filtro trocado para `v < 0`; display trocado para `-total`; M/M e Y/Y agora tratam base >= 0 como sem comparável para evitar sinal invertido.)
 
 ---
 
