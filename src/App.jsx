@@ -977,7 +977,7 @@ function Header({ hideValues, onToggleHide, onLogout, onOpenSettings, saving, sa
             <LayoutDashboard size={14} color="#fff" />
           </div>
           <span style={{ fontWeight: 700, fontSize: 15, letterSpacing: -0.5, color: "#e5e7eb" }}>Household</span>
-          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.5.3</span>
+          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.5.4</span>
         </div>
         <SaveIndicator saving={saving} dirty={dirty} savedAt={savedAt} saveError={saveError} />
       </div>
@@ -1437,6 +1437,7 @@ function MonthlyBarCard({ byBucket, hideValues, fmtK, fmtKTooltip, fmtBucketLabe
               <YAxis tick={{ fill: "#8b94a3", fontSize: 11 }} tickFormatter={fmtK} width={56} />
               {!hideValues && (
                 <Tooltip
+                  cursor={false}
                   formatter={(v) => (fmtKTooltip || fmtK)(v)}
                   labelFormatter={(v) => fmtBucketLabel(v)}
                   contentStyle={{ background: "#161a20", border: "1px solid #1e2530", borderRadius: 10, fontSize: 12 }}
@@ -1444,7 +1445,7 @@ function MonthlyBarCard({ byBucket, hideValues, fmtK, fmtKTooltip, fmtBucketLabe
                   labelStyle={{ color: "#8b94a3" }}
                 />
               )}
-              <Bar dataKey={dataKey} name={isInc ? "Income" : "Expenses"} fill={barColor} radius={[4, 4, 0, 0]} />
+              <Bar dataKey={dataKey} name={isInc ? "Income" : "Expenses"} fill={barColor} radius={[4, 4, 0, 0]} activeBar={{ fill: barColor, opacity: 0.75 }} />
             </BarChart>
           </ResponsiveContainer>
         )}
@@ -1667,6 +1668,7 @@ function Charts({ transactions, hideValues }) {
                 <YAxis tick={{ fill: "#8b94a3", fontSize: 11 }} tickFormatter={fmtK} width={56} />
                 {!hideValues && (
                   <Tooltip
+                    cursor={false}
                     formatter={(v) => fmtKFull(v)}
                     labelFormatter={(v) => bucketLabel(v)}
                     contentStyle={{ background: "#161a20", border: "1px solid #1e2530", borderRadius: 10, fontSize: 12 }}
@@ -1675,8 +1677,8 @@ function Charts({ transactions, hideValues }) {
                   />
                 )}
                 <Legend iconType="circle" wrapperStyle={{ fontSize: 11, paddingTop: 8 }} />
-                <Bar dataKey="income" name="Income" fill="#06B6D4" radius={[4, 4, 0, 0]} />
-                <Bar dataKey="expenses" name="Expenses" fill="#F97316" radius={[4, 4, 0, 0]} />
+                <Bar dataKey="income" name="Income" fill="#06B6D4" radius={[4, 4, 0, 0]} activeBar={{ fill: "#06B6D4", opacity: 0.75 }} />
+                <Bar dataKey="expenses" name="Expenses" fill="#F97316" radius={[4, 4, 0, 0]} activeBar={{ fill: "#F97316", opacity: 0.75 }} />
               </BarChart>
             </ResponsiveContainer>
           )}
@@ -3736,13 +3738,14 @@ function Trends({ transactions, hideValues, money }) {
                   tickFormatter={fmtAxis}
                   width={44}
                 />
-                {!hideValues && <Tooltip formatter={(v) => usd.format(v)} />}
+                {!hideValues && <Tooltip cursor={false} formatter={(v) => usd.format(v)} />}
                 {stackedData.cats.map((c, i) => (
                   <Bar
                     key={c}
                     dataKey={c}
                     stackId="a"
                     fill={CATEGORY_COLORS[i % CATEGORY_COLORS.length]}
+                    activeBar={{ fill: CATEGORY_COLORS[i % CATEGORY_COLORS.length], opacity: 0.75 }}
                   />
                 ))}
               </BarChart>
