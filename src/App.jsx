@@ -980,7 +980,7 @@ function Header({ hideValues, onToggleHide, onLogout, onOpenSettings, saving, sa
             <LayoutDashboard size={14} color="#fff" />
           </div>
           <span style={{ fontWeight: 700, fontSize: 15, letterSpacing: -0.5, color: "#e5e7eb" }}>Household</span>
-          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.5.17</span>
+          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.5.18</span>
         </div>
         <SaveIndicator saving={saving} dirty={dirty} savedAt={savedAt} saveError={saveError} />
       </div>
@@ -1203,6 +1203,8 @@ function Dashboard({ transactions, money, hideValues }) {
       mm, yy,
       mmPctExp: pct(period.expenses, mm.expenses),
       yyPctExp: pct(period.expenses, yy.expenses),
+      mmPctInc: pct(period.income, mm.income),
+      yyPctInc: pct(period.income, yy.income),
     };
   }, [transactions, year, month, period]);
 
@@ -1377,34 +1379,35 @@ function Dashboard({ transactions, money, hideValues }) {
           {money(period.net)}
         </div>
         <div style={{ display: "flex", borderTop: "1px solid rgba(255,255,255,0.06)", paddingTop: 16 }}>
-          <div style={{ flex: 1 }}>
-            <div style={{ fontSize: 10, color: "#8b94a3", fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.5 }}>Income</div>
-            <div style={{ fontSize: 17, fontWeight: 700, color: "#34d399", marginTop: 3 }}>{money(period.income)}</div>
-          </div>
-          <div style={{ width: 1, background: "rgba(255,255,255,0.06)", margin: "0 16px" }} />
-          <div style={{ flex: 1 }}>
-            <div style={{ fontSize: 10, color: "#8b94a3", fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.5 }}>Expenses</div>
-            <div style={{ fontSize: 17, fontWeight: 700, color: "#f87171", marginTop: 3 }}>{money(period.expenses)}</div>
-          </div>
-        </div>
-        {heroComparisons && (
-          <div style={{ borderTop: "1px solid rgba(255,255,255,0.06)", marginTop: 14, paddingTop: 12, display: "flex", gap: 10, flexWrap: "wrap" }}>
-            {[
-              { label: "Last Month", val: heroComparisons.mm.expenses, pct: heroComparisons.mmPctExp },
-              { label: "Last Year", val: heroComparisons.yy.expenses, pct: heroComparisons.yyPctExp },
-            ].map(({ label: lbl, val, pct }) => {
-              const pctColor = pct == null ? "#6b7280" : pct > 0 ? "#f87171" : "#34d399";
-              const pctStr = pct == null ? "—" : `${pct > 0 ? "+" : ""}${pct.toFixed(0)}%`;
-              return (
-                <div key={lbl} style={{ flex: 1, minWidth: 100, background: "rgba(255,255,255,0.03)", borderRadius: 10, padding: "8px 10px" }}>
-                  <div style={{ fontSize: 9, color: "#6b7280", fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.5 }}>{lbl}</div>
-                  <div style={{ fontSize: 13, fontWeight: 600, color: "#9ca3af", marginTop: 3 }}>{hideValues ? "•••••" : usd0.format(val || 0)}</div>
-                  <div style={{ fontSize: 11, fontWeight: 700, color: pctColor, marginTop: 2 }}>{hideValues ? "•••" : pctStr}</div>
+          {[
+            { lbl: "Income", val: period.income, color: "#34d399", mmVal: heroComparisons?.mm.income, yyVal: heroComparisons?.yy.income, mmPct: heroComparisons?.mmPctInc, yyPct: heroComparisons?.yyPctInc, incomeField: true },
+            { lbl: "Expenses", val: period.expenses, color: "#f87171", mmVal: heroComparisons?.mm.expenses, yyVal: heroComparisons?.yy.expenses, mmPct: heroComparisons?.mmPctExp, yyPct: heroComparisons?.yyPctExp, incomeField: false },
+          ].map(({ lbl, val, color, mmVal, yyVal, mmPct, yyPct, incomeField }, i) => {
+            const fmtPct = (p) => p == null ? null : `${p > 0 ? "+" : ""}${p.toFixed(0)}%`;
+            // For expenses: higher = worse (red); for income: higher = better (green)
+            const pctColor = (p) => p == null ? "#6b7280" : (p > 0) === incomeField ? "#34d399" : "#f87171";
+            return (
+              <React.Fragment key={lbl}>
+                {i === 1 && <div style={{ width: 1, background: "rgba(255,255,255,0.06)", margin: "0 16px" }} />}
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: 10, color: "#8b94a3", fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.5 }}>{lbl}</div>
+                  <div style={{ fontSize: 16, fontWeight: 700, color, marginTop: 3 }}>{money(val)}</div>
+                  {heroComparisons && (
+                    <div style={{ marginTop: 6, display: "flex", flexDirection: "column", gap: 2 }}>
+                      {[["LM", mmVal, mmPct], ["LY", yyVal, yyPct]].map(([tag, refVal, p]) => (
+                        <div key={tag} style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                          <span style={{ fontSize: 9, color: "#6b7280", fontWeight: 600, minWidth: 14 }}>{tag}</span>
+                          <span style={{ fontSize: 10, color: "#6b7280" }}>{hideValues ? "•••••" : usd0.format(refVal || 0)}</span>
+                          {fmtPct(p) && <span style={{ fontSize: 10, fontWeight: 700, color: pctColor(p) }}>{hideValues ? "•••" : fmtPct(p)}</span>}
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
-              );
-            })}
-          </div>
-        )}
+              </React.Fragment>
+            );
+          })}
+        </div>
       </div>
 
       <DailyPaceCard paceData={dashboardPaceData} hideValues={hideValues} fmtK={fmtK} />
