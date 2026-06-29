@@ -1319,9 +1319,9 @@ function Dashboard({ transactions, money, hideValues }) {
                       background: `${dotColor}1a`,
                       border: `1px solid ${dotColor}35`,
                       display: "grid", placeItems: "center",
-                      color: dotColor, fontSize: 13, fontWeight: 700,
+                      fontSize: 18, lineHeight: 1,
                     }}>
-                      {cat[0]}
+                      {catEmoji(cat)}
                     </div>
                     {/* Name + badges */}
                     <div style={{ flex: 1, minWidth: 0 }}>
@@ -1507,6 +1507,15 @@ function Charts({ transactions, hideValues }) {
     </div>
   );
 }
+
+const CAT_EMOJI = {
+  "Car": "🚗", "Dog": "🐕", "Entertainment": "🎬", "Fuel": "⛽",
+  "Groceries": "🛒", "Home": "🏠", "Medical": "💊", "Mobile Phone": "📱",
+  "Mortgage": "🏡", "Other": "📦", "Restaurant": "🍽️", "Services": "🔧",
+  "Shopping": "🛍️", "Transport": "🚌", "Travel": "✈️", "Utilities": "💡",
+  "Salary": "💰", "Bonus": "🎁", "Bela Income": "💵", "Other Income": "💵",
+};
+function catEmoji(cat) { return CAT_EMOJI[cat] ?? cat?.[0] ?? "?"; }
 
 // Maps category name → a stable color from CATEGORY_COLORS palette
 function catDotColor(cat) {
