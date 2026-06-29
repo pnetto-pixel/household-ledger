@@ -1,4 +1,4 @@
-# Household Ledger · v1.5.1
+# Household Ledger · v1.5.2
 
 Aplicativo mobile-first de controle financeiro doméstico. Registra
 transações da casa (despesas e receitas) por categoria e conta, com
@@ -24,7 +24,7 @@ A cada PR, atualize a versão em **dois lugares**:
 1. `src/App.jsx` — a string `v1.x.x` no span ao lado de "Household"
 2. `household-ledger.md` — o `· v1.x.x` no título `# Household Ledger`
 
-Versão atual: **v1.5.1** (Charts abre com o range padrão no ano mais recente dos dados)
+Versão atual: **v1.5.2** (formato dos valores do Charts em `0.0K` — uma casa decimal)
 
 ---
 

@@ -977,7 +977,7 @@ function Header({ hideValues, onToggleHide, onLogout, onOpenSettings, saving, sa
             <LayoutDashboard size={14} color="#fff" />
           </div>
           <span style={{ fontWeight: 700, fontSize: 15, letterSpacing: -0.5, color: "#e5e7eb" }}>Household</span>
-          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.5.1</span>
+          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.5.2</span>
         </div>
         <SaveIndicator saving={saving} dirty={dirty} savedAt={savedAt} saveError={saveError} />
       </div>
@@ -1571,7 +1571,7 @@ function Charts({ transactions, hideValues }) {
   const fmtK = (v) => {
     if (hideValues) return "";
     const abs = Math.abs(Number(v) || 0);
-    return `$${(abs / 1000).toFixed(2)}K`;
+    return `$${(abs / 1000).toFixed(1)}K`;
   };
 
   // Tooltip formatter that also handles the value sign (negative income is ok).
@@ -1579,7 +1579,7 @@ function Charts({ transactions, hideValues }) {
     if (hideValues) return "•••••";
     const n = Number(v) || 0;
     const sign = n < 0 ? "-" : "";
-    return `${sign}$${(Math.abs(n) / 1000).toFixed(2)}K`;
+    return `${sign}$${(Math.abs(n) / 1000).toFixed(1)}K`;
   };
 
   const rangeLabel =
