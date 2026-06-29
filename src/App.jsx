@@ -980,7 +980,7 @@ function Header({ hideValues, onToggleHide, onLogout, onOpenSettings, saving, sa
             <LayoutDashboard size={14} color="#fff" />
           </div>
           <span style={{ fontWeight: 700, fontSize: 15, letterSpacing: -0.5, color: "#e5e7eb" }}>Household</span>
-          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.5.11</span>
+          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.5.12</span>
         </div>
         <SaveIndicator saving={saving} dirty={dirty} savedAt={savedAt} saveError={saveError} />
       </div>
@@ -1263,7 +1263,8 @@ function Dashboard({ transactions, money, hideValues }) {
         if (isTransfer(t.category) || isIncome(t.category)) continue;
         if (!t.date || !t.date.startsWith(monthKey)) continue;
         const day = parseInt(t.date.slice(8, 10), 10);
-        byDay.set(day, (byDay.get(day) || 0) + Math.abs(Number(t.amount) || 0));
+        const signed = Number(t.amount) || 0;
+        byDay.set(day, (byDay.get(day) || 0) + (-signed));
       }
       return byDay;
     };
