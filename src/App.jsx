@@ -980,7 +980,7 @@ function Header({ hideValues, onToggleHide, onLogout, onOpenSettings, saving, sa
             <LayoutDashboard size={14} color="#fff" />
           </div>
           <span style={{ fontWeight: 700, fontSize: 15, letterSpacing: -0.5, color: "#e5e7eb" }}>Household</span>
-          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.5.15</span>
+          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.5.16</span>
         </div>
         <SaveIndicator saving={saving} dirty={dirty} savedAt={savedAt} saveError={saveError} />
       </div>
@@ -1201,10 +1201,10 @@ function Dashboard({ transactions, money, hideValues }) {
       const amt = Number(t.amount) || 0;
       map.set(t.category, (map.get(t.category) || 0) + amt);
     }
-    // Net signed sum; skip zero; sort by magnitude descending.
+    // Net signed sum; skip zero; sort ascending (most negative first).
     return [...map.entries()]
       .filter(([, v]) => v !== 0)
-      .sort((a, b) => Math.abs(b[1]) - Math.abs(a[1]));
+      .sort((a, b) => a[1] - b[1]);
   }, [periodTxns, cutoffDay]);
 
   // Compute M/M and Y/Y pct change for each expense category.
@@ -1231,23 +1231,35 @@ function Dashboard({ transactions, money, hideValues }) {
       return map;
     };
 
-    // Full-month totals (no cutoff) for reference display.
-    const sumCatFull = (targetYear, targetMonth) => {
-      const map = new Map();
+    // Average of last 12 full months (excluding current month) per category.
+    const avg12mMap = (() => {
+      // Build list of the 12 YYYY-MM keys prior to the current month.
+      const months12 = [];
+      let y = Number(year), m = Number(month);
+      for (let i = 0; i < 12; i++) {
+        m -= 1;
+        if (m === 0) { m = 12; y -= 1; }
+        months12.push(`${y}-${String(m).padStart(2, "0")}`);
+      }
+      const sums = new Map();
+      const counts = new Map();
       for (const t of transactions) {
         if (isTransfer(t.category) || isIncome(t.category)) continue;
-        const d = t.date || "";
-        if (d.slice(0, 4) !== targetYear || d.slice(5, 7) !== targetMonth) continue;
+        const d = (t.date || "").slice(0, 7);
+        if (!months12.includes(d)) continue;
         const amt = Number(t.amount) || 0;
-        map.set(t.category, (map.get(t.category) || 0) + amt);
+        sums.set(t.category, (sums.get(t.category) || 0) + amt);
+        counts.set(t.category, (counts.get(t.category) || new Set()).add(d));
       }
-      return map;
-    };
+      const avg = new Map();
+      for (const [cat, total] of sums) {
+        avg.set(cat, total / counts.get(cat).size);
+      }
+      return avg;
+    })();
 
     const mmMap = sumCat(prevMonthYear, prevMonthVal);
     const yyMap = sumCat(prevYear, month);
-    const mmFullMap = sumCatFull(prevMonthYear, prevMonthVal);
-    const yyFullMap = sumCatFull(prevYear, month);
 
     const result = {};
     for (const [cat, current] of catExpenses) {
@@ -1256,8 +1268,7 @@ function Dashboard({ transactions, money, hideValues }) {
       result[cat] = {
         mm: mmBase >= 0 ? null : ((-current - (-mmBase)) / (-mmBase)) * 100,
         yy: yyBase >= 0 ? null : ((-current - (-yyBase)) / (-yyBase)) * 100,
-        mmTotal: mmFullMap.get(cat) ?? null,
-        yyTotal: yyFullMap.get(cat) ?? null,
+        avg12m: avg12mMap.get(cat) ?? null,
       };
     }
     return result;
@@ -1406,10 +1417,9 @@ function Dashboard({ transactions, money, hideValues }) {
                       <div style={{ fontWeight: 700, fontSize: 14, color: total < 0 ? "#f87171" : "#34d399" }}>
                         {moneyShort(total)}
                       </div>
-                      {(changes.mmTotal != null || changes.yyTotal != null) && (
-                        <div style={{ fontSize: 10, color: "#6b7280", marginTop: 2, display: "flex", flexDirection: "column", gap: 1, alignItems: "flex-end" }}>
-                          {changes.mmTotal != null && <span>prev {moneyShort(changes.mmTotal)}</span>}
-                          {changes.yyTotal != null && <span>ly {moneyShort(changes.yyTotal)}</span>}
+                      {changes.avg12m != null && (
+                        <div style={{ fontSize: 10, color: "#6b7280", marginTop: 2, textAlign: "right" }}>
+                          avg 12m {moneyShort(changes.avg12m)}
                         </div>
                       )}
                     </div>
