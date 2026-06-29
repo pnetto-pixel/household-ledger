@@ -1,4 +1,4 @@
-# Household Ledger · v1.5.0
+# Household Ledger · v1.5.1
 
 Aplicativo mobile-first de controle financeiro doméstico. Registra
 transações da casa (despesas e receitas) por categoria e conta, com
@@ -24,7 +24,7 @@ A cada PR, atualize a versão em **dois lugares**:
 1. `src/App.jsx` — a string `v1.x.x` no span ao lado de "Household"
 2. `household-ledger.md` — o `· v1.x.x` no título `# Household Ledger`
 
-Versão atual: **v1.5.0** (Charts v1.5.0 — granularidade M/Q/H/Y, range de anos, formato 0.00K, sem limite de 12 meses — PR #67)
+Versão atual: **v1.5.1** (Charts abre com o range padrão no ano mais recente dos dados)
 
 ---
 
@@ -481,6 +481,9 @@ O app inicia com array vazio quando não há dados salvos (sem SEED).
   `PeriodFilter` e `hideValues`; card "Income vs Expenses (Monthly)" (barras
   agrupadas) mantido inalterado abaixo; `PieChart` e `useMemo` `byCategory`
   removidos (código morto)
+- [x] Charts v1.5.1: o filtro de range de anos abre com **From/To no ano mais
+  recente** dos dados (em vez de todo o histórico), para o app abrir já focado
+  no período atual
 - [x] Charts v1.5.0 (PR #67): **granularidade selecionável** (segmented control
   M / Quarter / Half / Year) + **filtro de range de anos** (From/To) no topo
   da seção Charts, substituindo os dropdowns Ano+Mês do Charts (o
