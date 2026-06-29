@@ -980,7 +980,7 @@ function Header({ hideValues, onToggleHide, onLogout, onOpenSettings, saving, sa
             <LayoutDashboard size={14} color="#fff" />
           </div>
           <span style={{ fontWeight: 700, fontSize: 15, letterSpacing: -0.5, color: "#e5e7eb" }}>Household</span>
-          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.5.19</span>
+          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.5.20</span>
         </div>
         <SaveIndicator saving={saving} dirty={dirty} savedAt={savedAt} saveError={saveError} />
       </div>
@@ -1159,10 +1159,22 @@ function Dashboard({ transactions, money, hideValues }) {
   // Default the period to the current month.
   const [year, setYear] = useState(() => todayISO().slice(0, 4));
   const [month, setMonth] = useState(() => todayISO().slice(5, 7));
+  const [catFilter, setCatFilter] = useState("All");
+
+  const availableCats = useMemo(() => {
+    const cats = new Set();
+    for (const t of transactions) {
+      if (!isTransfer(t.category) && !isIncome(t.category)) cats.add(t.category);
+    }
+    return [...cats].sort();
+  }, [transactions]);
 
   const periodTxns = useMemo(
-    () => transactions.filter((t) => matchPeriod(t.date, year, month)),
-    [transactions, year, month]
+    () => transactions.filter((t) =>
+      matchPeriod(t.date, year, month) &&
+      (catFilter === "All" || t.category === catFilter)
+    ),
+    [transactions, year, month, catFilter]
   );
   const period = useMemo(() => computeTotals(periodTxns), [periodTxns]);
 
@@ -1194,8 +1206,8 @@ function Dashboard({ transactions, money, hideValues }) {
     const prevMonthYear = month === "01" ? String(Number(year) - 1) : year;
     const prevMonthVal = month === "01" ? "12" : String(Number(month) - 1).padStart(2, "0");
     const prevYear = String(Number(year) - 1);
-    const mmTxns = transactions.filter((t) => matchPeriod(t.date, prevMonthYear, prevMonthVal));
-    const yyTxns = transactions.filter((t) => matchPeriod(t.date, prevYear, month));
+    const mmTxns = transactions.filter((t) => matchPeriod(t.date, prevMonthYear, prevMonthVal) && (catFilter === "All" || t.category === catFilter));
+    const yyTxns = transactions.filter((t) => matchPeriod(t.date, prevYear, month) && (catFilter === "All" || t.category === catFilter));
     const mm = computeTotals(mmTxns);
     const yy = computeTotals(yyTxns);
     const pct = (cur, base) => base === 0 ? null : ((cur - base) / Math.abs(base)) * 100;
@@ -1208,7 +1220,7 @@ function Dashboard({ transactions, money, hideValues }) {
       mmPctInc: pct(period.income, mm.income),
       yyPctInc: pct(period.income, yy.income),
     };
-  }, [transactions, year, month, period]);
+  }, [transactions, year, month, period, catFilter]);
 
   // Expenses by category for the selected period (up to cutoff day).
   const catExpenses = useMemo(() => {
@@ -1243,6 +1255,7 @@ function Dashboard({ transactions, money, hideValues }) {
       const map = new Map();
       for (const t of transactions) {
         if (isTransfer(t.category) || isIncome(t.category)) continue;
+        if (catFilter !== "All" && t.category !== catFilter) continue;
         const d = t.date || "";
         if (d.slice(0, 4) !== targetYear || d.slice(5, 7) !== targetMonth) continue;
         const day = d.slice(8, 10);
@@ -1267,6 +1280,7 @@ function Dashboard({ transactions, money, hideValues }) {
       const counts = new Map();
       for (const t of transactions) {
         if (isTransfer(t.category) || isIncome(t.category)) continue;
+        if (catFilter !== "All" && t.category !== catFilter) continue;
         const d = (t.date || "").slice(0, 7);
         if (!months12.includes(d)) continue;
         const amt = Number(t.amount) || 0;
@@ -1294,7 +1308,7 @@ function Dashboard({ transactions, money, hideValues }) {
       };
     }
     return result;
-  }, [catExpenses, transactions, year, month, cutoffDay]);
+  }, [catExpenses, transactions, year, month, cutoffDay, catFilter]);
 
   // Daily pace for Dashboard: driven by the selected month vs the one before.
   const dashboardPaceData = useMemo(() => {
@@ -1311,6 +1325,7 @@ function Dashboard({ transactions, money, hideValues }) {
       const byDay = new Map();
       for (const t of transactions) {
         if (isTransfer(t.category) || isIncome(t.category)) continue;
+        if (catFilter !== "All" && t.category !== catFilter) continue;
         if (!t.date || !t.date.startsWith(monthKey)) continue;
         const day = parseInt(t.date.slice(8, 10), 10);
         const signed = Number(t.amount) || 0;
@@ -1346,7 +1361,7 @@ function Dashboard({ transactions, money, hideValues }) {
       prevLabel: monthLabel(prevMonthKey),
       todayDay: curMonthKey === todayMonth ? todayDay : null,
     };
-  }, [transactions, year, month]);
+  }, [transactions, year, month, catFilter]);
 
   const fmtK = (v) => {
     if (hideValues) return "";
@@ -1356,8 +1371,14 @@ function Dashboard({ transactions, money, hideValues }) {
   return (
     <div style={S.col}>
       {/* Hero balance card — shows the SELECTED period */}
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
         <PeriodFilter year={year} month={month} setYear={setYear} setMonth={setMonth} years={years} />
+        <select value={catFilter} onChange={(e) => setCatFilter(e.target.value)} style={S.select}>
+          <option value="All">All categories</option>
+          {availableCats.map((c) => (
+            <option key={c} value={c}>{c}</option>
+          ))}
+        </select>
       </div>
 
       <div style={{
