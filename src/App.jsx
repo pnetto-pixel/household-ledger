@@ -980,7 +980,7 @@ function Header({ hideValues, onToggleHide, onLogout, onOpenSettings, saving, sa
             <LayoutDashboard size={14} color="#fff" />
           </div>
           <span style={{ fontWeight: 700, fontSize: 15, letterSpacing: -0.5, color: "#e5e7eb" }}>Household</span>
-          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.5.7</span>
+          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.5.8</span>
         </div>
         <SaveIndicator saving={saving} dirty={dirty} savedAt={savedAt} saveError={saveError} />
       </div>
@@ -1581,7 +1581,7 @@ function DailyPaceCard({ paceData, hideValues, fmtK }) {
         </div>
         <div style={{ height: 220 }}>
           <ResponsiveContainer width="100%" height="100%">
-            <AreaChart data={data} margin={{ top: 8, right: 52, left: -12, bottom: 4 }}>
+            <AreaChart data={data} margin={{ top: 8, right: 16, left: 0, bottom: 4 }}>
               <defs>
                 <linearGradient id="curGrad" x1="0" y1="0" x2="0" y2="1">
                   <stop offset="0%" stopColor="#F97316" stopOpacity={0.28} />
@@ -1597,15 +1597,14 @@ function DailyPaceCard({ paceData, hideValues, fmtK }) {
                 tick={{ fill: "#6b7280", fontSize: 10 }}
                 tickLine={false}
                 axisLine={false}
-                interval="preserveStartEnd"
+                ticks={[1, data[data.length - 1]?.day ?? 1]}
               />
               <YAxis
-                orientation="right"
                 tick={{ fill: "#6b7280", fontSize: 10 }}
                 tickLine={false}
                 axisLine={false}
                 tickFormatter={fmtK}
-                width={50}
+                width={46}
               />
               {!hideValues && (
                 <Tooltip
