@@ -977,7 +977,7 @@ function Header({ hideValues, onToggleHide, onLogout, onOpenSettings, saving, sa
             <LayoutDashboard size={14} color="#fff" />
           </div>
           <span style={{ fontWeight: 700, fontSize: 15, letterSpacing: -0.5, color: "#e5e7eb" }}>Household</span>
-          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.4.0</span>
+          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.5.0</span>
         </div>
         <SaveIndicator saving={saving} dirty={dirty} savedAt={savedAt} saveError={saveError} />
       </div>
@@ -1396,27 +1396,16 @@ function ChangeBadge({ label, pct, hideValues }) {
 }
 
 // ===========================================================================
-// MonthlyBarCard — Income or Expense bars per month, with toggle
+// MonthlyBarCard — Income or Expense bars per bucket, with toggle
 // ===========================================================================
 
-function MonthlyBarCard({ byMonth, isSingleMonth, hideValues, fmtAxis }) {
+function MonthlyBarCard({ byBucket, hideValues, fmtK, fmtKTooltip, fmtBucketLabel }) {
   const [view, setView] = useState("income");
-
-  if (isSingleMonth) {
-    return (
-      <>
-        <h3 style={S.sectionTitle}>Monthly</h3>
-        <p style={{ color: "#8b94a3", fontSize: 12, margin: "4px 0 0", textAlign: "center" }}>
-          Monthly comparison not available for single-month view.
-        </p>
-      </>
-    );
-  }
 
   const isInc = view === "income";
   const dataKey = isInc ? "income" : "expenses";
   const barColor = isInc ? "#34d399" : "#f87171";
-  const cardTitle = isInc ? "Income by Month" : "Expense by Month";
+  const cardTitle = isInc ? "Income" : "Expense";
 
   return (
     <>
@@ -1438,15 +1427,23 @@ function MonthlyBarCard({ byMonth, isSingleMonth, hideValues, fmtAxis }) {
         </div>
       </div>
       <div style={{ ...S.card, height: 280 }}>
-        {byMonth.length === 0 ? (
+        {byBucket.length === 0 ? (
           <Empty>No data to chart yet.</Empty>
         ) : (
           <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={byMonth} margin={{ top: 8, right: 8, left: 8, bottom: 8 }}>
+            <BarChart data={byBucket} margin={{ top: 8, right: 8, left: 8, bottom: 8 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="#1f2937" />
-              <XAxis dataKey="month" tick={{ fill: "#8b94a3", fontSize: 11 }} tickFormatter={(v) => v.slice(5)} />
-              <YAxis tick={{ fill: "#8b94a3", fontSize: 11 }} tickFormatter={fmtAxis} width={48} />
-              {!hideValues && <Tooltip formatter={(v) => usd.format(v)} labelFormatter={(v) => v} />}
+              <XAxis dataKey="bucket" tick={{ fill: "#8b94a3", fontSize: 11 }} tickFormatter={fmtBucketLabel} />
+              <YAxis tick={{ fill: "#8b94a3", fontSize: 11 }} tickFormatter={fmtK} width={56} />
+              {!hideValues && (
+                <Tooltip
+                  formatter={(v) => (fmtKTooltip || fmtK)(v)}
+                  labelFormatter={(v) => fmtBucketLabel(v)}
+                  contentStyle={{ background: "#161a20", border: "1px solid #1e2530", borderRadius: 10, fontSize: 12 }}
+                  itemStyle={{ color: "#e5e7eb" }}
+                  labelStyle={{ color: "#8b94a3" }}
+                />
+              )}
               <Bar dataKey={dataKey} name={isInc ? "Income" : "Expenses"} fill={barColor} radius={[4, 4, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
@@ -1456,75 +1453,234 @@ function MonthlyBarCard({ byMonth, isSingleMonth, hideValues, fmtAxis }) {
   );
 }
 
+// ---------------------------------------------------------------------------
+// Bucket helpers for Charts granularity
+// ---------------------------------------------------------------------------
+
+// Returns the bucket key for a date string given a granularity mode.
+// M   → "YYYY-MM"
+// Q   → "YYYY-Q1" .. "YYYY-Q4"
+// H   → "YYYY-H1" / "YYYY-H2"
+// Y   → "YYYY"
+function bucketKey(dateStr, granularity) {
+  if (!dateStr) return "";
+  const y = dateStr.slice(0, 4);
+  const mm = dateStr.slice(5, 7);
+  const mo = parseInt(mm, 10); // 1–12
+  if (granularity === "Y") return y;
+  if (granularity === "H") return `${y}-${mo <= 6 ? "H1" : "H2"}`;
+  if (granularity === "Q") {
+    const q = mo <= 3 ? "Q1" : mo <= 6 ? "Q2" : mo <= 9 ? "Q3" : "Q4";
+    return `${y}-${q}`;
+  }
+  // "M" (default)
+  return `${y}-${mm}`;
+}
+
+// Human-readable label for a bucket key.
+// "2026-01"   → "Jan/26"
+// "2026-Q1"   → "Q1/26"
+// "2026-H2"   → "H2/26"
+// "2026"      → "2026"
+function bucketLabel(key) {
+  if (!key) return key;
+  if (/^\d{4}$/.test(key)) return key; // Year
+  const [y, rest] = key.split("-");
+  const yy = y.slice(2); // last 2 digits
+  if (rest && (rest.startsWith("Q") || rest.startsWith("H"))) return `${rest}/${yy}`;
+  // Month: rest is "MM"
+  const mo = parseInt(rest, 10);
+  const names = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+  return `${names[mo - 1] || rest}/${yy}`;
+}
+
 // ===========================================================================
 // Charts
 // ===========================================================================
 
+// Granularity options for the segmented control
+const GRANULARITIES = [
+  { v: "M", l: "M" },
+  { v: "Q", l: "Q" },
+  { v: "H", l: "H" },
+  { v: "Y", l: "Y" },
+];
+
 function Charts({ transactions, hideValues }) {
   const years = useMemo(() => availableYears(transactions), [transactions]);
-  // Charts are trend-oriented, so default to all data.
-  const [year, setYear] = useState("All");
-  const [month, setMonth] = useState("All");
 
-  const scoped = useMemo(
-    () => transactions.filter((t) => matchPeriod(t.date, year, month)),
-    [transactions, year, month]
-  );
+  // Year-range filter: default to full range (all years in data).
+  const minYear = useMemo(() => (years.length ? years[years.length - 1] : ""), [years]);
+  const maxYear = useMemo(() => (years.length ? years[0] : ""), [years]);
 
-  const byMonth = useMemo(() => {
+  const [fromYear, setFromYear] = useState(() => "");
+  const [toYear, setToYear] = useState(() => "");
+
+  // Once data arrives (years change), seed the defaults if not yet set.
+  const fromYearEff = fromYear || minYear;
+  const toYearEff = toYear || maxYear;
+
+  const [granularity, setGranularity] = useState("M");
+
+  // Clamp: ensure from <= to. When the user changes one, adjust the other.
+  const handleFromYear = (v) => {
+    setFromYear(v);
+    if (toYearEff && v > toYearEff) setToYear(v);
+  };
+  const handleToYear = (v) => {
+    setToYear(v);
+    if (fromYearEff && v < fromYearEff) setFromYear(v);
+  };
+
+  // Filter transactions to the selected year range.
+  const scoped = useMemo(() => {
+    if (!fromYearEff && !toYearEff) return transactions;
+    return transactions.filter((t) => {
+      const y = (t.date || "").slice(0, 4);
+      if (fromYearEff && y < fromYearEff) return false;
+      if (toYearEff && y > toYearEff) return false;
+      return true;
+    });
+  }, [transactions, fromYearEff, toYearEff]);
+
+  // Aggregate into buckets based on granularity.
+  const byBucket = useMemo(() => {
     const map = new Map();
     for (const t of scoped) {
       if (isTransfer(t.category)) continue;
-      const mk = monthKey(t.date);
-      if (!mk) continue;
-      const entry = map.get(mk) || { month: mk, income: 0, expenses: 0 };
+      const bk = bucketKey(t.date, granularity);
+      if (!bk) continue;
+      const entry = map.get(bk) || { bucket: bk, income: 0, expenses: 0 };
       const amt = Number(t.amount) || 0; // signed: refunds/clawbacks net out
       if (isIncome(t.category)) entry.income += amt;
       else entry.expenses += amt;
-      map.set(mk, entry);
+      map.set(bk, entry);
     }
-    return [...map.values()].sort((a, b) => (a.month < b.month ? -1 : 1)).slice(-12);
-  }, [scoped]);
+    // Apply Math.abs to expenses so bars always show magnitude.
+    // (Refunds/clawbacks already netted before abs.)
+    const rows = [...map.values()].map((r) => ({ ...r, expenses: Math.abs(r.expenses) }));
+    return rows.sort((a, b) => (a.bucket < b.bucket ? -1 : 1));
+  }, [scoped, granularity]);
 
   if (transactions.length === 0) {
     return <Empty>No data to chart yet.</Empty>;
   }
 
-  const fmtAxis = (v) => (hideValues ? "" : `$${Math.round(v)}`);
-  const isSingleMonth = month !== "All";
-  const label = periodLabel(year, month);
+  // fmtK: format value as $X.XXK, respects hideValues.
+  const fmtK = (v) => {
+    if (hideValues) return "";
+    const abs = Math.abs(Number(v) || 0);
+    return `$${(abs / 1000).toFixed(2)}K`;
+  };
+
+  // Tooltip formatter that also handles the value sign (negative income is ok).
+  const fmtKFull = (v) => {
+    if (hideValues) return "•••••";
+    const n = Number(v) || 0;
+    const sign = n < 0 ? "-" : "";
+    return `${sign}$${(Math.abs(n) / 1000).toFixed(2)}K`;
+  };
+
+  const rangeLabel =
+    fromYearEff && toYearEff && fromYearEff !== toYearEff
+      ? `${fromYearEff}–${toYearEff}`
+      : fromYearEff || toYearEff || "All Time";
+
+  // Year options for the range selectors (oldest first for the from/to order).
+  const yearOptsAsc = [...years].sort((a, b) => (a < b ? -1 : 1));
 
   return (
     <div style={S.col}>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-        <h2 style={{ margin: "4px 0 0", fontSize: 17, color: "#e5e7eb", fontWeight: 700, letterSpacing: -0.3 }}>{label}</h2>
-        <PeriodFilter year={year} month={month} setYear={setYear} setMonth={setMonth} years={years} />
+      {/* Header: range label + controls */}
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
+        <h2 style={{ margin: "4px 0 0", fontSize: 17, color: "#e5e7eb", fontWeight: 700, letterSpacing: -0.3 }}>
+          {rangeLabel}
+        </h2>
+        {/* Granularity segmented control */}
+        <div style={{ display: "flex", gap: 2, background: "#0f1216", border: "1px solid #232a33", borderRadius: 10, padding: 3 }}>
+          {GRANULARITIES.map(({ v, l }) => (
+            <button
+              key={v}
+              onClick={() => setGranularity(v)}
+              style={{
+                background: granularity === v ? "#0A84FF" : "transparent",
+                border: "none",
+                color: granularity === v ? "#fff" : "#8b94a3",
+                borderRadius: 7,
+                padding: "3px 10px",
+                fontSize: 12,
+                fontWeight: granularity === v ? 700 : 400,
+                cursor: "pointer",
+                transition: "background 0.15s, color 0.15s",
+              }}
+            >
+              {l}
+            </button>
+          ))}
+        </div>
       </div>
-      {scoped.length === 0 ? <Empty>No data for {label}.</Empty> : null}
-      <MonthlyBarCard byMonth={byMonth} isSingleMonth={isSingleMonth} hideValues={hideValues} fmtAxis={fmtAxis} />
 
-      {isSingleMonth ? (
-        <p style={{ color: "#8b94a3", fontSize: 12, margin: "4px 0 0", textAlign: "center" }}>
-          Monthly comparison not available for single-month view.
-        </p>
-      ) : (
-        <>
-          <h3 style={S.sectionTitle}>Income vs Expenses (Monthly)</h3>
-          <div style={{ ...S.card, height: 300 }}>
+      {/* Year range selectors */}
+      <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+        <select
+          value={fromYearEff}
+          onChange={(e) => handleFromYear(e.target.value)}
+          style={{ ...S.select, flex: 1 }}
+        >
+          {yearOptsAsc.map((y) => (
+            <option key={y} value={y}>{y}</option>
+          ))}
+        </select>
+        <span style={{ color: "#8b94a3", fontSize: 13, flexShrink: 0 }}>to</span>
+        <select
+          value={toYearEff}
+          onChange={(e) => handleToYear(e.target.value)}
+          style={{ ...S.select, flex: 1 }}
+        >
+          {yearOptsAsc.map((y) => (
+            <option key={y} value={y}>{y}</option>
+          ))}
+        </select>
+      </div>
+
+      {scoped.length === 0 ? <Empty>No data for {rangeLabel}.</Empty> : null}
+
+      <MonthlyBarCard
+        byBucket={byBucket}
+        hideValues={hideValues}
+        fmtK={fmtK}
+        fmtKTooltip={fmtKFull}
+        fmtBucketLabel={bucketLabel}
+      />
+
+      <>
+        <h3 style={S.sectionTitle}>Income vs Expenses</h3>
+        <div style={{ ...S.card, height: 300 }}>
+          {byBucket.length === 0 ? (
+            <Empty>No data to chart yet.</Empty>
+          ) : (
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={byMonth} margin={{ top: 8, right: 8, left: 8, bottom: 8 }}>
+              <BarChart data={byBucket} margin={{ top: 8, right: 8, left: 8, bottom: 8 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#1f2937" />
-                <XAxis dataKey="month" tick={{ fill: "#8b94a3", fontSize: 11 }} />
-                <YAxis tick={{ fill: "#8b94a3", fontSize: 11 }} tickFormatter={fmtAxis} width={48} />
-                {!hideValues && <Tooltip formatter={(v) => usd.format(v)} />}
+                <XAxis dataKey="bucket" tick={{ fill: "#8b94a3", fontSize: 11 }} tickFormatter={bucketLabel} />
+                <YAxis tick={{ fill: "#8b94a3", fontSize: 11 }} tickFormatter={fmtK} width={56} />
+                {!hideValues && (
+                  <Tooltip
+                    formatter={(v) => fmtKFull(v)}
+                    labelFormatter={(v) => bucketLabel(v)}
+                    contentStyle={{ background: "#161a20", border: "1px solid #1e2530", borderRadius: 10, fontSize: 12 }}
+                    itemStyle={{ color: "#e5e7eb" }}
+                    labelStyle={{ color: "#8b94a3" }}
+                  />
+                )}
                 <Legend iconType="circle" wrapperStyle={{ fontSize: 11, paddingTop: 8 }} />
                 <Bar dataKey="income" name="Income" fill="#34d399" radius={[4, 4, 0, 0]} />
                 <Bar dataKey="expenses" name="Expenses" fill="#f87171" radius={[4, 4, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
-          </div>
-        </>
-      )}
+          )}
+        </div>
+      </>
     </div>
   );
 }
