@@ -980,7 +980,7 @@ function Header({ hideValues, onToggleHide, onLogout, onOpenSettings, saving, sa
             <LayoutDashboard size={14} color="#fff" />
           </div>
           <span style={{ fontWeight: 700, fontSize: 15, letterSpacing: -0.5, color: "#e5e7eb" }}>Household</span>
-          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.5.9</span>
+          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.5.10</span>
         </div>
         <SaveIndicator saving={saving} dirty={dirty} savedAt={savedAt} saveError={saveError} />
       </div>
@@ -1069,7 +1069,7 @@ function computeTotals(rows) {
     if (isIncome(t.category)) income += amt;
     else expenses += amt;
   }
-  return { income, expenses, net: Math.abs(income) - Math.abs(expenses) };
+  return { income, expenses, net: income - expenses };
 }
 
 // ===========================================================================
@@ -2068,7 +2068,7 @@ function Transactions({ transactions, money, hideValues, isWide, onDelete, onUpd
     return groups;
   }, [visible]);
 
-  const net = Math.abs(summary.income) - Math.abs(summary.expenses);
+  const net = summary.income - summary.expenses;
 
   return (
     <div style={S.txnTab}>
@@ -2106,7 +2106,7 @@ function Transactions({ transactions, money, hideValues, isWide, onDelete, onUpd
       <div style={S.summaryBar}>
         <span style={{ fontSize: 11, color: "#636366" }}>{filtered.length} txns</span>
         <span style={{ fontSize: 11, color: "#34d399", background: "rgba(52,211,153,0.1)", borderRadius: 6, padding: "2px 8px" }}>↑ {money(summary.income)}</span>
-        <span style={{ fontSize: 11, color: "#f87171", background: "rgba(248,113,113,0.1)", borderRadius: 6, padding: "2px 8px" }}>↓ {money(summary.expenses)}</span>
+        <span style={{ fontSize: 11, color: summary.expenses <= 0 ? "#34d399" : "#f87171", background: summary.expenses <= 0 ? "rgba(52,211,153,0.1)" : "rgba(248,113,113,0.1)", borderRadius: 6, padding: "2px 8px" }}>{summary.expenses <= 0 ? `↑ ${money(Math.abs(summary.expenses))}` : `↓ ${money(summary.expenses)}`}</span>
         <span style={{ fontSize: 11, color: net >= 0 ? "#34d399" : "#f87171", background: "rgba(255,255,255,0.05)", borderRadius: 6, padding: "2px 8px" }}>= {money(net)}</span>
       </div>
 
