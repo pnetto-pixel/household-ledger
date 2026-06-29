@@ -980,7 +980,7 @@ function Header({ hideValues, onToggleHide, onLogout, onOpenSettings, saving, sa
             <LayoutDashboard size={14} color="#fff" />
           </div>
           <span style={{ fontWeight: 700, fontSize: 15, letterSpacing: -0.5, color: "#e5e7eb" }}>Household</span>
-          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.5.12</span>
+          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.5.13</span>
         </div>
         <SaveIndicator saving={saving} dirty={dirty} savedAt={savedAt} saveError={saveError} />
       </div>
@@ -1203,7 +1203,7 @@ function Dashboard({ transactions, money, hideValues }) {
     }
     // Net signed sum; skip zero/net-credit; sort by magnitude descending.
     return [...map.entries()]
-      .filter(([, v]) => v !== 0)
+      .filter(([, v]) => v < 0)
       .sort((a, b) => Math.abs(b[1]) - Math.abs(a[1]));
   }, [periodTxns, cutoffDay]);
 
@@ -1239,8 +1239,8 @@ function Dashboard({ transactions, money, hideValues }) {
       const mmBase = mmMap.get(cat) || 0;
       const yyBase = yyMap.get(cat) || 0;
       result[cat] = {
-        mm: mmBase === 0 ? null : ((current - mmBase) / mmBase) * 100,
-        yy: yyBase === 0 ? null : ((current - yyBase) / yyBase) * 100,
+        mm: mmBase >= 0 ? null : ((-current - (-mmBase)) / (-mmBase)) * 100,
+        yy: yyBase >= 0 ? null : ((-current - (-yyBase)) / (-yyBase)) * 100,
       };
     }
     return result;
@@ -1386,7 +1386,7 @@ function Dashboard({ transactions, money, hideValues }) {
                     </div>
                     {/* Amount */}
                     <div style={{ fontWeight: 700, fontSize: 14, color: "#f87171", whiteSpace: "nowrap" }}>
-                      {moneyShort(Math.abs(total))}
+                      {moneyShort(-total)}
                     </div>
                   </div>
                 );
