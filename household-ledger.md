@@ -1,4 +1,4 @@
-# Household Ledger · v1.5.6
+# Household Ledger · v1.5.10
 
 Aplicativo mobile-first de controle financeiro doméstico. Registra
 transações da casa (despesas e receitas) por categoria e conta, com
@@ -24,7 +24,7 @@ A cada PR, atualize a versão em **dois lugares**:
 1. `src/App.jsx` — a string `v1.x.x` no span ao lado de "Household"
 2. `household-ledger.md` — o `· v1.x.x` no título `# Household Ledger`
 
-Versão atual: **v1.5.6** (DailyPaceCard movido para o Dashboard, entre o hero card e o bloco "by Category"; vinculado ao PeriodFilter do Dashboard; "All Time" StatCards movidos para o rodapé do Dashboard)
+Versão atual: **v1.5.10** (bugfix do cálculo do NET: `net = income − expenses` sem `Math.abs`; pill de expenses fica positiva/verde quando reembolsos dominam o período)
 
 ---
 
@@ -336,7 +336,11 @@ scroll, então header e tab bar ficam fixos.
    em `position: fixed` no `document.body`, ancorado por `getBoundingClientRect`
    — escapam de qualquer container com `overflow`, antes ficavam clipados). O
    range from/to vive dentro do chip **Date**. A barra de resumo virou **pills
-   coloridos** (↑ income / ↓ expenses / = net). A lista é **agrupada por data**
+   coloridos** (↑ income / ↓ expenses / = net). A pill de expenses exibe `↓`
+   em vermelho quando `summary.expenses > 0`; quando reembolsos superam as
+   despesas do período (`summary.expenses <= 0`), exibe o valor como positivo
+   com `↑` e cor verde (`#34d399`). O NET é calculado como `income − expenses`
+   sem `Math.abs` — exibe positivo quando os reembolsos dominam o período. A lista é **agrupada por data**
    com headers (`Today` / `Yesterday` / `Jun 25, 2026` via `formatDateHeader`)
    e a data saiu de dentro de cada linha (liberou espaço para a descrição). O
    filtro de conta inclui um chip **"Unassigned"**. A aba **flui e rola como um
@@ -578,6 +582,12 @@ O app inicia com array vazio quando não há dados salvos (sem SEED).
   mantido; (2) parsing de valores contábeis com parênteses (`(47.50)` →
   `-47.50`) + detecção de cabeçalhos repetidos no meio do arquivo
   (`_skipped`); UI de import exibe `N parsed · M valid · K skipped · X selected`
+- [x] Bugfix cálculo do NET (PR #80, SHA 4637270, v1.5.10): removido
+  `Math.abs` de `net = income − expenses` na aba Transactions e em
+  `computeTotals` (StatCards "All Time" do Dashboard) — o `Math.abs`
+  invertia o sinal quando reembolsos superavam despesas no período (exibia
+  −$247 em vez de +$247); pill de expenses agora exibe valor positivo com
+  `↑` e cor verde (`#34d399`) quando `summary.expenses <= 0`
 
 ### Fase 5 — Inteligência e Auditoria
 
