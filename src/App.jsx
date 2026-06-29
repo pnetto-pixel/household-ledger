@@ -980,7 +980,7 @@ function Header({ hideValues, onToggleHide, onLogout, onOpenSettings, saving, sa
             <LayoutDashboard size={14} color="#fff" />
           </div>
           <span style={{ fontWeight: 700, fontSize: 15, letterSpacing: -0.5, color: "#e5e7eb" }}>Household</span>
-          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.5.16</span>
+          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.5.17</span>
         </div>
         <SaveIndicator saving={saving} dirty={dirty} savedAt={savedAt} saveError={saveError} />
       </div>
@@ -1188,6 +1188,24 @@ function Dashboard({ transactions, money, hideValues }) {
     return null; // "All" period — no cutoff
   }, [year, month]);
 
+  // M/M and Y/Y totals for the hero card (full months, no cutoff).
+  const heroComparisons = useMemo(() => {
+    if (year === "All" || month === "All") return null;
+    const prevMonthYear = month === "01" ? String(Number(year) - 1) : year;
+    const prevMonthVal = month === "01" ? "12" : String(Number(month) - 1).padStart(2, "0");
+    const prevYear = String(Number(year) - 1);
+    const mmTxns = transactions.filter((t) => matchPeriod(t.date, prevMonthYear, prevMonthVal));
+    const yyTxns = transactions.filter((t) => matchPeriod(t.date, prevYear, month));
+    const mm = computeTotals(mmTxns);
+    const yy = computeTotals(yyTxns);
+    const pct = (cur, base) => base === 0 ? null : ((cur - base) / Math.abs(base)) * 100;
+    return {
+      mm, yy,
+      mmPctExp: pct(period.expenses, mm.expenses),
+      yyPctExp: pct(period.expenses, yy.expenses),
+    };
+  }, [transactions, year, month, period]);
+
   // Expenses by category for the selected period (up to cutoff day).
   const catExpenses = useMemo(() => {
     const map = new Map();
@@ -1369,6 +1387,24 @@ function Dashboard({ transactions, money, hideValues }) {
             <div style={{ fontSize: 17, fontWeight: 700, color: "#f87171", marginTop: 3 }}>{money(period.expenses)}</div>
           </div>
         </div>
+        {heroComparisons && (
+          <div style={{ borderTop: "1px solid rgba(255,255,255,0.06)", marginTop: 14, paddingTop: 12, display: "flex", gap: 10, flexWrap: "wrap" }}>
+            {[
+              { label: "Last Month", val: heroComparisons.mm.expenses, pct: heroComparisons.mmPctExp },
+              { label: "Last Year", val: heroComparisons.yy.expenses, pct: heroComparisons.yyPctExp },
+            ].map(({ label: lbl, val, pct }) => {
+              const pctColor = pct == null ? "#6b7280" : pct > 0 ? "#f87171" : "#34d399";
+              const pctStr = pct == null ? "—" : `${pct > 0 ? "+" : ""}${pct.toFixed(0)}%`;
+              return (
+                <div key={lbl} style={{ flex: 1, minWidth: 100, background: "rgba(255,255,255,0.03)", borderRadius: 10, padding: "8px 10px" }}>
+                  <div style={{ fontSize: 9, color: "#6b7280", fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.5 }}>{lbl}</div>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: "#9ca3af", marginTop: 3 }}>{hideValues ? "•••••" : usd0.format(val || 0)}</div>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: pctColor, marginTop: 2 }}>{hideValues ? "•••" : pctStr}</div>
+                </div>
+              );
+            })}
+          </div>
+        )}
       </div>
 
       <DailyPaceCard paceData={dashboardPaceData} hideValues={hideValues} fmtK={fmtK} />
