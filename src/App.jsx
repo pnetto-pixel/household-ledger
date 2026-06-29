@@ -980,7 +980,7 @@ function Header({ hideValues, onToggleHide, onLogout, onOpenSettings, saving, sa
             <LayoutDashboard size={14} color="#fff" />
           </div>
           <span style={{ fontWeight: 700, fontSize: 15, letterSpacing: -0.5, color: "#e5e7eb" }}>Household</span>
-          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.5.13</span>
+          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.5.14</span>
         </div>
         <SaveIndicator saving={saving} dirty={dirty} savedAt={savedAt} saveError={saveError} />
       </div>
@@ -1201,9 +1201,9 @@ function Dashboard({ transactions, money, hideValues }) {
       const amt = Number(t.amount) || 0;
       map.set(t.category, (map.get(t.category) || 0) + amt);
     }
-    // Net signed sum; skip zero/net-credit; sort by magnitude descending.
+    // Net signed sum; skip zero; sort by magnitude descending.
     return [...map.entries()]
-      .filter(([, v]) => v < 0)
+      .filter(([, v]) => v !== 0)
       .sort((a, b) => Math.abs(b[1]) - Math.abs(a[1]));
   }, [periodTxns, cutoffDay]);
 
@@ -1385,8 +1385,8 @@ function Dashboard({ transactions, money, hideValues }) {
                       </div>
                     </div>
                     {/* Amount */}
-                    <div style={{ fontWeight: 700, fontSize: 14, color: "#f87171", whiteSpace: "nowrap" }}>
-                      {moneyShort(-total)}
+                    <div style={{ fontWeight: 700, fontSize: 14, color: total < 0 ? "#f87171" : "#34d399", whiteSpace: "nowrap" }}>
+                      {moneyShort(Math.abs(total))}
                     </div>
                   </div>
                 );
