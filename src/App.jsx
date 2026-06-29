@@ -1198,13 +1198,13 @@ function Dashboard({ transactions, money, hideValues }) {
         const day = (t.date || "").slice(8, 10);
         if (day > cutoffDay) continue;
       }
-      const amt = Math.abs(Number(t.amount) || 0);
+      const amt = Number(t.amount) || 0;
       map.set(t.category, (map.get(t.category) || 0) + amt);
     }
-    // Only categories with net positive spending (> 0), sorted highest first.
+    // Net signed sum; skip zero/net-credit; sort by magnitude descending.
     return [...map.entries()]
-      .filter(([, v]) => v > 0)
-      .sort((a, b) => b[1] - a[1]);
+      .filter(([, v]) => v !== 0)
+      .sort((a, b) => Math.abs(b[1]) - Math.abs(a[1]));
   }, [periodTxns, cutoffDay]);
 
   // Compute M/M and Y/Y pct change for each expense category.
@@ -1225,7 +1225,7 @@ function Dashboard({ transactions, money, hideValues }) {
         if (d.slice(0, 4) !== targetYear || d.slice(5, 7) !== targetMonth) continue;
         const day = d.slice(8, 10);
         if (day > cutoffDay) continue;
-        const amt = Math.abs(Number(t.amount) || 0);
+        const amt = Number(t.amount) || 0;
         map.set(t.category, (map.get(t.category) || 0) + amt);
       }
       return map;
@@ -1335,7 +1335,7 @@ function Dashboard({ transactions, money, hideValues }) {
                     </div>
                     {/* Amount */}
                     <div style={{ fontWeight: 700, fontSize: 14, color: "#f87171", whiteSpace: "nowrap" }}>
-                      {moneyShort(total)}
+                      {moneyShort(Math.abs(total))}
                     </div>
                   </div>
                 );
