@@ -977,7 +977,7 @@ function Header({ hideValues, onToggleHide, onLogout, onOpenSettings, saving, sa
             <LayoutDashboard size={14} color="#fff" />
           </div>
           <span style={{ fontWeight: 700, fontSize: 15, letterSpacing: -0.5, color: "#e5e7eb" }}>Household</span>
-          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.5.0</span>
+          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.5.1</span>
         </div>
         <SaveIndicator saving={saving} dirty={dirty} savedAt={savedAt} saveError={saveError} />
       </div>
@@ -1509,7 +1509,7 @@ const GRANULARITIES = [
 function Charts({ transactions, hideValues }) {
   const years = useMemo(() => availableYears(transactions), [transactions]);
 
-  // Year-range filter: default to full range (all years in data).
+  // Year-range filter: default to the most recent year of data on open.
   const minYear = useMemo(() => (years.length ? years[years.length - 1] : ""), [years]);
   const maxYear = useMemo(() => (years.length ? years[0] : ""), [years]);
 
@@ -1517,7 +1517,8 @@ function Charts({ transactions, hideValues }) {
   const [toYear, setToYear] = useState(() => "");
 
   // Once data arrives (years change), seed the defaults if not yet set.
-  const fromYearEff = fromYear || minYear;
+  // Both From and To default to the most recent year so the app opens on it.
+  const fromYearEff = fromYear || maxYear;
   const toYearEff = toYear || maxYear;
 
   const [granularity, setGranularity] = useState("M");
