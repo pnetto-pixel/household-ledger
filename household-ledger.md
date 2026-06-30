@@ -24,7 +24,7 @@ A cada PR, atualize a versão em **dois lugares**:
 1. `src/App.jsx` — a string `v1.x.x` no span ao lado de "Household"
 2. `household-ledger.md` — o `· v1.x.x` no título `# Household Ledger`
 
-Versão atual: **v1.5.29** (correções no `CategoryStackedBarCard`: bug de total corrigido — acumulação usa valor sinalizado + `Math.abs` por categoria após netting, espelhando `byBucket`, para que reembolsos abatam o total em vez de somarem; ordem do toggle reordenada para Income | Expense (Income primeiro), default continua "expense"; total labels `$X.XK` no topo das barras funcionam corretamente em ambos os modos.)
+Versão atual: **v1.5.29** (correções no `CategoryStackedBarCard`: bug de total corrigido — acumulação usa valor sinalizado + `Math.abs` por categoria após netting, espelhando `byBucket`, para que reembolsos abatam o total em vez de somarem; ordem do toggle reordenada para Expense | Income (Expense primeiro), default continua "expense"; total labels `$X.XK` no topo das barras funcionam corretamente em ambos os modos.)
 
 ---
 
@@ -322,11 +322,11 @@ scroll, então header e tab bar ficam fixos.
    10 px; `MonthlyBarCard` tem `height:260` e "Income vs Expenses" tem
    `height:280` com legenda inline manual (swatches `#06B6D4` Income /
    `#F97316` Expenses) no lugar do `<Legend>` do recharts.
-   Terceiro card: **`CategoryStackedBarCard`** (PR #95/96/97/98, v1.5.24–27) — barras
+   Terceiro card: **`CategoryStackedBarCard`** (PR #95/96/97/98/100, v1.5.24–29) — barras
    stacked por categoria agrupadas na granularidade selecionada (M / Q / H / Y)
    e range de anos do segmented control. Título: **"By Category"**. Header
-   contém o título e um **toggle Income | Expense** (estado `mode`, ordem Income
-   primeiro) que alterna entre view de receitas e despesas por categoria; default
+   contém o título e um **toggle Expense | Income** (estado `mode`, ordem Expense
+   primeiro) que alterna entre view de despesas e receitas por categoria; default
    é "expense". No modo Expense: exclui `isTransfer` e `isIncome`. No modo
    Income: exclui `isTransfer` e inclui apenas `isIncome`. Acumula por
    `[bucket, categoria]` via `useMemo` sobre `scoped` usando valor sinalizado
@@ -674,6 +674,9 @@ O app inicia com array vazio quando não há dados salvos (sem SEED).
   reordenada para **Income | Expense** (Income primeiro), default continua
   "expense"; total labels `$X.XK` no topo das barras corrigidos para funcionar
   corretamente em expense e income mode
+- [x] Toggle `CategoryStackedBarCard` reordenado para **Expense | Income**
+  (PR #100, v1.5.29): ordem dos botões invertida — Expense aparece primeiro,
+  Income segundo; default "expense" permanece inalterado
 
 ### Fase 5 — Inteligência e Auditoria
 
