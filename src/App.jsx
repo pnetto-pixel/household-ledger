@@ -33,6 +33,7 @@ import {
   AreaChart,
   Area,
   ReferenceLine,
+  LabelList,
 } from "recharts";
 import Papa from "papaparse";
 
@@ -230,6 +231,11 @@ const CATEGORY_COLOR_MAP = {
   "Mobile Phone": "#fbbf24",
   "Medical":     "#facc15",
   "Other":       "#6b7280",
+  // Income (tons verdes)
+  "Salary":      "#10b981",
+  "Bonus":       "#34d399",
+  "Bela Income": "#6ee7b7",
+  "Other Income": "#a7f3d0",
 };
 
 // Fixed thematic order for CategoryStackedBarCard bars
@@ -1018,7 +1024,7 @@ function Header({ hideValues, onToggleHide, onLogout, onOpenSettings, saving, sa
             <LayoutDashboard size={14} color="#fff" />
           </div>
           <span style={{ fontWeight: 700, fontSize: 15, letterSpacing: -0.5, color: "#e5e7eb" }}>Household</span>
-          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.5.25</span>
+          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.5.26</span>
         </div>
         <SaveIndicator saving={saving} dirty={dirty} savedAt={savedAt} saveError={saveError} />
       </div>
@@ -1797,18 +1803,25 @@ function DailyPaceCard({ paceData, hideValues, fmtK }) {
 // ===========================================================================
 
 function CategoryStackedBarCard({ scoped, granularity, hideValues, fmtK, fmtKFull }) {
+  const [mode, setMode] = useState("expense");
+
   const { rows, cats } = useMemo(() => {
     const map = new Map();
     const catTotals = {};
 
     for (const t of scoped) {
-      if (isTransfer(t.category) || isIncome(t.category)) continue;
+      if (mode === "expense") {
+        if (isTransfer(t.category) || isIncome(t.category)) continue;
+      } else {
+        if (isTransfer(t.category) || !isIncome(t.category)) continue;
+      }
       const bk = bucketKey(t.date, granularity);
       if (!bk) continue;
       if (!map.has(bk)) map.set(bk, { bucket: bk });
       const entry = map.get(bk);
       const val = Math.abs(Number(t.amount) || 0);
       entry[t.category] = (entry[t.category] || 0) + val;
+      entry._total = (entry._total || 0) + val;
       catTotals[t.category] = (catTotals[t.category] || 0) + val;
     }
 
@@ -1823,20 +1836,31 @@ function CategoryStackedBarCard({ scoped, granularity, hideValues, fmtK, fmtKFul
       return ia - ib;
     });
     return { rows, cats };
-  }, [scoped, granularity]);
+  }, [scoped, granularity, mode]);
 
   if (rows.length === 0) return null;
 
   return (
-    <div style={{ ...S.card, padding: 0, overflow: "hidden" }}>
-      {/* Header — title only */}
-      <div style={{ padding: "12px 16px 0" }}>
-        <h3 style={{ ...S.sectionTitle, margin: 0 }}>Expenses by Category</h3>
+    <div style={{ ...S.card, padding: 0, overflow: "visible" }}>
+      {/* Header — title + mode toggle */}
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 16px 0" }}>
+        <h3 style={{ ...S.sectionTitle, margin: 0 }}>By Category</h3>
+        <div style={{ display: "flex", gap: 4 }}>
+          {["expense", "income"].map(m => (
+            <button
+              key={m}
+              onClick={() => setMode(m)}
+              style={S.togglePill(mode === m)}
+            >
+              {m === "expense" ? "Expense" : "Income"}
+            </button>
+          ))}
+        </div>
       </div>
       {/* Chart */}
       <div style={{ height: 260 }}>
         <ResponsiveContainer width="100%" height="100%">
-          <BarChart data={rows} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
+          <BarChart data={rows} margin={{ top: 24, right: 16, left: 0, bottom: 0 }}>
             <CartesianGrid vertical={false} stroke="rgba(255,255,255,0.05)" />
             <XAxis
               dataKey="bucket"
@@ -1860,8 +1884,6 @@ function CategoryStackedBarCard({ scoped, granularity, hideValues, fmtK, fmtKFul
                 itemStyle={{ color: "#e5e7eb" }}
                 labelStyle={{ color: "#8b94a3" }}
                 cursor={false}
-                allowEscapeViewBox={{ x: true, y: true }}
-                wrapperStyle={{ zIndex: 100 }}
               />
             )}
             {cats.map((cat, i) => (
@@ -1873,7 +1895,27 @@ function CategoryStackedBarCard({ scoped, granularity, hideValues, fmtK, fmtKFul
                 fill={CATEGORY_COLOR_MAP[cat] || catDotColor(cat)}
                 radius={i === cats.length - 1 ? [4, 4, 0, 0] : [0, 0, 0, 0]}
                 activeBar={{ opacity: 0.8 }}
-              />
+              >
+                {i === cats.length - 1 && (
+                  <LabelList
+                    dataKey="_total"
+                    position="top"
+                    content={({ x, y, width, value }) =>
+                      hideValues || !value ? null : (
+                        <text
+                          x={x + width / 2}
+                          y={y - 4}
+                          textAnchor="middle"
+                          fill="#6b7280"
+                          fontSize={10}
+                        >
+                          {fmtK(value)}
+                        </text>
+                      )
+                    }
+                  />
+                )}
+              </Bar>
             ))}
           </BarChart>
         </ResponsiveContainer>
