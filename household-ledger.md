@@ -315,6 +315,13 @@ scroll, então header e tab bar ficam fixos.
    granularidade; título antes era "Income vs Expenses (Monthly)"). Eixo Y e
    tooltip dos dois cards de barras exibem valores em formato `0.00K` (ex.
    `$1.50K`); lógica de fallback de mês único (`isSingleMonth`) removida.
+   **Padrão visual (PR #94):** ambos os cards seguem o mesmo design do
+   `DailyPaceCard` — wrapper com `padding:0`/`overflow:hidden`, header
+   interno com título e controles, `CartesianGrid vertical={false}`, eixos
+   sem linhas/ticks (`tickLine={false}`/`axisLine={false}`) com fonte cinza
+   10 px; `MonthlyBarCard` tem `height:260` e "Income vs Expenses" tem
+   `height:280` com legenda inline manual (swatches `#06B6D4` Income /
+   `#F97316` Expenses) no lugar do `<Legend>` do recharts.
    Seguida de:
    - **Tendências mês a mês** — LineChart com top-5 categorias de despesa por
      volume nos últimos 12 meses; StackedBarChart com mix de todas as
@@ -601,6 +608,15 @@ O app inicia com array vazio quando não há dados salvos (sem SEED).
   `↑` verde para entrada líquida (`expenses >= 0`), sempre exibindo a
   magnitude. Atualizada a seção "Sinal do `amount`" para refletir a
   convenção real do Credit Karma
+- [x] Design polish cards Analyze (PR #94, v1.5.23): `MonthlyBarCard` e card
+  "Income vs Expenses" atualizados para o padrão visual do `DailyPaceCard` —
+  wrapper com `padding:0`/`overflow:hidden`, header interno com título e
+  controles/toggle, `CartesianGrid vertical={false}`, eixos `XAxis`/`YAxis`
+  com `tick={{ fill: "#6b7280", fontSize: 10 }}` e `tickLine={false}`/
+  `axisLine={false}`, container `height:260` (MonthlyBarCard) e `height:280`
+  ("Income vs Expenses"), margens ajustadas; legenda inline manual no card
+  "Income vs Expenses" substituindo o `<Legend>` do recharts, com swatches
+  `#06B6D4` (Income) e `#F97316` (Expenses)
 
 ### Fase 5 — Inteligência e Auditoria
 
