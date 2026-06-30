@@ -24,7 +24,7 @@ A cada PR, atualize a versão em **dois lugares**:
 1. `src/App.jsx` — a string `v1.x.x` no span ao lado de "Household"
 2. `household-ledger.md` — o `· v1.x.x` no título `# Household Ledger`
 
-Versão atual: **v1.5.26** (melhorias no `CategoryStackedBarCard`: tooltip corrigido com `overflow: visible` no card wrapper (substituiu a abordagem anterior de `allowEscapeViewBox`/`zIndex`); total label em `$X.XK` acima de cada barra stacked via `<LabelList>` com renderer SVG; toggle Expense/Income no header (`mode` state) para alternar entre despesas e receitas por categoria; cores de income (`Salary`/`Bonus`/`Bela Income`/`Other Income`) adicionadas ao `CATEGORY_COLOR_MAP` com tons verdes; título renomeado de "Expenses by Category" para "By Category".)
+Versão atual: **v1.5.27** (correções no `CategoryStackedBarCard`: bug de total corrigido — acumulação usa valor sinalizado + `Math.abs` por categoria após netting, espelhando `byBucket`, para que reembolsos abatam o total em vez de somarem; ordem do toggle reordenada para Income | Expense (Income primeiro), default continua "expense"; total labels `$X.XK` no topo das barras funcionam corretamente em ambos os modos.)
 
 ---
 
@@ -322,14 +322,16 @@ scroll, então header e tab bar ficam fixos.
    10 px; `MonthlyBarCard` tem `height:260` e "Income vs Expenses" tem
    `height:280` com legenda inline manual (swatches `#06B6D4` Income /
    `#F97316` Expenses) no lugar do `<Legend>` do recharts.
-   Terceiro card: **`CategoryStackedBarCard`** (PR #95/96/97, v1.5.24–26) — barras
+   Terceiro card: **`CategoryStackedBarCard`** (PR #95/96/97/98, v1.5.24–27) — barras
    stacked por categoria agrupadas na granularidade selecionada (M / Q / H / Y)
    e range de anos do segmented control. Título: **"By Category"**. Header
-   contém o título e um **toggle Expense/Income** (estado `mode`) que alterna
-   entre view de despesas por categoria e receitas por categoria. No modo
-   Expense: exclui `isTransfer` e `isIncome`. No modo Income: exclui
-   `isTransfer` e inclui apenas `isIncome`. Acumula por `[bucket, categoria]`
-   via `useMemo` sobre `scoped`. Paleta temática fixa por categoria via
+   contém o título e um **toggle Income | Expense** (estado `mode`, ordem Income
+   primeiro) que alterna entre view de receitas e despesas por categoria; default
+   é "expense". No modo Expense: exclui `isTransfer` e `isIncome`. No modo
+   Income: exclui `isTransfer` e inclui apenas `isIncome`. Acumula por
+   `[bucket, categoria]` via `useMemo` sobre `scoped` usando valor sinalizado
+   + `Math.abs` por categoria após netting (espelha `byBucket`) — reembolsos
+   abatam o total em vez de somarem. Paleta temática fixa por categoria via
    `CATEGORY_COLOR_MAP` (casa = vermelhos, carro = azuis, alimentação = verdes,
    lazer = púrpuras, finanças/saúde = âmbar/cinza; income: `Salary`/`Bonus`/
    `Bela Income`/`Other Income` em tons verdes `#10b981`/`#34d399`/`#6ee7b7`/
@@ -337,12 +339,13 @@ scroll, então header e tab bar ficam fixos.
    stack. As barras são **ordenadas por grupo temático fixo** via `CATEGORY_ORDER`
    (casa → carro → alimentação → lazer → finanças/saúde) em vez de por volume.
    **Total label** em formato `$X.XK` exibido acima de cada barra stacked via
-   `<LabelList>` com renderer SVG personalizado. **Legenda posicionada abaixo
-   do gráfico** em layout wrap centralizado (`padding: "8px 16px 14px"`),
-   swatches 10×10 px listando somente as categorias presentes no período.
-   Card wrapper com `overflow: visible` para que o tooltip não seja truncado.
-   Altura do container: 260 px. Respeita `hideValues`. Retorna `null` quando
-   não há dados no período para o modo selecionado.
+   `<LabelList>` com renderer SVG personalizado; funciona corretamente em expense
+   e income mode. **Legenda posicionada abaixo do gráfico** em layout wrap
+   centralizado (`padding: "8px 16px 14px"`), swatches 10×10 px listando somente
+   as categorias presentes no período. Card wrapper com `overflow: visible` para
+   que o tooltip não seja truncado. Altura do container: 260 px. Respeita
+   `hideValues`. Retorna `null` quando não há dados no período para o modo
+   selecionado.
    Seguida de:
    - **Tendências mês a mês** — LineChart com top-5 categorias de despesa por
      volume nos últimos 12 meses; StackedBarChart com mix de todas as
@@ -664,6 +667,13 @@ O app inicia com array vazio quando não há dados salvos (sem SEED).
   `Other Income`) adicionadas ao `CATEGORY_COLOR_MAP` com tons verdes
   (`#10b981`/`#34d399`/`#6ee7b7`/`#a7f3d0`); título renomeado de
   "Expenses by Category" para **"By Category"**
+- [x] Correções no `CategoryStackedBarCard` (PR #98, v1.5.27): bug de total
+  corrigido — acumulação usa valor sinalizado + `Math.abs` por categoria após
+  netting (espelha `byBucket`), reembolsos agora subtraem do total em vez de
+  somar (eliminava discrepância entre o label e o gasto real); ordem do toggle
+  reordenada para **Income | Expense** (Income primeiro), default continua
+  "expense"; total labels `$X.XK` no topo das barras corrigidos para funcionar
+  corretamente em expense e income mode
 
 ### Fase 5 — Inteligência e Auditoria
 
