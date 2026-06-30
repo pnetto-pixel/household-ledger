@@ -1024,7 +1024,7 @@ function Header({ hideValues, onToggleHide, onLogout, onOpenSettings, saving, sa
             <LayoutDashboard size={14} color="#fff" />
           </div>
           <span style={{ fontWeight: 700, fontSize: 15, letterSpacing: -0.5, color: "#e5e7eb" }}>Household</span>
-          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.5.27</span>
+          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.5.28</span>
         </div>
         <SaveIndicator saving={saving} dirty={dirty} savedAt={savedAt} saveError={saveError} />
       </div>
@@ -1605,7 +1605,7 @@ function ChangeBadge({ label, pct, hideValues }) {
 // ===========================================================================
 
 function MonthlyBarCard({ byBucket, hideValues, fmtK, fmtKTooltip, fmtBucketLabel }) {
-  const [view, setView] = useState("income");
+  const [view, setView] = useState("expense");
 
   const isInc = view === "income";
   const dataKey = isInc ? "income" : "expenses";
@@ -1618,16 +1618,16 @@ function MonthlyBarCard({ byBucket, hideValues, fmtK, fmtKTooltip, fmtBucketLabe
         <h3 style={{ ...S.sectionTitle, margin: 0 }}>{cardTitle}</h3>
         <div style={{ display: "flex", gap: 4 }}>
           <button
-            onClick={() => setView("income")}
-            style={S.togglePill(view === "income")}
-          >
-            Income
-          </button>
-          <button
             onClick={() => setView("expense")}
             style={S.togglePill(view === "expense")}
           >
             Expense
+          </button>
+          <button
+            onClick={() => setView("income")}
+            style={S.togglePill(view === "income")}
+          >
+            Income
           </button>
         </div>
       </div>
@@ -1636,7 +1636,7 @@ function MonthlyBarCard({ byBucket, hideValues, fmtK, fmtKTooltip, fmtBucketLabe
           <Empty>No data to chart yet.</Empty>
         ) : (
           <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={byBucket} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
+            <BarChart data={byBucket} margin={{ top: 24, right: 16, left: 0, bottom: 0 }}>
               <CartesianGrid vertical={false} stroke="rgba(255,255,255,0.05)" />
               <XAxis dataKey="bucket" tick={{ fill: "#6b7280", fontSize: 10 }} tickLine={false} axisLine={false} tickFormatter={fmtBucketLabel} />
               <YAxis tick={{ fill: "#6b7280", fontSize: 10 }} tickLine={false} axisLine={false} tickFormatter={fmtK} width={56} />
@@ -1650,7 +1650,19 @@ function MonthlyBarCard({ byBucket, hideValues, fmtK, fmtKTooltip, fmtBucketLabe
                   labelStyle={{ color: "#8b94a3" }}
                 />
               )}
-              <Bar dataKey={dataKey} name={isInc ? "Income" : "Expenses"} fill={barColor} radius={[4, 4, 0, 0]} activeBar={{ fill: barColor, opacity: 0.75 }} />
+              <Bar dataKey={dataKey} name={isInc ? "Income" : "Expenses"} fill={barColor} radius={[4, 4, 0, 0]} activeBar={{ fill: barColor, opacity: 0.75 }}>
+                <LabelList
+                  dataKey={dataKey}
+                  position="top"
+                  content={({ x, y, width, value }) =>
+                    hideValues || !value ? null : (
+                      <text x={x + width / 2} y={y - 4} textAnchor="middle" fill="#6b7280" fontSize={10}>
+                        {fmtK(value)}
+                      </text>
+                    )
+                  }
+                />
+              </Bar>
             </BarChart>
           </ResponsiveContainer>
         )}
@@ -2098,14 +2110,6 @@ function Charts({ transactions, hideValues }) {
 
       {scoped.length === 0 ? <Empty>No data for {rangeLabel}.</Empty> : null}
 
-      <MonthlyBarCard
-        byBucket={byBucket}
-        hideValues={hideValues}
-        fmtK={fmtK}
-        fmtKTooltip={fmtKFull}
-        fmtBucketLabel={bucketLabel}
-      />
-
       <div style={{ ...S.card, padding: 0, overflow: "hidden" }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 16px 0" }}>
           <h3 style={{ ...S.sectionTitle, margin: 0 }}>Income vs Expenses</h3>
@@ -2146,6 +2150,14 @@ function Charts({ transactions, hideValues }) {
           )}
         </div>
       </div>
+
+      <MonthlyBarCard
+        byBucket={byBucket}
+        hideValues={hideValues}
+        fmtK={fmtK}
+        fmtKTooltip={fmtKFull}
+        fmtBucketLabel={bucketLabel}
+      />
 
       <CategoryStackedBarCard
         scoped={scoped}
