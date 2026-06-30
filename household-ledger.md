@@ -677,6 +677,12 @@ O app inicia com array vazio quando não há dados salvos (sem SEED).
 - [x] Toggle `CategoryStackedBarCard` reordenado para **Expense | Income**
   (PR #100, v1.5.29): ordem dos botões invertida — Expense aparece primeiro,
   Income segundo; default "expense" permanece inalterado
+- [x] Auto-reload do PWA ao atualizar (PR #101, v1.5.30): listener
+  `controllerchange` adicionado em `src/main.jsx` (antes do `createRoot`,
+  guard `'serviceWorker' in navigator`); quando o novo service worker assume
+  o controle via `skipWaiting()`, dispara `window.location.reload()`
+  automaticamente — elimina a necessidade de fechar/reabrir o app duas vezes
+  para receber uma atualização
 
 ### Fase 5 — Inteligência e Auditoria
 
