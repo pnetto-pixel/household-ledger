@@ -322,16 +322,24 @@ scroll, então header e tab bar ficam fixos.
    10 px; `MonthlyBarCard` tem `height:260` e "Income vs Expenses" tem
    `height:280` com legenda inline manual (swatches `#06B6D4` Income /
    `#F97316` Expenses) no lugar do `<Legend>` do recharts.
-   Terceiro card: **`CategoryStackedBarCard`** (PR #95, v1.5.24) — barras
+   Terceiro card: **`CategoryStackedBarCard`** (PR #95/96, v1.5.24–25) — barras
    stacked de despesas por categoria agrupadas na granularidade selecionada
    (M / Q / H / Y) e range de anos do segmented control. Exclui `isTransfer`
    e `isIncome`; acumula por `[bucket, categoria]` via `useMemo` sobre
    `scoped`. Paleta temática fixa por categoria via constante global
    `CATEGORY_COLOR_MAP` (casa = vermelhos, carro = azuis, alimentação =
    verdes, lazer = púrpuras, finanças/saúde = âmbar/cinza); `radius={[4,4,0,0]}`
-   aplicado apenas na barra do topo de cada stack. Legenda inline manual com
+   aplicado apenas na barra do topo de cada stack. As barras são **ordenadas
+   por grupo temático fixo** via `CATEGORY_ORDER` (casa → carro →
+   alimentação → lazer → finanças/saúde) em vez de por volume, mantendo
+   cores do mesmo grupo agrupadas visualmente. **Legenda posicionada abaixo
+   do gráfico** em layout wrap centralizado (`padding: "8px 16px 14px"`),
    swatches 10×10 px listando somente as categorias presentes no período;
-   respeita `hideValues`. Retorna `null` quando não há despesas no período.
+   header simplificado com título apenas (sem legenda no topo). Tooltip com
+   `allowEscapeViewBox={{ x: true, y: true }}` e `wrapperStyle={{ zIndex: 100 }}`
+   para evitar truncamento pelo `overflow:hidden` do card. Altura do
+   container: 260 px. Respeita `hideValues`. Retorna `null` quando não há
+   despesas no período.
    Seguida de:
    - **Tendências mês a mês** — LineChart com top-5 categorias de despesa por
      volume nos últimos 12 meses; StackedBarChart com mix de todas as
@@ -636,6 +644,14 @@ O app inicia com array vazio quando não há dados salvos (sem SEED).
   stack; legenda inline manual com swatches 10×10 px das categorias presentes
   no período; respeita `hideValues` e filtros de `scoped`; retorna `null`
   quando não há despesas no período
+- [x] Correções de UX no `CategoryStackedBarCard` (PR #96, v1.5.25): barras
+  ordenadas por grupo temático fixo via `CATEGORY_ORDER` (casa → carro →
+  alimentação → lazer → finanças/saúde) em vez de por volume; legenda movida
+  para abaixo do gráfico em layout wrap centralizado; header simplificado
+  (só título, sem legenda no topo); tooltip corrigido com
+  `allowEscapeViewBox={{ x: true, y: true }}` + `wrapperStyle={{ zIndex: 100 }}`
+  (resolve truncamento pelo `overflow:hidden` do card); altura do container
+  reduzida de 300 para 260 px
 
 ### Fase 5 — Inteligência e Auditoria
 
