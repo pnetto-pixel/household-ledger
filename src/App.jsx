@@ -1024,7 +1024,7 @@ function Header({ hideValues, onToggleHide, onLogout, onOpenSettings, saving, sa
             <LayoutDashboard size={14} color="#fff" />
           </div>
           <span style={{ fontWeight: 700, fontSize: 15, letterSpacing: -0.5, color: "#e5e7eb" }}>Household</span>
-          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.5.28</span>
+          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.5.29</span>
         </div>
         <SaveIndicator saving={saving} dirty={dirty} savedAt={savedAt} saveError={saveError} />
       </div>
@@ -1871,7 +1871,7 @@ function CategoryStackedBarCard({ scoped, granularity, hideValues, fmtK, fmtKFul
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 16px 0" }}>
         <h3 style={{ ...S.sectionTitle, margin: 0 }}>By Category</h3>
         <div style={{ display: "flex", gap: 4 }}>
-          {["income", "expense"].map(m => (
+          {["expense", "income"].map(m => (
             <button
               key={m}
               onClick={() => setMode(m)}
