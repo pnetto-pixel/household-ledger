@@ -322,6 +322,16 @@ scroll, então header e tab bar ficam fixos.
    10 px; `MonthlyBarCard` tem `height:260` e "Income vs Expenses" tem
    `height:280` com legenda inline manual (swatches `#06B6D4` Income /
    `#F97316` Expenses) no lugar do `<Legend>` do recharts.
+   Terceiro card: **`CategoryStackedBarCard`** (PR #95, v1.5.24) — barras
+   stacked de despesas por categoria agrupadas na granularidade selecionada
+   (M / Q / H / Y) e range de anos do segmented control. Exclui `isTransfer`
+   e `isIncome`; acumula por `[bucket, categoria]` via `useMemo` sobre
+   `scoped`. Paleta temática fixa por categoria via constante global
+   `CATEGORY_COLOR_MAP` (casa = vermelhos, carro = azuis, alimentação =
+   verdes, lazer = púrpuras, finanças/saúde = âmbar/cinza); `radius={[4,4,0,0]}`
+   aplicado apenas na barra do topo de cada stack. Legenda inline manual com
+   swatches 10×10 px listando somente as categorias presentes no período;
+   respeita `hideValues`. Retorna `null` quando não há despesas no período.
    Seguida de:
    - **Tendências mês a mês** — LineChart com top-5 categorias de despesa por
      volume nos últimos 12 meses; StackedBarChart com mix de todas as
@@ -617,6 +627,15 @@ O app inicia com array vazio quando não há dados salvos (sem SEED).
   ("Income vs Expenses"), margens ajustadas; legenda inline manual no card
   "Income vs Expenses" substituindo o `<Legend>` do recharts, com swatches
   `#06B6D4` (Income) e `#F97316` (Expenses)
+- [x] `CategoryStackedBarCard` (PR #95, v1.5.24): terceiro card de gráfico na
+  tab Analyze, adicionado abaixo do card "Income vs Expenses"; barras stacked
+  de despesas por categoria agrupadas na granularidade e range do segmented
+  control; `CATEGORY_COLOR_MAP` global com paleta temática por categoria (casa
+  = vermelhos, carro = azuis, alimentação = verdes, lazer = púrpuras,
+  finanças/saúde = âmbar/cinza); `radius={[4,4,0,0]}` só na barra do topo do
+  stack; legenda inline manual com swatches 10×10 px das categorias presentes
+  no período; respeita `hideValues` e filtros de `scoped`; retorna `null`
+  quando não há despesas no período
 
 ### Fase 5 — Inteligência e Auditoria
 
