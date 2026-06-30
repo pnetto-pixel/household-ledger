@@ -1,4 +1,4 @@
-# Household Ledger · v1.5.29
+# Household Ledger · v1.5.30
 
 Aplicativo mobile-first de controle financeiro doméstico. Registra
 transações da casa (despesas e receitas) por categoria e conta, com
@@ -24,7 +24,7 @@ A cada PR, atualize a versão em **dois lugares**:
 1. `src/App.jsx` — a string `v1.x.x` no span ao lado de "Household"
 2. `household-ledger.md` — o `· v1.x.x` no título `# Household Ledger`
 
-Versão atual: **v1.5.29** (correções no `CategoryStackedBarCard`: bug de total corrigido — acumulação usa valor sinalizado + `Math.abs` por categoria após netting, espelhando `byBucket`, para que reembolsos abatam o total em vez de somarem; ordem do toggle reordenada para Expense | Income (Expense primeiro), default continua "expense"; total labels `$X.XK` no topo das barras funcionam corretamente em ambos os modos.)
+Versão atual: **v1.5.30** (auto-reload do PWA: listener `controllerchange` em `src/main.jsx` recarrega a página automaticamente quando o novo service worker assume o controle, eliminando a necessidade de fechar/reabrir o app duas vezes para receber uma atualização.)
 
 ---
 
