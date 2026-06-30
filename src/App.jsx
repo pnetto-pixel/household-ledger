@@ -980,7 +980,7 @@ function Header({ hideValues, onToggleHide, onLogout, onOpenSettings, saving, sa
             <LayoutDashboard size={14} color="#fff" />
           </div>
           <span style={{ fontWeight: 700, fontSize: 15, letterSpacing: -0.5, color: "#e5e7eb" }}>Household</span>
-          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.5.22</span>
+          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.5.23</span>
         </div>
         <SaveIndicator saving={saving} dirty={dirty} savedAt={savedAt} saveError={saveError} />
       </div>
@@ -1569,9 +1569,9 @@ function MonthlyBarCard({ byBucket, hideValues, fmtK, fmtKTooltip, fmtBucketLabe
   const cardTitle = isInc ? "Income" : "Expense";
 
   return (
-    <>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-        <h3 style={{ ...S.sectionTitle, margin: "4px 0 0" }}>{cardTitle}</h3>
+    <div style={{ ...S.card, padding: 0, overflow: "hidden" }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 16px 0" }}>
+        <h3 style={{ ...S.sectionTitle, margin: 0 }}>{cardTitle}</h3>
         <div style={{ display: "flex", gap: 4 }}>
           <button
             onClick={() => setView("income")}
@@ -1587,15 +1587,15 @@ function MonthlyBarCard({ byBucket, hideValues, fmtK, fmtKTooltip, fmtBucketLabe
           </button>
         </div>
       </div>
-      <div style={{ ...S.card, height: 280 }}>
+      <div style={{ height: 260 }}>
         {byBucket.length === 0 ? (
           <Empty>No data to chart yet.</Empty>
         ) : (
           <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={byBucket} margin={{ top: 8, right: 8, left: 8, bottom: 8 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" />
-              <XAxis dataKey="bucket" tick={{ fill: "#8b94a3", fontSize: 11 }} tickFormatter={fmtBucketLabel} />
-              <YAxis tick={{ fill: "#8b94a3", fontSize: 11 }} tickFormatter={fmtK} width={56} />
+            <BarChart data={byBucket} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
+              <CartesianGrid vertical={false} stroke="rgba(255,255,255,0.05)" />
+              <XAxis dataKey="bucket" tick={{ fill: "#6b7280", fontSize: 10 }} tickLine={false} axisLine={false} tickFormatter={fmtBucketLabel} />
+              <YAxis tick={{ fill: "#6b7280", fontSize: 10 }} tickLine={false} axisLine={false} tickFormatter={fmtK} width={56} />
               {!hideValues && (
                 <Tooltip
                   cursor={false}
@@ -1611,7 +1611,7 @@ function MonthlyBarCard({ byBucket, hideValues, fmtK, fmtKTooltip, fmtBucketLabe
           </ResponsiveContainer>
         )}
       </div>
-    </>
+    </div>
   );
 }
 
@@ -1914,17 +1914,29 @@ function Charts({ transactions, hideValues }) {
         fmtBucketLabel={bucketLabel}
       />
 
-      <>
-        <h3 style={S.sectionTitle}>Income vs Expenses</h3>
-        <div style={{ ...S.card, height: 300 }}>
+      <div style={{ ...S.card, padding: 0, overflow: "hidden" }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 16px 0" }}>
+          <h3 style={{ ...S.sectionTitle, margin: 0 }}>Income vs Expenses</h3>
+          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+            <span style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 10, color: "#6b7280" }}>
+              <span style={{ display: "inline-block", width: 10, height: 10, borderRadius: 2, background: "#06B6D4" }} />
+              Income
+            </span>
+            <span style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 10, color: "#6b7280" }}>
+              <span style={{ display: "inline-block", width: 10, height: 10, borderRadius: 2, background: "#F97316" }} />
+              Expenses
+            </span>
+          </div>
+        </div>
+        <div style={{ height: 280 }}>
           {byBucket.length === 0 ? (
             <Empty>No data to chart yet.</Empty>
           ) : (
             <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={byBucket} margin={{ top: 8, right: 8, left: 8, bottom: 8 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.06)" />
-                <XAxis dataKey="bucket" tick={{ fill: "#8b94a3", fontSize: 11 }} tickFormatter={bucketLabel} />
-                <YAxis tick={{ fill: "#8b94a3", fontSize: 11 }} tickFormatter={fmtK} width={56} />
+              <BarChart data={byBucket} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
+                <CartesianGrid vertical={false} stroke="rgba(255,255,255,0.05)" />
+                <XAxis dataKey="bucket" tick={{ fill: "#6b7280", fontSize: 10 }} tickLine={false} axisLine={false} tickFormatter={bucketLabel} />
+                <YAxis tick={{ fill: "#6b7280", fontSize: 10 }} tickLine={false} axisLine={false} tickFormatter={fmtK} width={56} />
                 {!hideValues && (
                   <Tooltip
                     cursor={false}
@@ -1935,14 +1947,13 @@ function Charts({ transactions, hideValues }) {
                     labelStyle={{ color: "#8b94a3" }}
                   />
                 )}
-                <Legend iconType="circle" wrapperStyle={{ fontSize: 11, paddingTop: 8 }} />
                 <Bar dataKey="income" name="Income" fill="#06B6D4" radius={[4, 4, 0, 0]} activeBar={{ fill: "#06B6D4", opacity: 0.75 }} />
                 <Bar dataKey="expenses" name="Expenses" fill="#F97316" radius={[4, 4, 0, 0]} activeBar={{ fill: "#F97316", opacity: 0.75 }} />
               </BarChart>
             </ResponsiveContainer>
           )}
         </div>
-      </>
+      </div>
     </div>
   );
 }
