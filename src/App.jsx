@@ -1024,7 +1024,7 @@ function Header({ hideValues, onToggleHide, onLogout, onOpenSettings, saving, sa
             <LayoutDashboard size={14} color="#fff" />
           </div>
           <span style={{ fontWeight: 700, fontSize: 15, letterSpacing: -0.5, color: "#e5e7eb" }}>Household</span>
-          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.5.26</span>
+          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.5.27</span>
         </div>
         <SaveIndicator saving={saving} dirty={dirty} savedAt={savedAt} saveError={saveError} />
       </div>
@@ -1819,13 +1819,26 @@ function CategoryStackedBarCard({ scoped, granularity, hideValues, fmtK, fmtKFul
       if (!bk) continue;
       if (!map.has(bk)) map.set(bk, { bucket: bk });
       const entry = map.get(bk);
-      const val = Math.abs(Number(t.amount) || 0);
+      const val = Number(t.amount) || 0; // signed: refunds/clawbacks net out
       entry[t.category] = (entry[t.category] || 0) + val;
-      entry._total = (entry._total || 0) + val;
       catTotals[t.category] = (catTotals[t.category] || 0) + val;
     }
 
-    const rows = [...map.values()].sort((a, b) => a.bucket.localeCompare(b.bucket));
+    // Apply Math.abs per category after netting, then recalculate _total from those abs values.
+    const rows = [...map.values()]
+      .map(({ bucket, ...cats }) => {
+        const newRow = { bucket };
+        let total = 0;
+        for (const [cat, v] of Object.entries(cats)) {
+          const absV = Math.abs(v);
+          newRow[cat] = absV;
+          total += absV;
+        }
+        newRow._total = total;
+        return newRow;
+      })
+      .sort((a, b) => a.bucket.localeCompare(b.bucket));
+
     // Sort by thematic group order; unlisted categories go to the end alphabetically
     const cats = Object.keys(catTotals).sort((a, b) => {
       const ia = CATEGORY_ORDER.indexOf(a);
@@ -1846,13 +1859,13 @@ function CategoryStackedBarCard({ scoped, granularity, hideValues, fmtK, fmtKFul
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 16px 0" }}>
         <h3 style={{ ...S.sectionTitle, margin: 0 }}>By Category</h3>
         <div style={{ display: "flex", gap: 4 }}>
-          {["expense", "income"].map(m => (
+          {["income", "expense"].map(m => (
             <button
               key={m}
               onClick={() => setMode(m)}
               style={S.togglePill(mode === m)}
             >
-              {m === "expense" ? "Expense" : "Income"}
+              {m === "income" ? "Income" : "Expense"}
             </button>
           ))}
         </div>
