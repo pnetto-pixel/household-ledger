@@ -232,6 +232,20 @@ const CATEGORY_COLOR_MAP = {
   "Other":       "#6b7280",
 };
 
+// Fixed thematic order for CategoryStackedBarCard bars
+const CATEGORY_ORDER = [
+  // Casa
+  "Mortgage", "Home", "Utilities", "Services",
+  // Carro
+  "Car", "Fuel", "Transport",
+  // Alimentação
+  "Groceries", "Restaurant", "Dog",
+  // Lazer
+  "Entertainment", "Shopping", "Travel",
+  // Finanças
+  "Mobile Phone", "Medical", "Other",
+];
+
 const isIncome = (cat) => INCOME_CATEGORIES.includes(cat);
 const isTransfer = (cat) => cat === TRANSFER_CATEGORY;
 
@@ -1004,7 +1018,7 @@ function Header({ hideValues, onToggleHide, onLogout, onOpenSettings, saving, sa
             <LayoutDashboard size={14} color="#fff" />
           </div>
           <span style={{ fontWeight: 700, fontSize: 15, letterSpacing: -0.5, color: "#e5e7eb" }}>Household</span>
-          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.5.24</span>
+          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.5.25</span>
         </div>
         <SaveIndicator saving={saving} dirty={dirty} savedAt={savedAt} saveError={saveError} />
       </div>
@@ -1799,7 +1813,15 @@ function CategoryStackedBarCard({ scoped, granularity, hideValues, fmtK, fmtKFul
     }
 
     const rows = [...map.values()].sort((a, b) => a.bucket.localeCompare(b.bucket));
-    const cats = Object.keys(catTotals).sort((a, b) => catTotals[b] - catTotals[a]);
+    // Sort by thematic group order; unlisted categories go to the end alphabetically
+    const cats = Object.keys(catTotals).sort((a, b) => {
+      const ia = CATEGORY_ORDER.indexOf(a);
+      const ib = CATEGORY_ORDER.indexOf(b);
+      if (ia === -1 && ib === -1) return a.localeCompare(b);
+      if (ia === -1) return 1;
+      if (ib === -1) return -1;
+      return ia - ib;
+    });
     return { rows, cats };
   }, [scoped, granularity]);
 
@@ -1807,21 +1829,12 @@ function CategoryStackedBarCard({ scoped, granularity, hideValues, fmtK, fmtKFul
 
   return (
     <div style={{ ...S.card, padding: 0, overflow: "hidden" }}>
-      {/* Header */}
-      <div style={{ padding: "12px 16px 0", display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 8 }}>
+      {/* Header — title only */}
+      <div style={{ padding: "12px 16px 0" }}>
         <h3 style={{ ...S.sectionTitle, margin: 0 }}>Expenses by Category</h3>
-        {/* Inline legend — only categories present in the current period */}
-        <div style={{ display: "flex", flexWrap: "wrap", gap: "6px 10px", justifyContent: "flex-end", maxWidth: "60%" }}>
-          {cats.map(cat => (
-            <span key={cat} style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 10, color: "#6b7280" }}>
-              <span style={{ display: "inline-block", width: 10, height: 10, borderRadius: 2, background: CATEGORY_COLOR_MAP[cat] || catDotColor(cat) }} />
-              {cat}
-            </span>
-          ))}
-        </div>
       </div>
       {/* Chart */}
-      <div style={{ height: 300 }}>
+      <div style={{ height: 260 }}>
         <ResponsiveContainer width="100%" height="100%">
           <BarChart data={rows} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
             <CartesianGrid vertical={false} stroke="rgba(255,255,255,0.05)" />
@@ -1847,6 +1860,8 @@ function CategoryStackedBarCard({ scoped, granularity, hideValues, fmtK, fmtKFul
                 itemStyle={{ color: "#e5e7eb" }}
                 labelStyle={{ color: "#8b94a3" }}
                 cursor={false}
+                allowEscapeViewBox={{ x: true, y: true }}
+                wrapperStyle={{ zIndex: 100 }}
               />
             )}
             {cats.map((cat, i) => (
@@ -1862,6 +1877,15 @@ function CategoryStackedBarCard({ scoped, granularity, hideValues, fmtK, fmtKFul
             ))}
           </BarChart>
         </ResponsiveContainer>
+      </div>
+      {/* Legend — below chart, only categories present in the current period */}
+      <div style={{ display: "flex", flexWrap: "wrap", gap: "6px 12px", padding: "8px 16px 14px", justifyContent: "center" }}>
+        {cats.map(cat => (
+          <span key={cat} style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 10, color: "#6b7280" }}>
+            <span style={{ display: "inline-block", width: 10, height: 10, borderRadius: 2, background: CATEGORY_COLOR_MAP[cat] || catDotColor(cat) }} />
+            {cat}
+          </span>
+        ))}
       </div>
     </div>
   );
