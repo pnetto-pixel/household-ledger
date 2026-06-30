@@ -208,6 +208,30 @@ const CATEGORY_COLORS = [
   "#a3e635",
 ];
 
+const CATEGORY_COLOR_MAP = {
+  // Casa
+  "Home":        "#f87171",
+  "Mortgage":    "#ef4444",
+  "Utilities":   "#fca5a5",
+  "Services":    "#fb923c",
+  // Carro
+  "Car":         "#60a5fa",
+  "Fuel":        "#3b82f6",
+  "Transport":   "#93c5fd",
+  // Alimentação
+  "Groceries":   "#34d399",
+  "Restaurant":  "#4ade80",
+  "Dog":         "#86efac",
+  // Lazer
+  "Entertainment": "#a78bfa",
+  "Shopping":    "#c084fc",
+  "Travel":      "#e879f9",
+  // Finanças/Saúde
+  "Mobile Phone": "#fbbf24",
+  "Medical":     "#facc15",
+  "Other":       "#6b7280",
+};
+
 const isIncome = (cat) => INCOME_CATEGORIES.includes(cat);
 const isTransfer = (cat) => cat === TRANSFER_CATEGORY;
 
@@ -980,7 +1004,7 @@ function Header({ hideValues, onToggleHide, onLogout, onOpenSettings, saving, sa
             <LayoutDashboard size={14} color="#fff" />
           </div>
           <span style={{ fontWeight: 700, fontSize: 15, letterSpacing: -0.5, color: "#e5e7eb" }}>Household</span>
-          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.5.23</span>
+          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.5.24</span>
         </div>
         <SaveIndicator saving={saving} dirty={dirty} savedAt={savedAt} saveError={saveError} />
       </div>
@@ -1755,6 +1779,95 @@ function DailyPaceCard({ paceData, hideValues, fmtK }) {
 }
 
 // ===========================================================================
+// CategoryStackedBarCard — stacked bar chart of expenses by category
+// ===========================================================================
+
+function CategoryStackedBarCard({ scoped, granularity, hideValues, fmtK, fmtKFull }) {
+  const { rows, cats } = useMemo(() => {
+    const map = new Map();
+    const catTotals = {};
+
+    for (const t of scoped) {
+      if (isTransfer(t.category) || isIncome(t.category)) continue;
+      const bk = bucketKey(t.date, granularity);
+      if (!bk) continue;
+      if (!map.has(bk)) map.set(bk, { bucket: bk });
+      const entry = map.get(bk);
+      const val = Math.abs(Number(t.amount) || 0);
+      entry[t.category] = (entry[t.category] || 0) + val;
+      catTotals[t.category] = (catTotals[t.category] || 0) + val;
+    }
+
+    const rows = [...map.values()].sort((a, b) => a.bucket.localeCompare(b.bucket));
+    const cats = Object.keys(catTotals).sort((a, b) => catTotals[b] - catTotals[a]);
+    return { rows, cats };
+  }, [scoped, granularity]);
+
+  if (rows.length === 0) return null;
+
+  return (
+    <div style={{ ...S.card, padding: 0, overflow: "hidden" }}>
+      {/* Header */}
+      <div style={{ padding: "12px 16px 0", display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 8 }}>
+        <h3 style={{ ...S.sectionTitle, margin: 0 }}>Expenses by Category</h3>
+        {/* Inline legend — only categories present in the current period */}
+        <div style={{ display: "flex", flexWrap: "wrap", gap: "6px 10px", justifyContent: "flex-end", maxWidth: "60%" }}>
+          {cats.map(cat => (
+            <span key={cat} style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 10, color: "#6b7280" }}>
+              <span style={{ display: "inline-block", width: 10, height: 10, borderRadius: 2, background: CATEGORY_COLOR_MAP[cat] || catDotColor(cat) }} />
+              {cat}
+            </span>
+          ))}
+        </div>
+      </div>
+      {/* Chart */}
+      <div style={{ height: 300 }}>
+        <ResponsiveContainer width="100%" height="100%">
+          <BarChart data={rows} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
+            <CartesianGrid vertical={false} stroke="rgba(255,255,255,0.05)" />
+            <XAxis
+              dataKey="bucket"
+              tickFormatter={bk => bucketLabel(bk)}
+              tick={{ fill: "#6b7280", fontSize: 10 }}
+              tickLine={false}
+              axisLine={false}
+            />
+            <YAxis
+              tickFormatter={hideValues ? () => "" : fmtK}
+              tick={{ fill: "#6b7280", fontSize: 10 }}
+              tickLine={false}
+              axisLine={false}
+              width={56}
+            />
+            {!hideValues && (
+              <Tooltip
+                formatter={(val, name) => [fmtKFull(val), name]}
+                labelFormatter={(bk) => bucketLabel(bk)}
+                contentStyle={{ background: "#1e2329", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 8, fontSize: 12 }}
+                itemStyle={{ color: "#e5e7eb" }}
+                labelStyle={{ color: "#8b94a3" }}
+                cursor={false}
+              />
+            )}
+            {cats.map((cat, i) => (
+              <Bar
+                key={cat}
+                dataKey={cat}
+                name={cat}
+                stackId="cat"
+                fill={CATEGORY_COLOR_MAP[cat] || catDotColor(cat)}
+                radius={i === cats.length - 1 ? [4, 4, 0, 0] : [0, 0, 0, 0]}
+                activeBar={{ opacity: 0.8 }}
+              />
+            ))}
+          </BarChart>
+        </ResponsiveContainer>
+      </div>
+    </div>
+  );
+}
+
+// ===========================================================================
 // Charts
 // ===========================================================================
 
@@ -1954,6 +2067,14 @@ function Charts({ transactions, hideValues }) {
           )}
         </div>
       </div>
+
+      <CategoryStackedBarCard
+        scoped={scoped}
+        granularity={granularity}
+        hideValues={hideValues}
+        fmtK={fmtK}
+        fmtKFull={fmtKFull}
+      />
     </div>
   );
 }

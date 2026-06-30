@@ -1,4 +1,4 @@
-# Household Ledger · v1.5.23
+# Household Ledger · v1.5.24
 
 Aplicativo mobile-first de controle financeiro doméstico. Registra
 transações da casa (despesas e receitas) por categoria e conta, com
@@ -24,7 +24,7 @@ A cada PR, atualize a versão em **dois lugares**:
 1. `src/App.jsx` — a string `v1.x.x` no span ao lado de "Household"
 2. `household-ledger.md` — o `· v1.x.x` no título `# Household Ledger`
 
-Versão atual: **v1.5.23** (design polish nos cards MonthlyBarCard e "Income vs Expenses" da tab Analyze: padding:0/overflow:hidden no wrapper, header interno com título e controles, CartesianGrid vertical=false, XAxis/YAxis com tick cinza e sem linhas, legenda inline manual no card Income vs Expenses substituindo o Legend do recharts.)
+Versão atual: **v1.5.24** (novo card "Expenses by Category" na tab Analyze: stacked bar chart por bucket de granularidade, com legenda inline das categorias presentes no período e mapa de cores fixo por categoria via CATEGORY_COLOR_MAP.)
 
 ---
 
