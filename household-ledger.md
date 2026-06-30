@@ -1,4 +1,4 @@
-# Household Ledger · v1.5.28
+# Household Ledger · v1.5.29
 
 Aplicativo mobile-first de controle financeiro doméstico. Registra
 transações da casa (despesas e receitas) por categoria e conta, com
@@ -24,7 +24,7 @@ A cada PR, atualize a versão em **dois lugares**:
 1. `src/App.jsx` — a string `v1.x.x` no span ao lado de "Household"
 2. `household-ledger.md` — o `· v1.x.x` no título `# Household Ledger`
 
-Versão atual: **v1.5.28** (correções no `CategoryStackedBarCard`: bug de total corrigido — acumulação usa valor sinalizado + `Math.abs` por categoria após netting, espelhando `byBucket`, para que reembolsos abatam o total em vez de somarem; ordem do toggle reordenada para Income | Expense (Income primeiro), default continua "expense"; total labels `$X.XK` no topo das barras funcionam corretamente em ambos os modos.)
+Versão atual: **v1.5.29** (correções no `CategoryStackedBarCard`: bug de total corrigido — acumulação usa valor sinalizado + `Math.abs` por categoria após netting, espelhando `byBucket`, para que reembolsos abatam o total em vez de somarem; ordem do toggle reordenada para Income | Expense (Income primeiro), default continua "expense"; total labels `$X.XK` no topo das barras funcionam corretamente em ambos os modos.)
 
 ---
 
@@ -667,7 +667,7 @@ O app inicia com array vazio quando não há dados salvos (sem SEED).
   `Other Income`) adicionadas ao `CATEGORY_COLOR_MAP` com tons verdes
   (`#10b981`/`#34d399`/`#6ee7b7`/`#a7f3d0`); título renomeado de
   "Expenses by Category" para **"By Category"**
-- [x] Correções no `CategoryStackedBarCard` (PR #98, v1.5.28): bug de total
+- [x] Correções no `CategoryStackedBarCard` (PR #98, v1.5.29): bug de total
   corrigido — acumulação usa valor sinalizado + `Math.abs` por categoria após
   netting (espelha `byBucket`), reembolsos agora subtraem do total em vez de
   somar (eliminava discrepância entre o label e o gasto real); ordem do toggle
