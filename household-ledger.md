@@ -1,4 +1,4 @@
-# Household Ledger · v1.6.0
+# Household Ledger · v1.7.0
 
 Aplicativo mobile-first de controle financeiro doméstico. Registra
 transações da casa (despesas e receitas) por categoria e conta, com
@@ -24,7 +24,9 @@ A cada PR, atualize a versão em **dois lugares**:
 1. `src/App.jsx` — a string `v1.x.x` no span ao lado de "Household"
 2. `household-ledger.md` — o `· v1.x.x` no título `# Household Ledger`
 
-Versão atual: **v1.6.0** (filtro de categoria multi-select nos gráficos da tab Analyze/Charts — PR #102.)
+Versão atual: **v1.7.0** (tab Analyze reduzida a somente os cards de Charts,
+com Trends/Budgets/Recurrents removidos do frontend, e tradução PT→EN das
+últimas strings da tab Import — PR #104.)
 
 ---
 
@@ -301,8 +303,15 @@ scroll, então header e tab bar ficam fixos.
    linha em telas estreitas).
    O bloco **"Recent" (transações recentes) foi removido** do Dashboard
    (componente `TxnRow` permanece na aba Transactions).
-2. **Analyze** — sessão consolidada de análise (antigas tabs Charts + Analyze
-   juntas). Começa com a parte de **Charts**: no topo da seção há um
+2. **Analyze** — a tab renderiza **somente `Charts`** (PR #104, v1.7.0): as
+   sub-seções Trends ("Tendências mês a mês"), Budgets ("Orçamentos por
+   categoria") e Recurrents ("Recorrentes / assinaturas") que antes vinham
+   abaixo dos 3 cards foram removidas do frontend (componentes deletados, não
+   comentados), assim como o state de orçamentos no `App`. O endpoint
+   `/api/budgets` e os dados já persistidos no Redis (`household:*:budgets`)
+   permanecem intactos — só a UI parou de consumi-los; ver Roadmap Fase 5
+   para as ideias de reimplementação em avaliação. A tab termina no card
+   "By Category" (`CategoryStackedBarCard`). No topo da seção há um
    **segmented control de granularidade** (M / Quarter / Half / Year) e um
    **filtro de range de anos** (From / To) que substituiu os dropdowns
    Ano+Mês exclusivos do Charts (o componente compartilhado `PeriodFilter`
@@ -312,12 +321,11 @@ scroll, então header e tab bar ficam fixos.
    a lista de opções é `EXPENSE_CATEGORIES + INCOME_CATEGORIES` combinadas
    (sem `Transfer`, que nunca é selecionável) e reage a mudanças feitas em
    Settings via a prop `config` que `Charts` passa a receber (mesmo padrão de
-   `Budgets`/`Analyze`). Default vazio = todas as categorias. O filtro se
-   aplica **aos 3 cards de Charts** (Income vs Expenses, Monthly e By
-   Category) — internamente, `scopedByYear` (o antigo filtro por range de
-   anos) é composto com o `categoryFilter` para produzir o `scoped` que os
-   três cards consomem; `Trends`, `Budgets` e `Recurrents` **não** respeitam
-   esse filtro (fora de escopo, como antes). Os dois cards usam a mesma
+   `Budgets`/`Analyze`, componentes já removidos no PR #104). Default vazio =
+   todas as categorias. O filtro se aplica **aos 3 cards de Charts** (Income
+   vs Expenses, Monthly e By Category) — internamente, `scopedByYear` (o
+   antigo filtro por range de anos) é composto com o `categoryFilter` para
+   produzir o `scoped` que os três cards consomem. Os dois cards usam a mesma
    granularidade e range, sem limite de quantidade de buckets. Primeiro card:
    **`MonthlyBarCard`** — barras de Income ou Expense agrupadas na
    granularidade selecionada, com toggle de pills no topo (default: Income);
@@ -356,24 +364,7 @@ scroll, então header e tab bar ficam fixos.
    as categorias presentes no período. Card wrapper com `overflow: visible` para
    que o tooltip não seja truncado. Altura do container: 260 px. Respeita
    `hideValues`. Retorna `null` quando não há dados no período para o modo
-   selecionado.
-   Seguida de:
-   - **Tendências mês a mês** — LineChart com top-5 categorias de despesa por
-     volume nos últimos 12 meses; StackedBarChart com mix de todas as
-     categorias por mês; tabela comparativa mês atual vs. anterior (delta $/%).
-   - **Orçamentos por categoria** — limites mensais editáveis inline por
-     categoria de despesa; barra de progresso verde/amarelo/vermelho; banner
-     ao ultrapassar 100%; persistidos no Redis via `/api/budgets`.
-   - **Recorrentes / assinaturas** — detecção client-side por descrição exata
-     em ≥ 2 meses distintos com valor ± 10 % da mediana; lista com valor
-     típico, conta, frequência e último mês visto. Cada item exibe um
-     **frequency badge** colorido (mensal/anual/semanal/irregular) e subtexto
-     "Próx. estimada: [data]".
-   - **Orçamentos** — threshold de alerta amarelo ajustado de 80 % para
-     **75 %**; percentual usado sempre visível (não só ao ultrapassar);
-     glow vermelho intensificado ao estourar.
-   - **Tendências** — margem de 16 px antes da tabela comparativa;
-     legenda com `iconType="circle"` e `paddingTop: 8`.
+   selecionado. É o **último card** da tab Analyze.
 3. **Transactions** — busca textual livre + **chips de filtro** (Type /
    Account / Category / Date) que abrem dropdowns via **portal** (`Popover`
    em `position: fixed` no `document.body`, ancorado por `getBoundingClientRect`
@@ -417,7 +408,8 @@ scroll, então header e tab bar ficam fixos.
    (`BANK_PROFILES`, cards selecionáveis + dropzone com drag-and-drop):
    - **Credit Karma** (uso diário) — auto-mapeia as colunas do export
      (`account` passa por `classifyAccount`), preserva o sinal e já vem sem
-     pendentes; sem UI de mapeamento.
+     pendentes; sem UI de mapeamento. Descrição do card traduzida PT→EN
+     (PR #104, v1.7.0).
    - **CSV** (uso único, backfill do histórico) — mapeamento manual de
      colunas (`IMPORT_FIELDS`, `guessMapping`, selects por campo com hints de
      fallback). Suporta valores contábeis com parênteses (`(47.50)` →
@@ -426,7 +418,9 @@ scroll, então header e tab bar ficam fixos.
      exibe `N parsed · M valid · K skipped · X selected`.
    Quando nenhum sinal de conta existe, a linha fica **Unassigned** (não mais
    "ATT Reward"). OFX/QFX e os profiles Chase foram removidos (o mapa de
-   contas por URN cobre o caso Chase).
+   contas por URN cobre o caso Chase). O placeholder do dropzone de upload
+   também foi traduzido PT→EN (PR #104, v1.7.0) — o restante do componente
+   `ImportTransactions` já estava em inglês.
 
    **Deduplicação (híbrida).** Na prévia, cada linha tem checkbox e as
    duplicadas vêm **desmarcadas** (badge `DUP`), com filtro "Only duplicates"
@@ -704,6 +698,19 @@ O app inicia com array vazio quando não há dados salvos (sem SEED).
   receber a prop `config` para invalidar `categoryOptions` quando as listas
   mudam em Settings; `Trends`/`Budgets`/`Recurrents` ficaram fora de escopo
   (não respeitam o filtro, como antes); único arquivo tocado: `src/App.jsx`
+- [x] Analyze reduzido a somente Charts + tradução da tab Import (PR #104,
+  commit c270244, v1.7.0): a tab Analyze passou a renderizar **apenas**
+  `<Charts/>`, terminando no card "By Category"; os componentes `Trends`,
+  `Budgets`, `Recurrents` e `Analyze` foram **deletados** (não comentados),
+  junto com o state de orçamentos do `App` (`budgets`, `budgetSaving`,
+  `loadBudgets`, `saveBudgets`, `updateBudget`) e o cascade de rename de
+  categoria que sincronizava chaves de budget; o endpoint `/api/budgets.js`
+  e os dados já persistidos no Redis (`household:*:budgets`) foram mantidos
+  intactos, congelados para uma eventual reimplementação (ver Fase 5).
+  Também traduzidas PT→EN as 3 últimas strings em português da tab Import
+  (`ImportTransactions`): descrição do método Credit Karma, descrição do
+  método CSV, e placeholder do dropzone de upload. Único arquivo tocado:
+  `src/App.jsx`
 
 ### Fase 5 — Inteligência e Auditoria
 
@@ -728,3 +735,25 @@ O app inicia com array vazio quando não há dados salvos (sem SEED).
     propor uma regra baseada em fragmentos da descrição/provider.
   O objetivo é transformar a auto-classificação de uma caixa-preta em um
   algoritmo auditável e refinável ao longo do tempo pelo usuário.
+- [ ] **Trends (mês a mês) — reavaliar formato** *(removido do Analyze no PR
+  #104)*: antes vivia como LineChart top-5 categorias de despesa (12 meses) +
+  StackedBarChart de mix mensal + tabela comparativa mês atual vs. anterior
+  (delta $/%). Discutir: manter como estava, fundir com o
+  `CategoryStackedBarCard` (que já tem granularidade M/Q/H/Y e filtro de
+  categoria), ou redesenhar como card dedicado dentro do novo layout de
+  Analyze.
+- [ ] **Budgets (orçamentos por categoria) — reavaliar formato** *(removido
+  do Analyze no PR #104)*: antes vivia como lista de categorias de despesa
+  com limite mensal editável inline, barra de progresso (verde/amarelo
+  75%/vermelho 100%), banner de estouro; persistido em `/api/budgets`
+  (endpoint e dado no Redis continuam existindo, só a UI foi retirada).
+  Discutir: reintroduzir como seção própria, mover para dentro do Dashboard,
+  ou repensar a interação.
+- [ ] **Recurrents (recorrentes / assinaturas) — reavaliar formato**
+  *(removido do Analyze no PR #104)*: antes vivia como detecção client-side
+  de transações com a mesma descrição em ≥2 meses e valor dentro de ±10% da
+  mediana, listando valor típico, conta, frequência (badge mensal/anual/
+  semanal/irregular) e próxima ocorrência estimada. Nota: essa seção tinha
+  texto em português hardcoded (Mensal/Anual/Semanal/Irregular, "Próx.
+  estimada:") que precisa ser traduzido se/quando reintroduzida. Discutir:
+  manter como está, mover para o Dashboard, ou integrar como alerta.
