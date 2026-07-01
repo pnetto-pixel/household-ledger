@@ -1,4 +1,4 @@
-# Household Ledger · v1.5.30
+# Household Ledger · v1.6.0
 
 Aplicativo mobile-first de controle financeiro doméstico. Registra
 transações da casa (despesas e receitas) por categoria e conta, com
@@ -24,7 +24,7 @@ A cada PR, atualize a versão em **dois lugares**:
 1. `src/App.jsx` — a string `v1.x.x` no span ao lado de "Household"
 2. `household-ledger.md` — o `· v1.x.x` no título `# Household Ledger`
 
-Versão atual: **v1.5.30** (auto-reload do PWA: listener `controllerchange` em `src/main.jsx` recarrega a página automaticamente quando o novo service worker assume o controle, eliminando a necessidade de fechar/reabrir o app duas vezes para receber uma atualização.)
+Versão atual: **v1.6.0** (filtro de categoria multi-select nos gráficos da tab Analyze/Charts — PR #102.)
 
 ---
 
@@ -306,8 +306,19 @@ scroll, então header e tab bar ficam fixos.
    **segmented control de granularidade** (M / Quarter / Half / Year) e um
    **filtro de range de anos** (From / To) que substituiu os dropdowns
    Ano+Mês exclusivos do Charts (o componente compartilhado `PeriodFilter`
-   continua usado pelo Dashboard). Os dois cards usam a mesma granularidade e
-   range, sem limite de quantidade de buckets. Primeiro card:
+   continua usado pelo Dashboard). Logo abaixo do range de anos, um **filtro
+   de categoria (multi-select, PR #102, v1.6.0)** reutiliza o componente
+   `HeaderFilter` (dropdown com checkboxes via Popover/portal, modo `chip`);
+   a lista de opções é `EXPENSE_CATEGORIES + INCOME_CATEGORIES` combinadas
+   (sem `Transfer`, que nunca é selecionável) e reage a mudanças feitas em
+   Settings via a prop `config` que `Charts` passa a receber (mesmo padrão de
+   `Budgets`/`Analyze`). Default vazio = todas as categorias. O filtro se
+   aplica **aos 3 cards de Charts** (Income vs Expenses, Monthly e By
+   Category) — internamente, `scopedByYear` (o antigo filtro por range de
+   anos) é composto com o `categoryFilter` para produzir o `scoped` que os
+   três cards consomem; `Trends`, `Budgets` e `Recurrents` **não** respeitam
+   esse filtro (fora de escopo, como antes). Os dois cards usam a mesma
+   granularidade e range, sem limite de quantidade de buckets. Primeiro card:
    **`MonthlyBarCard`** — barras de Income ou Expense agrupadas na
    granularidade selecionada, com toggle de pills no topo (default: Income);
    valores de expense sempre positivos (`Math.abs`); respeita `hideValues`.
@@ -683,6 +694,16 @@ O app inicia com array vazio quando não há dados salvos (sem SEED).
   o controle via `skipWaiting()`, dispara `window.location.reload()`
   automaticamente — elimina a necessidade de fechar/reabrir o app duas vezes
   para receber uma atualização
+- [x] Filtro de categoria (multi-select) nos gráficos (PR #102, SHA aa8da9d,
+  v1.6.0) — pedido direto do usuário, fora da sequência planejada do roadmap:
+  novo filtro no topo do `Charts` (tab Analyze), reutilizando o `HeaderFilter`
+  já existente (dropdown multi-select com checkboxes, modo `chip`); afeta os
+  3 cards (Income vs Expenses, Monthly, By Category) via `scoped` (composição
+  de `scopedByYear` + `categoryFilter`); opções = `EXPENSE_CATEGORIES +
+  INCOME_CATEGORIES` sem `Transfer` (nunca selecionável); `Charts` passou a
+  receber a prop `config` para invalidar `categoryOptions` quando as listas
+  mudam em Settings; `Trends`/`Budgets`/`Recurrents` ficaram fora de escopo
+  (não respeitam o filtro, como antes); único arquivo tocado: `src/App.jsx`
 
 ### Fase 5 — Inteligência e Auditoria
 
