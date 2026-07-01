@@ -820,7 +820,7 @@ export default function App() {
           <ImportTransactions onImport={addTransactions} accountMap={accountMap} config={config} transactions={transactions} />
         ) : (
           <div style={S.col}>
-            <Charts transactions={transactions} hideValues={hideValues} />
+            <Charts transactions={transactions} hideValues={hideValues} config={config} />
             <Analyze
               transactions={transactions}
               money={money}
@@ -1024,7 +1024,7 @@ function Header({ hideValues, onToggleHide, onLogout, onOpenSettings, saving, sa
             <LayoutDashboard size={14} color="#fff" />
           </div>
           <span style={{ fontWeight: 700, fontSize: 15, letterSpacing: -0.5, color: "#e5e7eb" }}>Household</span>
-          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.5.30</span>
+          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.6.0</span>
         </div>
         <SaveIndicator saving={saving} dirty={dirty} savedAt={savedAt} saveError={saveError} />
       </div>
@@ -1970,7 +1970,7 @@ const GRANULARITIES = [
   { v: "Y", l: "Y" },
 ];
 
-function Charts({ transactions, hideValues }) {
+function Charts({ transactions, hideValues, config }) {
   const years = useMemo(() => availableYears(transactions), [transactions]);
 
   // Year-range filter: default to the most recent year of data on open.
@@ -1987,6 +1987,12 @@ function Charts({ transactions, hideValues }) {
 
   const [granularity, setGranularity] = useState("M");
 
+  // Category filter: multi-select across expense + income categories (Transfer
+  // is never a selectable option — it's always excluded from charts). Empty
+  // array = no filter applied (all categories), matching prior behavior.
+  const [categoryFilter, setCategoryFilter] = useState([]);
+  const categoryOptions = useMemo(() => [...EXPENSE_CATEGORIES, ...INCOME_CATEGORIES], [config]);
+
   // Clamp: ensure from <= to. When the user changes one, adjust the other.
   const handleFromYear = (v) => {
     setFromYear(v);
@@ -1998,7 +2004,7 @@ function Charts({ transactions, hideValues }) {
   };
 
   // Filter transactions to the selected year range.
-  const scoped = useMemo(() => {
+  const scopedByYear = useMemo(() => {
     if (!fromYearEff && !toYearEff) return transactions;
     return transactions.filter((t) => {
       const y = (t.date || "").slice(0, 4);
@@ -2007,6 +2013,15 @@ function Charts({ transactions, hideValues }) {
       return true;
     });
   }, [transactions, fromYearEff, toYearEff]);
+
+  // Apply the category filter on top of the year-range scope. Transfer is
+  // never in `categoryOptions`, so this can't accidentally re-include it;
+  // `isTransfer` exclusion downstream (byBucket, CategoryStackedBarCard)
+  // remains independent and intact.
+  const scoped = useMemo(() => {
+    if (categoryFilter.length === 0) return scopedByYear;
+    return scopedByYear.filter((t) => categoryFilter.includes(t.category));
+  }, [scopedByYear, categoryFilter]);
 
   // Aggregate into buckets based on granularity.
   const byBucket = useMemo(() => {
@@ -2106,6 +2121,19 @@ function Charts({ transactions, hideValues }) {
             <option key={y} value={y}>{y}</option>
           ))}
         </select>
+      </div>
+
+      {/* Category filter: multi-select chip, applies to all 3 charts below.
+          Empty selection = all categories (no filter). Transfer is excluded
+          from `categoryOptions`, so it can never be selected here. */}
+      <div style={{ display: "flex" }}>
+        <HeaderFilter
+          label="Category"
+          value={categoryFilter}
+          options={categoryOptions}
+          onChange={setCategoryFilter}
+          chip
+        />
       </div>
 
       {scoped.length === 0 ? <Empty>No data for {rangeLabel}.</Empty> : null}
