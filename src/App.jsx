@@ -122,7 +122,12 @@ function currentConfig() {
 // merchant description — the card you paid with is not the store you paid).
 // Order matters: the first account with a matching alias wins, so keep the
 // more specific names ahead of weaker, collision-prone fragments.
-const ACCOUNT_ALIASES = [
+//
+// This used to be a fixed constant; it is now a seed (`DEFAULT_ACCOUNT_ALIASES`)
+// overridden at runtime by `applyAliasConfig()` from `/api/account-aliases`,
+// the same pattern used for ACCOUNTS/EXPENSE_CATEGORIES/INCOME_CATEGORIES via
+// `applyConfig()`. Editable from Settings → "Account aliases".
+const DEFAULT_ACCOUNT_ALIASES = [
   ["Advancial", ["advancial"]],
   ["Amazon Card", ["amazon", "amzn"]],
   ["Apple", ["applecard", "applecash", "apple", "goldman"]],
@@ -148,6 +153,43 @@ const ACCOUNT_ALIASES = [
   ["Venmo", ["venmo"]],
   ["ATT Reward", ["attreward", "att"]],
 ];
+
+// Runtime alias table (mutable) — seeded with the defaults above, replaced by
+// `applyAliasConfig()` (see below) once `/api/account-aliases` loads. Kept as
+// module state (not React state) so the pure `matchAccount` helper always
+// reads the current value; components re-render via the `accountAliases`
+// state in App.
+let ACCOUNT_ALIASES = DEFAULT_ACCOUNT_ALIASES.map(([a, frags]) => [a, [...frags]]);
+
+// Build the alias array from a persisted `{ account: [fragment, ...] }` object,
+// falling back to the default fragments for any account not present in it.
+// Pure — does not mutate `ACCOUNT_ALIASES` (used by both `applyAliasConfig`
+// and the impact-preview UI, which needs to try a draft without committing).
+function buildAliasArray(aliasesObj) {
+  const merged = new Map(DEFAULT_ACCOUNT_ALIASES.map(([a, frags]) => [a, frags]));
+  if (aliasesObj && typeof aliasesObj === "object") {
+    for (const [acc, frags] of Object.entries(aliasesObj)) {
+      if (Array.isArray(frags)) merged.set(acc, [...frags]);
+    }
+  }
+  // Keep default priority order; append any accounts only known via the
+  // persisted object (e.g. an account added after aliases were last saved).
+  const order = DEFAULT_ACCOUNT_ALIASES.map(([a]) => a);
+  for (const a of merged.keys()) if (!order.includes(a)) order.push(a);
+  return order.map((a) => [a, merged.get(a) || []]);
+}
+
+function applyAliasConfig(aliasesObj) {
+  ACCOUNT_ALIASES = buildAliasArray(aliasesObj);
+}
+
+// The current runtime alias table as a plain `{ account: [fragment, ...] }`
+// object (for seeding/persisting React state).
+function currentAliasConfig() {
+  const out = {};
+  for (const [a, frags] of ACCOUNT_ALIASES) out[a] = [...frags];
+  return out;
+}
 
 // ---------------------------------------------------------------------------
 // Bank import profiles
@@ -500,6 +542,62 @@ export default function App() {
     if (authed) loadAccountMap();
   }, [authed, loadAccountMap]);
 
+  // ---- Account aliases load / save ------------------------------------------
+  const [accountAliases, setAccountAliases] = useState(() => currentAliasConfig());
+
+  const loadAccountAliases = useCallback(async () => {
+    try {
+      const res = await fetch("/api/account-aliases", {
+        method: "GET",
+        headers: buildAuthHeaders(),
+      });
+      if (!res.ok) return;
+      const data = await res.json();
+      if (data.aliases && typeof data.aliases === "object") {
+        applyAliasConfig(data.aliases);
+        setAccountAliases(currentAliasConfig());
+      }
+    } catch {
+      // Silently ignore — defaults already seeded.
+    }
+  }, []);
+
+  useEffect(() => {
+    if (authed) loadAccountAliases();
+  }, [authed, loadAccountAliases]);
+
+  // Persist the alias table and reclassify existing transactions that now
+  // match a changed/added fragment (mirrors saveAndApplyAccountMap's cascade).
+  // URN-mapped rows are left untouched — the card map always wins over aliases.
+  const saveAccountAliasesAndApply = useCallback(
+    (nextAliasesObj) => {
+      applyAliasConfig(nextAliasesObj);
+      setAccountAliases(currentAliasConfig());
+      fetch("/api/account-aliases", {
+        method: "PUT",
+        headers: buildAuthHeaders(),
+        body: JSON.stringify({ aliases: nextAliasesObj }),
+      }).catch(() => {});
+      setTransactions((prev) => {
+        let changed = false;
+        const next = prev.map((t) => {
+          if (t.accountUrn && accountMap && accountMap[t.accountUrn]) return t;
+          const raw = t.srcAccount || "";
+          if (!raw) return t;
+          const newAccount = matchAccount(raw); // reads the alias table just applied above
+          if (newAccount && newAccount !== t.account) {
+            changed = true;
+            return { ...t, account: newAccount };
+          }
+          return t;
+        });
+        if (changed) scheduleSave(next);
+        return changed ? next : prev;
+      });
+    },
+    [accountMap, scheduleSave]
+  );
+
   // ---- Config (accounts + categories) load / save --------------------------
   const loadConfig = useCallback(async () => {
     try {
@@ -764,6 +862,8 @@ export default function App() {
           transactions={transactions}
           accountMap={accountMap}
           onSaveAccountMap={saveAndApplyAccountMap}
+          accountAliases={accountAliases}
+          onSaveAccountAliases={saveAccountAliasesAndApply}
           onClose={() => setSettingsOpen(false)}
           onAddAccount={addAccount}
           onRenameAccount={renameAccount}
@@ -3257,6 +3357,160 @@ function AccountMapSection({ transactions, accountMap, onSave }) {
   );
 }
 
+// One account's editable alias fragments: chips with a remove (x) button,
+// plus an add box. Lowercased on add to match how they're compared.
+function AccountAliasRow({ account, fragments, onChange }) {
+  const [adding, setAdding] = useState("");
+  const addFrag = () => {
+    const v = adding.trim().toLowerCase();
+    if (!v) return;
+    if (!fragments.includes(v)) onChange([...fragments, v]);
+    setAdding("");
+  };
+  const removeFrag = (f) => onChange(fragments.filter((x) => x !== f));
+
+  return (
+    <div style={{ background: "#161a20", border: "1px solid #1e2530", borderRadius: 10, padding: "8px 10px", marginBottom: 6 }}>
+      <div style={{ fontSize: 13, color: "#e5e7eb", fontWeight: 600, marginBottom: 6 }}>{account}</div>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 6 }}>
+        {fragments.length === 0 ? (
+          <span style={{ fontSize: 11, color: "#8b94a3" }}>No aliases</span>
+        ) : (
+          fragments.map((f) => (
+            <span
+              key={f}
+              style={{ display: "inline-flex", alignItems: "center", gap: 4, background: "#0f1216", border: "1px solid #2a313c", borderRadius: 999, padding: "3px 8px", fontSize: 11, color: "#cbd5e1" }}
+            >
+              {f}
+              <button
+                onClick={() => removeFrag(f)}
+                title="Remove"
+                style={{ background: "transparent", border: "none", color: "#f87171", cursor: "pointer", padding: 0, display: "inline-flex" }}
+              >
+                <X size={11} />
+              </button>
+            </span>
+          ))
+        )}
+      </div>
+      <div style={{ display: "flex", gap: 6 }}>
+        <input
+          value={adding}
+          onChange={(e) => setAdding(e.target.value)}
+          onKeyDown={(e) => { if (e.key === "Enter") addFrag(); }}
+          placeholder="Add fragment (e.g. reserve)"
+          style={{ flex: 1, minWidth: 0, background: "#0f1216", color: "#e5e7eb", border: "1px solid #2a313c", borderRadius: 8, padding: "6px 9px", fontSize: 12 }}
+        />
+        <button
+          onClick={addFrag}
+          disabled={!adding.trim()}
+          title="Add fragment"
+          style={{ flexShrink: 0, display: "grid", placeItems: "center", width: 32, background: "#0A84FF", border: "none", borderRadius: 8, color: "#fff", cursor: "pointer", opacity: adding.trim() ? 1 : 0.4 }}
+        >
+          <Plus size={14} />
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// Editable account aliases (fragments matched against a source's raw
+// account/card field when there's no URN card-map entry — see
+// `classifyAccount`). Persisted via /api/account-aliases. Before saving, shows
+// a client-side preview of which existing transactions would be reclassified
+// (computed against the in-memory `transactions`, mirroring the "rename cascades"
+// pattern used elsewhere in Settings) — the user must click "Preview impact"
+// then confirm with "Confirm & apply" before anything is saved or reclassified.
+function AccountAliasesSection({ transactions, accountMap, aliases, onSave }) {
+  const [draft, setDraft] = useState(aliases || {});
+  useEffect(() => { setDraft(aliases || {}); }, [aliases]);
+  const [showPreview, setShowPreview] = useState(false);
+
+  const setFrags = (account, frags) => {
+    setDraft((prev) => ({ ...prev, [account]: frags }));
+    setShowPreview(false); // any further edit invalidates a shown preview
+  };
+
+  const dirty = useMemo(() => JSON.stringify(draft) !== JSON.stringify(aliases || {}), [draft, aliases]);
+
+  const impact = useMemo(() => {
+    if (!dirty) return [];
+    return computeAliasImpact(transactions, accountMap, buildAliasArray(draft));
+  }, [dirty, draft, transactions, accountMap]);
+
+  const handlePrimaryClick = () => {
+    if (!showPreview) {
+      setShowPreview(true);
+      return;
+    }
+    onSave(draft);
+    setShowPreview(false);
+  };
+
+  return (
+    <CollapsibleCard title="Account aliases" badge={ACCOUNTS.length}>
+      <div style={{ fontSize: 12, color: "#8b94a3", margin: "0 0 10px", lineHeight: 1.5 }}>
+        Fragments matched (case/punctuation-insensitive) against the source
+        account/card field when a transaction has no card mapping for its URN.
+        Add or remove fragments per account, then preview the impact on
+        existing transactions before saving.
+      </div>
+      <div>
+        {ACCOUNTS.map((a) => (
+          <AccountAliasRow
+            key={a}
+            account={a}
+            fragments={draft[a] || []}
+            onChange={(frags) => setFrags(a, frags)}
+          />
+        ))}
+      </div>
+      {dirty && showPreview ? (
+        <div style={{ background: "#1a1500", border: "1px solid #4b3a00", borderRadius: 10, padding: 10, margin: "6px 0 10px", fontSize: 12, color: "#fbbf24" }}>
+          {impact.length === 0 ? (
+            <div>No existing transactions would change account.</div>
+          ) : (
+            <>
+              <div style={{ marginBottom: 6, fontWeight: 600 }}>
+                {impact.length} transaction{impact.length === 1 ? "" : "s"} will be reclassified:
+              </div>
+              <div style={{ maxHeight: 160, overflowY: "auto", display: "flex", flexDirection: "column", gap: 4 }}>
+                {impact.slice(0, 50).map((it) => (
+                  <div key={it.id} style={{ color: "#e5e7eb" }}>
+                    {it.date} · {it.description || it.srcAccount} —{" "}
+                    <span style={{ color: "#8b94a3" }}>{it.from || "Unassigned"}</span> →{" "}
+                    <span style={{ color: "#34d399" }}>{it.to}</span>
+                  </div>
+                ))}
+                {impact.length > 50 ? <div style={{ color: "#8b94a3" }}>…and {impact.length - 50} more</div> : null}
+              </div>
+            </>
+          )}
+        </div>
+      ) : null}
+      <div style={{ display: "flex", gap: 8 }}>
+        <button
+          type="button"
+          onClick={handlePrimaryClick}
+          disabled={!dirty}
+          style={{ ...S.primaryBtn, marginTop: 4, opacity: dirty ? 1 : 0.5, cursor: dirty ? "pointer" : "not-allowed" }}
+        >
+          {showPreview ? "Confirm & apply" : "Preview impact"}
+        </button>
+        {showPreview ? (
+          <button
+            type="button"
+            onClick={() => setShowPreview(false)}
+            style={{ marginTop: 4, background: "transparent", border: "1px solid #2a313c", color: "#cbd5e1", borderRadius: 8, padding: "8px 16px", fontSize: 13, cursor: "pointer" }}
+          >
+            Cancel
+          </button>
+        ) : null}
+      </div>
+    </CollapsibleCard>
+  );
+}
+
 // Manage the user-editable lists (accounts + categories), persisted in Redis
 // via /api/config. Renames cascade into existing data (handled in App), and
 // items currently used by transactions can't be deleted (only renamed).
@@ -3440,7 +3694,7 @@ function ManagedList({ title, items, usage, onAdd, onRename, onDelete, onReorder
   );
 }
 
-function SettingsModal({ config, transactions, accountMap, onSaveAccountMap, onClose, onAddAccount, onRenameAccount, onDeleteAccount, onAddCategory, onRenameCategory, onDeleteCategory, onReorderAccounts, onReorderCategories }) {
+function SettingsModal({ config, transactions, accountMap, onSaveAccountMap, accountAliases, onSaveAccountAliases, onClose, onAddAccount, onRenameAccount, onDeleteAccount, onAddCategory, onRenameCategory, onDeleteCategory, onReorderAccounts, onReorderCategories }) {
   const usage = useMemo(() => {
     const acc = {}, cat = {};
     for (const t of transactions) {
@@ -3473,6 +3727,12 @@ function SettingsModal({ config, transactions, accountMap, onSaveAccountMap, onC
             transactions={transactions}
             accountMap={accountMap}
             onSave={onSaveAccountMap}
+          />
+          <AccountAliasesSection
+            transactions={transactions}
+            accountMap={accountMap}
+            aliases={accountAliases}
+            onSave={onSaveAccountAliases}
           />
           <ManagedList
             title="Accounts"
@@ -4006,19 +4266,27 @@ function normAccount(s) {
   return String(s || "").toLowerCase().replace(/[^a-z0-9]/g, "");
 }
 
-// Classify a source account/card value into a canonical account name.
-// Tries an exact (normalized) match first, then the alias keyword table.
-// Returns "" when nothing matches — we deliberately do NOT guess an account,
-// so unrecognized rows surface as unmapped instead of hiding under ATT Reward.
-function matchAccount(rawValue) {
+// Classify a source account/card value into a canonical account name, given
+// an explicit alias table. Tries an exact (normalized) match first, then the
+// alias keyword table. Returns "" when nothing matches — we deliberately do
+// NOT guess an account, so unrecognized rows surface as unmapped instead of
+// hiding under ATT Reward. Pure (takes the alias array as a parameter) so the
+// impact-preview UI can try a draft alias table without mutating the module's
+// live `ACCOUNT_ALIASES`.
+function matchAccountWithAliases(rawValue, aliasesArray) {
   const n = normAccount(rawValue);
   if (!n) return "";
   const exact = ACCOUNTS.find((a) => normAccount(a) === n);
   if (exact) return exact;
-  for (const [account, aliases] of ACCOUNT_ALIASES) {
+  for (const [account, aliases] of aliasesArray) {
     if (aliases.some((al) => n.includes(al))) return account;
   }
   return "";
+}
+
+// Same as above, using the current live alias table.
+function matchAccount(rawValue) {
+  return matchAccountWithAliases(rawValue, ACCOUNT_ALIASES);
 }
 
 // Resolve a transaction's account. The user-maintained map keyed on the source
@@ -4027,6 +4295,26 @@ function matchAccount(rawValue) {
 function classifyAccount(rawAccount, accountUrn, accountMap) {
   if (accountUrn && accountMap && accountMap[accountUrn]) return accountMap[accountUrn];
   return matchAccount(rawAccount);
+}
+
+// Given a candidate alias table, list existing transactions whose account
+// would change if that table were applied. URN-mapped rows are skipped (the
+// card map always wins over aliases, so those never change from an alias
+// edit). Used both for the pre-save impact preview and could be reused for a
+// future cascade audit. Reads `t.srcAccount` (the source's raw account/card
+// label kept for audit) — rows without it can't be reclassified by alias.
+function computeAliasImpact(transactions, accountMap, aliasesArray) {
+  const impacted = [];
+  for (const t of transactions || []) {
+    if (t.accountUrn && accountMap && accountMap[t.accountUrn]) continue;
+    const raw = t.srcAccount || "";
+    if (!raw) continue;
+    const to = matchAccountWithAliases(raw, aliasesArray);
+    if (to && to !== t.account) {
+      impacted.push({ id: t.id, from: t.account || "", to, description: t.description, date: t.date, srcAccount: raw });
+    }
+  }
+  return impacted;
 }
 
 // ===========================================================================
