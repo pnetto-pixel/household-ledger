@@ -1,4 +1,4 @@
-# Household Ledger · v1.7.0
+# Household Ledger · v1.8.0
 
 Aplicativo mobile-first de controle financeiro doméstico. Registra
 transações da casa (despesas e receitas) por categoria e conta, com
@@ -24,9 +24,8 @@ A cada PR, atualize a versão em **dois lugares**:
 1. `src/App.jsx` — a string `v1.x.x` no span ao lado de "Household"
 2. `household-ledger.md` — o `· v1.x.x` no título `# Household Ledger`
 
-Versão atual: **v1.7.0** (tab Analyze reduzida a somente os cards de Charts,
-com Trends/Budgets/Recurrents removidos do frontend, e tradução PT→EN das
-últimas strings da tab Import — PR #104.)
+Versão atual: **v1.8.0** (aliases de conta editáveis em runtime via Settings
++ preview de impacto antes de aplicar, `api/account-aliases.js` — PR #105.)
 
 ---
 
@@ -51,6 +50,7 @@ household-ledger/
 │   ├── transactions.js     # GET/PUT do ledger (auth obrigatória)
 │   ├── budgets.js          # GET/PUT de orçamentos por categoria
 │   ├── account-map.js      # GET/PUT do mapa accountURN -> conta
+│   ├── account-aliases.js  # GET/PUT dos aliases de conta (fragmentos por marca)
 │   └── config.js           # GET/PUT das listas de contas/categorias
 ├── tools/
 │   └── credit-karma/       # exportadores CK (bookmarklet Safari + Scriptable)
@@ -241,14 +241,32 @@ Preferred, Chase Reserve, Chime, Discover, Ink Biz Cash, Ink Unlimited,
 Jasper Card, Lowes Card, SoFi, Southwest, T-Mobile, United Explorer, Venmo,
 Venture X`.
 
+**Aliases de conta editáveis (PR #105).** Os fragmentos de marca usados por
+`matchAccount` deixaram de ser a constante fixa `ACCOUNT_ALIASES` — agora
+`DEFAULT_ACCOUNT_ALIASES` é só o seed, sobrescrito em runtime por
+`applyAliasConfig`/`buildAliasArray`/`currentAliasConfig` a partir de
+`/api/account-aliases` (GET/PUT, mesmo padrão de auth/storage-key de
+`account-map.js`/`config.js`), persistido em Redis
+`household:USERID:accountaliases` como
+`{ aliases: { [conta]: [fragmento, ...] }, savedAt }`. A função pura
+`matchAccountWithAliases(rawValue, aliasesArray)` faz o match (assinatura de
+`matchAccount`/`classifyAccount` inalterada). Editável pela seção **Account
+aliases** dentro do `SettingsModal` (`AccountAliasesSection`/
+`AccountAliasRow`), logo abaixo de `AccountMapSection`: chips de fragmento
+por conta (add/remove) e fluxo **Preview impact** (mostra até 50 transações
+afetadas + contador, client-side via `computeAliasImpact`) → **Confirm &
+apply** (persiste via PUT e reclassifica em cascata as transações existentes
+cujo `srcAccount` passa a casar com o alias alterado).
+
 **Classificação de conta no import.** Ordem (`classifyAccount`): (1) a
 **tabela de/para** keyed no `accountUrn` da fonte — id estável e único por
 cartão, persistida em `/api/account-map`; (2) se não houver mapping, o
 `matchAccount` por aliases — match exato normalizado contra a lista acima
-e, senão, fragmentos de marca (`ACCOUNT_ALIASES`) ignorando maiúsculas,
-pontuação e dígitos. A classificação usa **apenas** o campo de conta da
-fonte, nunca a descrição do merchant. Sem match → **Unassigned** (nunca o
-primeiro da lista).
+e, senão, fragmentos de marca (agora editáveis, ver acima) ignorando
+maiúsculas, pontuação e dígitos. A classificação usa **apenas** o campo de
+conta da fonte, nunca a descrição do merchant. **Precedência**: URN mapeado
+> alias de conta > Unassigned (nunca o primeiro da lista) — linhas já
+mapeadas por URN não são afetadas por mudanças de alias.
 
 A tabela de/para por URN existe porque o Credit Karma rotula vários cartões
 com o mesmo nome genérico (cinco Chase como `"CREDIT CARD"`); o URN os
@@ -714,25 +732,44 @@ O app inicia com array vazio quando não há dados salvos (sem SEED).
 
 ### Fase 5 — Inteligência e Auditoria
 
-- [ ] **Auditoria de classificação de categorias** — área no app (sugestão:
+- [x] **Aliases de conta editáveis + preview de impacto** (PR #105,
+  v1.8.0) — fatia do item "Auditoria de classificação de categorias"
+  abaixo. Novo endpoint `api/account-aliases.js` (GET/PUT, mesmo padrão de
+  `account-map.js`/`config.js`), persiste `{ aliases: { [conta]:
+  [fragmento,...] }, savedAt }` em `household:*:accountaliases`.
+  `ACCOUNT_ALIASES` deixou de ser constante fixa: `DEFAULT_ACCOUNT_ALIASES`
+  é seed, sobrescrito em runtime por conta via `applyAliasConfig`/
+  `buildAliasArray`/`currentAliasConfig` (mesmo padrão de `applyConfig()`).
+  `matchAccount`/`classifyAccount` mantiveram assinatura, delegando à nova
+  função pura `matchAccountWithAliases(rawValue, aliasesArray)`. Nova seção
+  **Account aliases** no `SettingsModal` (`AccountAliasRow`/
+  `AccountAliasesSection`), abaixo de `AccountMapSection`: chips de
+  fragmento por conta (add/remove) + fluxo **Preview impact**
+  (`computeAliasImpact`, até 50 transações afetadas + contador) → **Confirm
+  & apply** (persiste e reclassifica em cascata as transações existentes
+  cujo `srcAccount` passa a casar com o alias alterado). Precedência URN >
+  alias preservada. Fora de escopo nesta fatia (pendente): mapa CK→ledger e
+  heurísticas especiais editáveis, painel de histórico de decisões por
+  transação, motor de sugestão automática de regras — ver item abaixo.
+- [~] **Auditoria de classificação de categorias** — área no app (sugestão:
   dentro do `SettingsModal` ou tab dedicada) onde o usuário pode ver e editar
   as regras de auto-classificação que o app usa, a saber:
   - **Mapa CK → ledger** (`mapCat` / `CAT` nos exportadores): de qual categoria
     do Credit Karma cada ledger-category é mapeada (ex.: `GROCERIES` →
     `Groceries`, `TRAVEL` → `Travel`). Poder renomear o destino ou criar
-    exceções por descrição/provider.
+    exceções por descrição/provider. *(pendente)*
   - **Heurísticas especiais** (ex.: Apple Daily Cash): listar as regras
     embutidas, mostrar quais transações cada uma capturou, permitir ajuste
-    da descrição ou do provider-pattern.
-  - **Aliases de conta** (`ACCOUNT_ALIASES`): ver quais fragmentos de marca
-    casam com qual conta do ledger; adicionar/remover aliases; ver transações
-    afetadas antes de salvar.
+    da descrição ou do provider-pattern. *(pendente)*
+  - **Aliases de conta**: ver quais fragmentos de marca casam com qual conta
+    do ledger; adicionar/remover aliases; ver transações afetadas antes de
+    salvar. **[x] Entregue no PR #105** — ver item acima.
   - **Histórico de decisões** — por transação, um tooltip ou painel mostrando
     por que foi classificada como X (qual regra/alias casou, se foi
-    classificação manual ou automática).
+    classificação manual ou automática). *(pendente)*
   - **Sugestão de regras novas**: detectar automaticamente transações
     recorrentes sem account match (Unassigned) ou com categoria `Other`, e
-    propor uma regra baseada em fragmentos da descrição/provider.
+    propor uma regra baseada em fragmentos da descrição/provider. *(pendente)*
   O objetivo é transformar a auto-classificação de uma caixa-preta em um
   algoritmo auditável e refinável ao longo do tempo pelo usuário.
 - [ ] **Trends (mês a mês) — reavaliar formato** *(removido do Analyze no PR
