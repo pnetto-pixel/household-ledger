@@ -310,8 +310,8 @@ function currentAppleDailyCashRuleConfig() {
 // True when the row's provider/account matches `providerPattern`
 // (case-insensitive) AND its description contains at least one of
 // `ruleConfig.keywords` (case-insensitive). Shared by `applyAppleDailyCashRule`
-// (import time) and `explainClassification` (audit trail) so both can never
-// drift out of sync. If `keywords` is empty, this never matches.
+// (import time) and the Audit tab's rule-editing UI so both can never drift
+// out of sync. If `keywords` is empty, this never matches.
 function appleDailyCashRuleMatches(row, ruleConfig) {
   const t = row || {};
   const cfg = ruleConfig || DEFAULT_APPLE_DAILY_CASH_RULE;

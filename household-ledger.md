@@ -24,13 +24,22 @@ A cada PR, atualize a versão em **dois lugares**:
 1. `src/App.jsx` — a string `v1.x.x` no span ao lado de "Household"
 2. `household-ledger.md` — o `· v1.x.x` no título `# Household Ledger`
 
-Versão atual: **v1.13.0** (sugestão automática de regras novas: nova seção
-**Suggested rules** no topo da tab **Audit**, detecta agrupamentos de
+Versão atual: **v1.14.0** — **Painel de regras de categoria, Fatia 1**
+(novo tipo de regra editável "descrição/provider contém X → categoria Y",
+com precedência de override sobre o mapa CK para categorias não-Transfer;
+nova seção **Description rules** na tab Audit; a seção **Classification
+history** foi removida a pedido do usuário) — PR #117, SHA
+404dc8b8ac608df0bbf03cefd4d5f1b5b6386eba. A Fatia 2 (detecção de
+"correções manuais" / candidatos a regra por descrição, o "double check")
+fica **pendente** como próximo passo — ver Roadmap Fase 5.
+
+Versão anterior: **v1.13.0** (sugestão automática de regras novas: nova
+seção **Suggested rules** no topo da tab **Audit**, detecta agrupamentos de
 transações Unassigned por fragmento de `srcAccount` normalizado e
 agrupamentos de transações `category === "Other"` por `ckCategoryToken`,
 100% client-side sobre dados já em memória, sem escrita automática — PR #115.
 Com esta entrega, o item "Auditoria de classificação de categorias" da Fase
-5 fica **completo**, ver Roadmap.)
+5 ficou **completo**, ver Roadmap.)
 
 ---
 
@@ -225,6 +234,50 @@ A seção **Category mapping**, na tab Audit, edita esse mapa por token
 preview de impacto e sem cascata retroativa: a mudança só afeta **novos
 imports** a partir de então (decisão confirmada com o usuário; ver UI e
 Roadmap Fase 5).
+
+### Regras de categoria por descrição/provider (PR #117, v1.14.0)
+
+Painel de regras de categoria, **Fatia 1**. Novo tipo de regra editável:
+"descrição/provider contém X → categoria Y", com **precedência de override**
+sobre o mapa CK→ledger para categorias não-`Transfer`. Novo endpoint
+`api/category-description-rules.js` (GET/PUT, mesmo padrão de
+`api/ck-category-map.js`), persiste `{ rules: [{ id, matchField:
+"description"|"provider"|"both", pattern, destinationCategory }], savedAt }`
+em Redis `household:*:categorydescriptionrules`. A **ordem do array é
+semântica**: a primeira regra da lista que casar vence (não há resolução por
+especificidade). `destinationCategory` **nunca pode ser `Transfer`** —
+bloqueado tanto no sanitize do endpoint quanto no client. Funções puras
+`descriptionRuleMatches`/`matchDescriptionCategoryRule`; `matchField:
+"provider"` casa contra `srcAccount || account` (mesmo campo usado pela
+classificação de conta); `"description"` casa contra `description`;
+`"both"` exige match nos dois.
+
+**Precedência exata em `buildRow`** (import profile Credit Karma, quando
+`ckCategory` está presente): (1) `mapCkCategory` recalcula a categoria a
+partir do token CK; (2) a regra por descrição roda em seguida —
+`overridden = descOverride ?? recomputedCategory` — ou seja, se alguma regra
+casar, ela **sobrepõe** o resultado do mapa CK; (3) o **safety-net de
+Transfer** do PR #111 roda depois e tem a palavra final:
+`(overridden === Transfer || csvCategory === Transfer) ? Transfer :
+overridden` — a regra por descrição **nunca de-transfere** uma transação que
+o CK ou o CSV já marcou como `Transfer` (invariante preservada); (4) a
+heurística **Apple Daily Cash** roda por último, e continua sendo a única
+etapa com permissão de **promover** de `Transfer` para outra categoria. Em
+suma: a regra por descrição serve para o caso "o mapa CK errou, minha regra
+corrige" — vale para não-Transfer, nunca sobrepõe uma exclusão de Transfer.
+O sinal do `amount` nunca é tocado por essa regra.
+
+A seção **Description rules**, na tab Audit, permite add / edição inline /
+delete com confirmação em 2 cliques / reordenar (↑/↓, já que a ordem é
+semântica); o select de categoria de destino não lista `Transfer`; um aviso
+explica a precedência sobre o mapa CK (exceto Transfer). **Sem preview de
+impacto e sem cascata retroativa** — só afeta novos imports a partir da
+mudança (mesmo padrão das demais seções de regra da tab Audit).
+
+**Fatia 2 (pendente)**: detecção automática de "correções manuais" — o
+usuário edita manualmente a categoria de uma transação de forma consistente
+(mesmo padrão de descrição/provider várias vezes) e o app propõe transformar
+isso numa regra por descrição ("double check"). Ainda não implementada.
 
 ### Orçamentos
 
@@ -533,27 +586,14 @@ shell de altura cheia (`#root` em `100lvh` + shell `height:100%`): só o
    `applyAliasConfig`, `matchAccount`, `classifyAccount`,
    `api/account-aliases.js` — tudo igual, só mudou onde é renderizado).
 
-   Logo abaixo de "Account aliases", desde o **PR #109 (v1.10.0)**, uma nova
-   seção **"Classification history"**: lista **somente leitura** das
-   transações, com busca textual simples (substring sobre description /
-   account / category / srcAccount / ckCategory) e paginação "Show more" em
-   blocos de 25. Para cada transação exibe data, descrição, conta/categoria
-   atuais e a explicação retornada por `explainClassification(txn,
-   accountMap, aliasesArray)` — a mesma precedência do classificador real
-   (URN mapeado > match exato de nome > match de alias > "No rule matched" /
-   "Set manually" para conta; categoria mapeada do Credit Karma > heurística
-   Apple Daily Cash > "Manually set" > "As imported"). Não introduz nenhum
-   endpoint, escrita no Redis ou edição de regra — é só uma janela para as
-   decisões já tomadas pelo classificador. Diferente dos totais/gráficos, essa
-   lista **não filtra `Transfer`** (é trilha por transação individual, não
-   agregado financeiro). A heurística Apple Daily Cash aqui é **reimplementada
-   apenas para exibição** client-side dentro de `explainClassification` — se a
-   regra real usada pelos exportadores mudar sem atualizar esta função, a
-   explicação mostrada pode dessincronizar do comportamento real (trade-off
-   aceito, mesmo espírito de outras heurísticas client-side já documentadas
-   neste arquivo).
+   > **Nota (PR #117, v1.14.0)**: a seção **"Classification history"** (e a
+   > função `explainClassification`/`CLASSIFICATION_PAGE_SIZE`) foi
+   > **removida** a pedido do usuário. Não existe mais na tab Audit; a
+   > única forma de auditar uma decisão de categoria hoje é através das
+   > seções de regra abaixo (Category mapping / Apple Daily Cash rule /
+   > Description rules).
 
-   Logo abaixo de "Classification history", desde o **PR #111 (v1.11.0)**,
+   Logo abaixo de "Account aliases", desde o **PR #111 (v1.11.0)**,
    uma nova seção **"Category mapping"**: lista os tokens de categoria do
    Credit Karma conhecidos — os do seed `DEFAULT_CK_CATEGORY_MAP` mais
    quaisquer outros descobertos nas transações já carregadas (via
@@ -579,6 +619,23 @@ shell de altura cheia (`#root` em `100lvh` + shell `height:100%`): só o
    alterar Transfer no pipeline de classificação. **Sem preview de
    impacto e sem cascata retroativa** — só afeta novos imports a partir da
    mudança.
+
+   Logo abaixo de "Apple Daily Cash rule", desde o **PR #117 (v1.14.0)**,
+   uma nova seção **"Description rules"** (Painel de regras de categoria,
+   Fatia 1): lista as regras "descrição/provider contém X → categoria Y"
+   (`categoryDescriptionRules`), com add / edição inline / delete (chip
+   vermelho, confirmação em 2 cliques) / reordenar via setas ↑/↓ — a ordem é
+   **semântica** (primeira regra que casa vence). Cada regra tem um select
+   de `matchField` (description / provider / both), um input de padrão e um
+   select de categoria de destino que **nunca lista `Transfer`** (bloqueado
+   também no endpoint). Um aviso explica que essas regras têm precedência
+   sobre o mapa CK (Category mapping) para categorias não-Transfer, mas
+   nunca sobrepõem o safety-net de Transfer. **Sem preview de impacto e sem
+   cascata retroativa** — só novos imports a partir da mudança (mesmo
+   padrão das seções vizinhas). Ver "Regras de categoria por
+   descrição/provider" no Modelo de dados para a precedência exata em
+   `buildRow`. A **Fatia 2** (detecção automática de correções manuais
+   recorrentes como candidatas a regra) fica **pendente**.
 
    No **topo** da `AuditTab`, acima de "Account aliases", desde o **PR #115
    (v1.13.0)**, a seção **"Suggested rules"**: detecta automaticamente,
@@ -1001,7 +1058,8 @@ O app inicia com array vazio quando não há dados salvos (sem SEED).
   `ckCategoryToken`, threshold ≥2, só tokens cujo mapeamento corrente
   resolve para "Other". Nova seção **"Suggested rules"** na `AuditTab`,
   posicionada no **topo** (acima de Account aliases/Category
-  mapping/Apple Daily Cash rule/Classification history). Ações "Use this
+  mapping/Apple Daily Cash rule; à época da entrega deste PR #115 havia
+  também "Classification history", removida depois no PR #117). Ações "Use this
   fragment"/"Review this token" rolam até a seção alvo, forçam sua
   abertura (`CollapsibleCard` ganhou props `id`/`openSignal`) e
   pré-preenchem/destacam o campo relevante — **nenhuma escrita
@@ -1009,6 +1067,28 @@ O app inicia com array vazio quando não há dados salvos (sem SEED).
   existentes. Dismiss opcional, só client-side, não persiste entre
   sessões. Ver item "Auditoria de classificação de categorias" abaixo e
   seção UI/Audit.
+- [x] **Painel de regras de categoria, Fatia 1** (PR #117, SHA
+  404dc8b8ac608df0bbf03cefd4d5f1b5b6386eba, v1.14.0) — evolução pós-roadmap
+  pedida diretamente pelo usuário (o item "Auditoria de classificação de
+  categorias" abaixo já estava marcado 100% completo desde o PR #115). Novo
+  tipo de regra de categoria editável: "descrição/provider contém X →
+  categoria Y", com **precedência de override sobre o mapa CK** para
+  categorias não-`Transfer` (nunca de-transfere). Novo endpoint
+  `api/category-description-rules.js` (GET/PUT), persiste `{ rules: [{ id,
+  matchField, pattern, destinationCategory }], savedAt }` em Redis
+  `household:*:categorydescriptionrules` — ordem do array é semântica
+  (primeira regra que casa vence). Em `buildRow`, a regra roda entre o
+  `mapCkCategory` e o safety-net de Transfer do PR #111; a Apple Daily Cash
+  rule continua rodando por último. Nova seção **"Description rules"** na
+  tab Audit (add/edit inline/delete/reorder). A seção **"Classification
+  history"** (PR #109) e a função `explainClassification` foram
+  **removidas** a pedido do usuário. Ver "Regras de categoria por
+  descrição/provider" no Modelo de dados e seção UI/Audit para detalhes.
+  **Pendente**: **Fatia 2** — detecção automática de "correções manuais"
+  recorrentes (o usuário edita a categoria manualmente de forma consistente
+  para um mesmo padrão de descrição/provider) como candidatas a nova regra
+  ("double check"), no mesmo espírito do motor de sugestão de regras do PR
+  #115. Ainda não implementada.
 - [x] **Auditoria de classificação de categorias** — área no app onde o
   usuário pode ver e editar as regras de auto-classificação que o app usa. A
   decisão de layout (tab dedicada **Audit**, em vez de dentro do
@@ -1018,8 +1098,11 @@ O app inicia com array vazio quando não há dados salvos (sem SEED).
     do Credit Karma cada ledger-category é mapeada (ex.: `GROCERIES` →
     `Groceries`, `TRAVEL` → `Travel`). **[x] Entregue no PR #111 (v1.11.0)**
     — mapa editável por token via seção **Category mapping** na tab Audit,
-    sem preview/cascata (só afeta novos imports) — ver item acima. Ainda
-    *pendente*: exceções por descrição/provider dentro do mesmo token.
+    sem preview/cascata (só afeta novos imports) — ver item acima.
+    **Exceções por descrição/provider dentro do mesmo token**: **[x]
+    Entregue no PR #117 (v1.14.0)** — seção **Description rules**, com
+    precedência de override sobre este mapa (nunca de-transfere) — ver
+    item "Painel de regras de categoria, Fatia 1" acima.
   - **Heurísticas especiais** (ex.: Apple Daily Cash): listar as regras
     embutidas, mostrar quais transações cada uma capturou, permitir ajuste
     da descrição ou do provider-pattern. **[x] Entregue no PR #113
