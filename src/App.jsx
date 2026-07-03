@@ -1280,7 +1280,7 @@ function Header({ hideValues, onToggleHide, onLogout, onOpenSettings, saving, sa
             <LayoutDashboard size={14} color="#fff" />
           </div>
           <span style={{ fontWeight: 700, fontSize: 15, letterSpacing: -0.5, color: "#e5e7eb" }}>Household</span>
-          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.12.0</span>
+          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.13.0</span>
         </div>
         <SaveIndicator saving={saving} dirty={dirty} savedAt={savedAt} saveError={saveError} />
       </div>
@@ -3482,10 +3482,18 @@ function EditModal({ txn, onClose, onSave }) {
 }
 
 // A titled card with a chevron header that collapses its body.
-function CollapsibleCard({ title, badge, defaultOpen = false, icon: Icon, children }) {
+// `id` lets other sections scroll a specific card into view (e.g. the
+// "Suggested rules" audit panel jumping to "Account aliases"/"Category
+// mapping"). `openSignal` is an opaque value (e.g. a timestamp/nonce) that,
+// whenever it changes to a truthy value, forces the card open — used for the
+// same "jump here and show the field" flows without any new global state.
+function CollapsibleCard({ title, badge, defaultOpen = false, icon: Icon, children, id, openSignal }) {
   const [open, setOpen] = useState(defaultOpen);
+  useEffect(() => {
+    if (openSignal) setOpen(true);
+  }, [openSignal]);
   return (
-    <div style={{ marginBottom: 10, border: "1px solid #2a313c", borderRadius: 12, overflow: "hidden", background: "#12161c" }}>
+    <div id={id} style={{ marginBottom: 10, border: "1px solid #2a313c", borderRadius: 12, overflow: "hidden", background: "#12161c" }}>
       <button
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
@@ -3594,8 +3602,15 @@ function AccountMapSection({ transactions, accountMap, onSave }) {
 
 // One account's editable alias fragments: chips with a remove (x) button,
 // plus an add box. Lowercased on add to match how they're compared.
-function AccountAliasRow({ account, fragments, onChange }) {
+function AccountAliasRow({ account, fragments, onChange, suggestedFragment }) {
   const [adding, setAdding] = useState("");
+  // "Use this fragment" (Suggested rules panel) pre-fills every account row's
+  // add box with the suggested text — the user still picks which account it
+  // actually belongs to and clicks its own "+"; nothing is added automatically.
+  useEffect(() => {
+    if (suggestedFragment && suggestedFragment.fragment) setAdding(suggestedFragment.fragment);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [suggestedFragment && suggestedFragment.nonce]);
   const addFrag = () => {
     const v = adding.trim().toLowerCase();
     if (!v) return;
@@ -3656,7 +3671,7 @@ function AccountAliasRow({ account, fragments, onChange }) {
 // (computed against the in-memory `transactions`, mirroring the "rename cascades"
 // pattern used elsewhere in Settings) — the user must click "Preview impact"
 // then confirm with "Confirm & apply" before anything is saved or reclassified.
-function AccountAliasesSection({ transactions, accountMap, aliases, onSave }) {
+function AccountAliasesSection({ transactions, accountMap, aliases, onSave, prefillFragment }) {
   const [draft, setDraft] = useState(aliases || {});
   useEffect(() => { setDraft(aliases || {}); }, [aliases]);
   const [showPreview, setShowPreview] = useState(false);
@@ -3683,13 +3698,24 @@ function AccountAliasesSection({ transactions, accountMap, aliases, onSave }) {
   };
 
   return (
-    <CollapsibleCard title="Account aliases" badge={ACCOUNTS.length}>
+    <CollapsibleCard
+      id="account-aliases-section"
+      title="Account aliases"
+      badge={ACCOUNTS.length}
+      openSignal={prefillFragment && prefillFragment.nonce}
+    >
       <div style={{ fontSize: 12, color: "#8b94a3", margin: "0 0 10px", lineHeight: 1.5 }}>
         Fragments matched (case/punctuation-insensitive) against the source
         account/card field when a transaction has no card mapping for its URN.
         Add or remove fragments per account, then preview the impact on
         existing transactions before saving.
       </div>
+      {prefillFragment && prefillFragment.fragment ? (
+        <div style={{ background: "#0b2a1f", border: "1px solid #14532d", borderRadius: 10, padding: "8px 10px", margin: "0 0 10px", fontSize: 12, color: "#86efac" }}>
+          Suggested fragment "{prefillFragment.fragment}" pre-filled below in
+          every account's add box — pick the right account and click "+".
+        </div>
+      ) : null}
       <div>
         {ACCOUNTS.map((a) => (
           <AccountAliasRow
@@ -3697,6 +3723,7 @@ function AccountAliasesSection({ transactions, accountMap, aliases, onSave }) {
             account={a}
             fragments={draft[a] || []}
             onChange={(frags) => setFrags(a, frags)}
+            suggestedFragment={prefillFragment}
           />
         ))}
       </div>
@@ -3933,26 +3960,172 @@ function ManagedList({ title, items, usage, onAdd, onRename, onDelete, onReorder
 // Audit tab
 // ===========================================================================
 
+// "Suggested rules": two read-only lists of classification gaps detected
+// purely from in-memory `transactions` (Unassigned account fragments seen
+// more than once, and "Other"-category tokens with a raw `ckCategory` seen
+// more than once). No auto-write — each action just scrolls/pre-fills the
+// existing "Account aliases" / "Category mapping" sections so the user picks
+// the destination and saves through those sections' own existing flows.
+// Dismissal here is client-side only for the current session (not persisted)
+// and simply hides an item from view until the tab/app is reloaded.
+function SuggestedRulesSection({ suggestedFragments, suggestedTokens, onUseFragment, onReviewToken }) {
+  const [dismissed, setDismissed] = useState(() => new Set());
+  const fragments = suggestedFragments.filter((f) => !dismissed.has(`frag:${f.fragment}`));
+  const tokens = suggestedTokens.filter((t) => !dismissed.has(`tok:${t.token}`));
+  if (fragments.length === 0 && tokens.length === 0) return null;
+
+  const dismiss = (key) => setDismissed((prev) => new Set(prev).add(key));
+
+  return (
+    <CollapsibleCard title="Suggested rules" badge={fragments.length + tokens.length} defaultOpen>
+      <div style={{ fontSize: 12, color: "#8b94a3", margin: "0 0 10px", lineHeight: 1.5 }}>
+        Patterns detected in your current transactions that repeat often
+        enough to be worth turning into a rule. Nothing here is saved
+        automatically — each action jumps to the matching section below so you
+        can pick the destination and save yourself.
+      </div>
+
+      <div style={{ fontSize: 12, color: "#cbd5e1", fontWeight: 600, margin: "4px 0 6px" }}>
+        Unassigned account fragments
+      </div>
+      {fragments.length === 0 ? (
+        <div style={{ fontSize: 12, color: "#8b94a3", marginBottom: 10 }}>Nothing repeats enough to suggest.</div>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 10 }}>
+          {fragments.map((f) => (
+            <div key={f.fragment} style={{ background: "#161a20", border: "1px solid #1e2530", borderRadius: 10, padding: "8px 10px" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <div style={{ flex: 1, minWidth: 0, fontSize: 12, fontFamily: "monospace", color: "#e5e7eb", overflowWrap: "anywhere" }}>
+                  {f.fragment}
+                </div>
+                <span style={{ fontSize: 11, color: "#8b94a3", flexShrink: 0 }}>{f.count} unassigned</span>
+              </div>
+              {f.examples.length ? (
+                <div style={{ fontSize: 11, color: "#8b94a3", marginTop: 4, overflowWrap: "anywhere" }}>
+                  e.g. {f.examples.join(" · ")}
+                </div>
+              ) : null}
+              <div style={{ display: "flex", gap: 8, marginTop: 6 }}>
+                <button
+                  type="button"
+                  onClick={() => onUseFragment(f.fragment)}
+                  style={{ background: "#0A84FF", border: "none", color: "#fff", borderRadius: 8, padding: "5px 12px", fontSize: 12, fontWeight: 600, cursor: "pointer" }}
+                >
+                  Use this fragment
+                </button>
+                <button
+                  type="button"
+                  onClick={() => dismiss(`frag:${f.fragment}`)}
+                  title="Dismiss for this session"
+                  style={{ background: "transparent", border: "1px solid #2a313c", color: "#8b94a3", borderRadius: 8, padding: "5px 10px", fontSize: 12, cursor: "pointer" }}
+                >
+                  Dismiss
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div style={{ fontSize: 12, color: "#cbd5e1", fontWeight: 600, margin: "4px 0 6px" }}>
+        Category tokens mapped to "Other"
+      </div>
+      {tokens.length === 0 ? (
+        <div style={{ fontSize: 12, color: "#8b94a3" }}>Nothing repeats enough to suggest.</div>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+          {tokens.map((t) => (
+            <div key={t.token} style={{ background: "#161a20", border: "1px solid #1e2530", borderRadius: 10, padding: "8px 10px" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <div style={{ flex: 1, minWidth: 0, fontSize: 12, fontFamily: "monospace", color: "#e5e7eb", overflowWrap: "anywhere" }}>
+                  {t.token}
+                </div>
+                <span style={{ fontSize: 11, color: "#8b94a3", flexShrink: 0 }}>{t.count} txns in Other</span>
+              </div>
+              {t.examples.length ? (
+                <div style={{ fontSize: 11, color: "#8b94a3", marginTop: 4, overflowWrap: "anywhere" }}>
+                  e.g. {t.examples.join(" · ")}
+                </div>
+              ) : null}
+              <div style={{ display: "flex", gap: 8, marginTop: 6 }}>
+                <button
+                  type="button"
+                  onClick={() => onReviewToken(t.token)}
+                  style={{ background: "#0A84FF", border: "none", color: "#fff", borderRadius: 8, padding: "5px 12px", fontSize: 12, fontWeight: 600, cursor: "pointer" }}
+                >
+                  Review this token
+                </button>
+                <button
+                  type="button"
+                  onClick={() => dismiss(`tok:${t.token}`)}
+                  title="Dismiss for this session"
+                  style={{ background: "transparent", border: "1px solid #2a313c", color: "#8b94a3", borderRadius: 8, padding: "5px 10px", fontSize: 12, cursor: "pointer" }}
+                >
+                  Dismiss
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </CollapsibleCard>
+  );
+}
+
 function AuditTab({
   transactions, accountMap, accountAliases, onSaveAccountAliases,
   ckCategoryMap, onSaveCkCategoryMap,
   appleDailyCashRule, onSaveAppleDailyCashRule,
   config,
 }) {
+  const aliasesArray = useMemo(() => buildAliasArray(accountAliases || {}), [accountAliases]);
+  const suggestedFragments = useMemo(
+    () => detectSuggestedAliasFragments(transactions, aliasesArray),
+    [transactions, aliasesArray]
+  );
+  const suggestedTokens = useMemo(
+    () => detectSuggestedCategoryTokens(transactions, ckCategoryMap),
+    [transactions, ckCategoryMap]
+  );
+
+  // Pre-fill/highlight signals for the "Account aliases"/"Category mapping"
+  // sections below, set by the "Use this fragment"/"Review this token"
+  // buttons. Never written anywhere — purely local UI state driving a scroll
+  // + a pre-filled/highlighted field the user still has to act on and save.
+  const [aliasPrefill, setAliasPrefill] = useState(null);
+  const [categoryHighlight, setCategoryHighlight] = useState(null);
+
+  const handleUseFragment = (fragment) => {
+    setAliasPrefill({ fragment, nonce: Date.now() });
+    document.getElementById("account-aliases-section")?.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
+  const handleReviewToken = (token) => {
+    setCategoryHighlight({ token, nonce: Date.now() });
+    document.getElementById("category-mapping-section")?.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
+
   return (
     <div style={S.col}>
       <h3 style={S.sectionTitle}>Audit</h3>
+      <SuggestedRulesSection
+        suggestedFragments={suggestedFragments}
+        suggestedTokens={suggestedTokens}
+        onUseFragment={handleUseFragment}
+        onReviewToken={handleReviewToken}
+      />
       <AccountAliasesSection
         transactions={transactions}
         accountMap={accountMap}
         aliases={accountAliases}
         onSave={onSaveAccountAliases}
+        prefillFragment={aliasPrefill}
       />
       <CkCategoryMapSection
         transactions={transactions}
         map={ckCategoryMap}
         onSave={onSaveCkCategoryMap}
         config={config}
+        highlightToken={categoryHighlight}
       />
       <AppleDailyCashRuleSection
         rule={appleDailyCashRule}
@@ -3972,7 +4145,7 @@ function AuditTab({
 // Income" (both valid targets per `mapCkCategory`'s Transfer/Income branches).
 // Saving is a plain PUT — no impact preview, no retroactive cascade: this
 // only changes how NEW imports map `ckCategory` -> `category` from now on.
-function CkCategoryMapSection({ transactions, map, onSave, config }) {
+function CkCategoryMapSection({ transactions, map, onSave, config, highlightToken }) {
   const [draft, setDraft] = useState(map || {});
   useEffect(() => { setDraft(map || {}); }, [map]);
 
@@ -4007,7 +4180,12 @@ function CkCategoryMapSection({ transactions, map, onSave, config }) {
   };
 
   return (
-    <CollapsibleCard title="Category mapping" badge={tokens.length}>
+    <CollapsibleCard
+      id="category-mapping-section"
+      title="Category mapping"
+      badge={tokens.length}
+      openSignal={highlightToken && highlightToken.nonce}
+    >
       <div style={{ fontSize: 12, color: "#8b94a3", margin: "0 0 10px", lineHeight: 1.5 }}>
         Where each Credit Karma category token lands in the ledger. Transfer
         and Income (both handled by dedicated rules before this table) are
@@ -4019,7 +4197,11 @@ function CkCategoryMapSection({ transactions, map, onSave, config }) {
         {tokens.map((token) => (
           <div
             key={token}
-            style={{ display: "flex", alignItems: "center", gap: 8, background: "#161a20", border: "1px solid #1e2530", borderRadius: 10, padding: "8px 10px" }}
+            style={{
+              display: "flex", alignItems: "center", gap: 8, borderRadius: 10, padding: "8px 10px",
+              background: highlightToken && highlightToken.token === token ? "#1a1500" : "#161a20",
+              border: highlightToken && highlightToken.token === token ? "1px solid #4b3a00" : "1px solid #1e2530",
+            }}
           >
             <div style={{ flex: 1, minWidth: 0, fontSize: 12, color: "#e5e7eb", overflowWrap: "anywhere", fontFamily: "monospace" }}>
               {token}
@@ -4894,6 +5076,66 @@ function computeAliasImpact(transactions, accountMap, aliasesArray) {
     }
   }
   return impacted;
+}
+
+// ---------------------------------------------------------------------------
+// Suggested rules (Audit → "Suggested rules"): purely client-side detection
+// over already-loaded `transactions`, derived data only — no new endpoint, no
+// automatic persistence. Both functions are pure and read-only; any resulting
+// change still goes through the existing save flows
+// (`saveAccountAliasesAndApply` / the Category mapping save button).
+
+// Group A: transactions with no account (`account === ""`, i.e. Unassigned)
+// that share a normalized `srcAccount` fragment. Reuses `normAccount` (the
+// same normalization `matchAccountWithAliases` matches against) instead of a
+// new string heuristic, and skips anything an existing alias would already
+// catch. Returns groups with >= 2 occurrences, sorted by count desc.
+function detectSuggestedAliasFragments(transactions, aliasesArray) {
+  const groups = new Map();
+  for (const t of transactions || []) {
+    if ((t.account || "") !== "") continue;
+    const raw = t.srcAccount || "";
+    if (!raw) continue;
+    if (matchAccountWithAliases(raw, aliasesArray || [])) continue; // already covered
+    const n = normAccount(raw);
+    if (!n) continue;
+    const e = groups.get(n) || { fragment: n, count: 0, examples: [] };
+    e.count++;
+    if (e.examples.length < 3 && t.description && !e.examples.includes(t.description)) {
+      e.examples.push(t.description);
+    }
+    groups.set(n, e);
+  }
+  return [...groups.values()]
+    .filter((g) => g.count >= 2)
+    .sort((a, b) => b.count - a.count);
+}
+
+// Group B: transactions classified as "Other" that still carry a raw
+// `ckCategory`, grouped by `ckCategoryToken` (same tokenizer `mapCkCategory`
+// uses). Kept only when the token's current mapping resolves to "Other" (or
+// is unmapped, which also falls back to "Other" — see `mapCkCategory`), since
+// a token already routed elsewhere isn't a classification gap. Returns groups
+// with >= 2 occurrences, sorted by count desc.
+function detectSuggestedCategoryTokens(transactions, ckCategoryMapObj) {
+  const groups = new Map();
+  for (const t of transactions || []) {
+    if ((t.category || "") !== "Other") continue;
+    if (!t.ckCategory) continue;
+    const token = ckCategoryToken(t.ckCategory);
+    if (!token) continue;
+    const mapped = (ckCategoryMapObj && ckCategoryMapObj[token]) || "Other";
+    if (mapped !== "Other") continue;
+    const e = groups.get(token) || { token, count: 0, examples: [] };
+    e.count++;
+    if (e.examples.length < 3 && t.description && !e.examples.includes(t.description)) {
+      e.examples.push(t.description);
+    }
+    groups.set(token, e);
+  }
+  return [...groups.values()]
+    .filter((g) => g.count >= 2)
+    .sort((a, b) => b.count - a.count);
 }
 
 // Read-only, client-side explanation of how a transaction ended up with its
