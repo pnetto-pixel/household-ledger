@@ -1,4 +1,4 @@
-# Household Ledger · v1.15.0
+# Household Ledger · v1.15.1
 
 Aplicativo mobile-first de controle financeiro doméstico. Registra
 transações da casa (despesas e receitas) por categoria e conta, com
@@ -24,7 +24,18 @@ A cada PR, atualize a versão em **dois lugares**:
 1. `src/App.jsx` — a string `v1.x.x` no span ao lado de "Household"
 2. `household-ledger.md` — o `· v1.x.x` no título `# Household Ledger`
 
-Versão atual: **v1.15.0** — **Painel de regras de categoria, Fatia 2**
+Versão atual: **v1.15.1** — **Fix: painel "Suggested rules" invisível quando
+vazio** (a seção na tab Audit tinha um `return null` quando os 3 grupos
+— Unassigned fragments, Category tokens/Other, Manual category corrections —
+estavam vazios, o que a tornava praticamente indescobrível; removido o
+`return null`, o painel agora é **sempre visível**, com estado vazio
+explicativo — inclusive nota de que o grupo de correções manuais é
+forward-only e pode aparecer vazio logo após a atualização; badge do card só
+aparece quando há itens) — PR #121, branch
+`fix/suggested-rules-always-visible`, squash merge, SHA
+19fa8aabd7001d3dd3ec73f2e9a48f876459a034.
+
+Versão anterior: **v1.15.0** — **Painel de regras de categoria, Fatia 2**
 (detecção de "correções manuais" de categoria: novos campos opcionais
 `categoryManual`/`autoCategory` na transação, função pura
 `detectManualCategoryCorrections` agrupando correções recorrentes por token
@@ -35,7 +46,7 @@ correções feitas antes desta versão) — PR #119, branch
 `feature/manual-correction-detection`, SHA
 9e0475e8986aa9a43e9fbf4f6c8f2c4ab81c7c91.
 
-Versão anterior: **v1.14.0** (Painel de regras de categoria, Fatia 1: novo
+Versão anterior a essa: **v1.14.0** (Painel de regras de categoria, Fatia 1: novo
 tipo de regra editável "descrição/provider contém X → categoria Y", com
 precedência de override sobre o mapa CK para categorias não-Transfer; nova
 seção **Description rules** na tab Audit; a seção **Classification
@@ -683,7 +694,15 @@ shell de altura cheia (`#root` em `100lvh` + shell `height:100%`): só o
    rules** abaixo.
 
    No **topo** da `AuditTab`, acima de "Account aliases", desde o **PR #115
-   (v1.13.0)**, a seção **"Suggested rules"**: detecta automaticamente,
+   (v1.13.0)**, a seção **"Suggested rules"**. **Desde o PR #121 (v1.15.1) o
+   painel é sempre visível** — antes havia um `return null` quando os 3
+   grupos (A/B/C) estavam vazios, o que o tornava indescobrível; agora, com
+   os 3 grupos vazios, exibe um **estado vazio explicativo** (explica que o
+   painel se popula conforme o uso do app, e que o grupo C — correções
+   manuais — é forward-only, então pode aparecer vazio logo após a
+   atualização mesmo havendo correções manuais feitas antes desta versão).
+   O badge de contagem no card só aparece quando há itens (>0). Detecta
+   automaticamente,
    100% client-side sobre as transações já carregadas em memória (sem novo
    endpoint), dois grupos de candidatos a regra:
    - **Grupo A (contas)** — `detectSuggestedAliasFragments` agrupa
@@ -1169,6 +1188,13 @@ O app inicia com array vazio quando não há dados salvos (sem SEED).
   histórico; se vier a ser pedido, tratar como uma futura "Fatia 3"). Com
   esta entrega, o item "Painel de regras de categoria" está completo (Fatia
   1 + Fatia 2).
+- [x] **Fix: painel "Suggested rules" invisível quando vazio** (PR #121,
+  branch `fix/suggested-rules-always-visible`, SHA
+  19fa8aabd7001d3dd3ec73f2e9a48f876459a034, v1.15.1) — o painel tinha
+  `return null` quando os 3 grupos estavam vazios; removido, agora é
+  **sempre visível** com estado vazio explicativo (inclui nota de que o
+  grupo "Manual category corrections" é forward-only). Badge do card só
+  aparece com itens (>0).
 - [x] **Auditoria de classificação de categorias** — área no app onde o
   usuário pode ver e editar as regras de auto-classificação que o app usa. A
   decisão de layout (tab dedicada **Audit**, em vez de dentro do
