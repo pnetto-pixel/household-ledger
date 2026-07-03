@@ -18,7 +18,6 @@ import {
   ChevronRight,
   ChevronUp,
   Check,
-  ShieldCheck,
 } from "lucide-react";
 import {
   ResponsiveContainer,
@@ -615,7 +614,6 @@ export default function App() {
   // User-managed lists (accounts + categories) — loaded from /api/config.
   // Seeded from the module defaults so the UI has values before the fetch.
   const [config, setConfig] = useState(() => currentConfig());
-  const [settingsOpen, setSettingsOpen] = useState(false);
 
   // Format a money value, respecting the global eye toggle.
   const money = useCallback(
@@ -1132,7 +1130,6 @@ export default function App() {
         hideValues={hideValues}
         onToggleHide={toggleHide}
         onLogout={logout}
-        onOpenSettings={() => setSettingsOpen(true)}
         saving={saving}
         savedAt={savedAt}
         dirty={dirty}
@@ -1165,8 +1162,8 @@ export default function App() {
           />
         ) : tab === "import" ? (
           <ImportTransactions onImport={addTransactions} accountMap={accountMap} config={config} transactions={transactions} />
-        ) : tab === "audit" ? (
-          <AuditTab
+        ) : tab === "settings" ? (
+          <SettingsTab
             transactions={transactions}
             accountMap={accountMap}
             accountAliases={accountAliases}
@@ -1178,6 +1175,15 @@ export default function App() {
             categoryDescriptionRules={categoryDescriptionRules}
             onSaveCategoryDescriptionRules={saveCategoryDescriptionRules}
             config={config}
+            onSaveAccountMap={saveAndApplyAccountMap}
+            onAddAccount={addAccount}
+            onRenameAccount={renameAccount}
+            onDeleteAccount={deleteAccount}
+            onAddCategory={addCategory}
+            onRenameCategory={renameCategory}
+            onDeleteCategory={deleteCategory}
+            onReorderAccounts={reorderAccounts}
+            onReorderCategories={reorderCategories}
           />
         ) : (
           <Charts transactions={transactions} hideValues={hideValues} config={config} />
@@ -1185,24 +1191,6 @@ export default function App() {
       </main>
 
       <TabBar tab={tab} setTab={setTab} wide={isWide} />
-
-      {settingsOpen ? (
-        <SettingsModal
-          config={config}
-          transactions={transactions}
-          accountMap={accountMap}
-          onSaveAccountMap={saveAndApplyAccountMap}
-          onClose={() => setSettingsOpen(false)}
-          onAddAccount={addAccount}
-          onRenameAccount={renameAccount}
-          onDeleteAccount={deleteAccount}
-          onAddCategory={addCategory}
-          onRenameCategory={renameCategory}
-          onDeleteCategory={deleteCategory}
-          onReorderAccounts={reorderAccounts}
-          onReorderCategories={reorderCategories}
-        />
-      ) : null}
     </div>
   );
 }
@@ -1359,7 +1347,7 @@ function SaveIndicator({ saving, dirty, savedAt, saveError }) {
   return null;
 }
 
-function Header({ hideValues, onToggleHide, onLogout, onOpenSettings, saving, savedAt, dirty, saveError }) {
+function Header({ hideValues, onToggleHide, onLogout, saving, savedAt, dirty, saveError }) {
   return (
     <header style={S.header}>
       <style>{`@keyframes hl-spin { 0%,100%{opacity:1} 50%{opacity:0.2} }`}</style>
@@ -1374,16 +1362,13 @@ function Header({ hideValues, onToggleHide, onLogout, onOpenSettings, saving, sa
             <LayoutDashboard size={14} color="#fff" />
           </div>
           <span style={{ fontWeight: 700, fontSize: 15, letterSpacing: -0.5, color: "#e5e7eb" }}>Household</span>
-          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.16.3</span>
+          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.17.0</span>
         </div>
         <SaveIndicator saving={saving} dirty={dirty} savedAt={savedAt} saveError={saveError} />
       </div>
       <div style={{ display: "flex", alignItems: "center", gap: 2 }}>
         <IconButton onClick={onToggleHide} title={hideValues ? "Show values" : "Hide values"}>
           {hideValues ? <EyeOff size={16} /> : <Eye size={16} />}
-        </IconButton>
-        <IconButton onClick={onOpenSettings} title="Manage accounts & categories">
-          <Settings size={16} />
         </IconButton>
         <IconButton onClick={onLogout} title="Log out">
           <LogOut size={16} />
@@ -1418,7 +1403,7 @@ const TABS = [
   { id: "analyze", label: "Analyze", Icon: TrendingUp },
   { id: "transactions", label: "Txns", Icon: List },
   { id: "import", label: "Import", Icon: Upload },
-  { id: "audit", label: "Audit", Icon: ShieldCheck },
+  { id: "settings", label: "Settings", Icon: Settings },
 ];
 
 function TabBar({ tab, setTab, wide }) {
@@ -4249,13 +4234,25 @@ function SuggestedRulesSection({ suggestedFragments, suggestedTokens, suggestedC
   );
 }
 
-function AuditTab({
+function SettingsTab({
   transactions, accountMap, accountAliases, onSaveAccountAliases,
   ckCategoryMap, onSaveCkCategoryMap,
   appleDailyCashRule, onSaveAppleDailyCashRule,
   categoryDescriptionRules, onSaveCategoryDescriptionRules,
   config,
+  onSaveAccountMap,
+  onAddAccount, onRenameAccount, onDeleteAccount,
+  onAddCategory, onRenameCategory, onDeleteCategory,
+  onReorderAccounts, onReorderCategories,
 }) {
+  const usage = useMemo(() => {
+    const acc = {}, cat = {};
+    for (const t of transactions) {
+      if (t.account) acc[t.account] = (acc[t.account] || 0) + 1;
+      if (t.category) cat[t.category] = (cat[t.category] || 0) + 1;
+    }
+    return { acc, cat };
+  }, [transactions]);
   const aliasesArray = useMemo(() => buildAliasArray(accountAliases || {}), [accountAliases]);
   const suggestedFragments = useMemo(
     () => detectSuggestedAliasFragments(transactions, aliasesArray),
@@ -4299,7 +4296,7 @@ function AuditTab({
 
   return (
     <div style={S.col}>
-      <h3 style={S.sectionTitle}>Audit</h3>
+      <h3 style={S.sectionTitle}>Settings</h3>
       <SuggestedRulesSection
         suggestedFragments={suggestedFragments}
         suggestedTokens={suggestedTokens}
@@ -4315,12 +4312,37 @@ function AuditTab({
         onSave={onSaveAccountAliases}
         prefillFragment={aliasPrefill}
       />
-      <CkCategoryMapSection
+      <AccountMapSection
         transactions={transactions}
-        map={ckCategoryMap}
-        onSave={onSaveCkCategoryMap}
-        config={config}
-        highlightToken={categoryHighlight}
+        accountMap={accountMap}
+        onSave={onSaveAccountMap}
+      />
+      <ManagedList
+        title="Accounts"
+        items={config.accounts}
+        usage={usage.acc}
+        onAdd={onAddAccount}
+        onRename={onRenameAccount}
+        onDelete={onDeleteAccount}
+        onReorder={onReorderAccounts}
+      />
+      <ManagedList
+        title="Expense categories"
+        items={config.expenseCategories}
+        usage={usage.cat}
+        onAdd={(n) => onAddCategory("expense", n)}
+        onRename={onRenameCategory}
+        onDelete={onDeleteCategory}
+        onReorder={(names) => onReorderCategories("expense", names)}
+      />
+      <ManagedList
+        title="Income categories"
+        items={config.incomeCategories}
+        usage={usage.cat}
+        onAdd={(n) => onAddCategory("income", n)}
+        onRename={onRenameCategory}
+        onDelete={onDeleteCategory}
+        onReorder={(names) => onReorderCategories("income", names)}
       />
       <AppleDailyCashRuleSection
         rule={appleDailyCashRule}
@@ -4332,6 +4354,13 @@ function AuditTab({
         onSave={onSaveCategoryDescriptionRules}
         config={config}
         prefill={rulePrefill}
+      />
+      <CkCategoryMapSection
+        transactions={transactions}
+        map={ckCategoryMap}
+        onSave={onSaveCkCategoryMap}
+        config={config}
+        highlightToken={categoryHighlight}
       />
     </div>
   );
@@ -4750,81 +4779,6 @@ function DescriptionRulesSection({ rules, onSave, config, prefill }) {
         Save rules
       </button>
     </CollapsibleCard>
-  );
-}
-
-function SettingsModal({ config, transactions, accountMap, onSaveAccountMap, onClose, onAddAccount, onRenameAccount, onDeleteAccount, onAddCategory, onRenameCategory, onDeleteCategory, onReorderAccounts, onReorderCategories }) {
-  const usage = useMemo(() => {
-    const acc = {}, cat = {};
-    for (const t of transactions) {
-      if (t.account) acc[t.account] = (acc[t.account] || 0) + 1;
-      if (t.category) cat[t.category] = (cat[t.category] || 0) + 1;
-    }
-    return { acc, cat };
-  }, [transactions]);
-
-  return (
-    <div style={S.modalOverlay} onClick={onClose} role="dialog" aria-modal="true">
-      <div
-        style={{ ...S.modalCard, maxWidth: 560, width: "92vw", display: "flex", flexDirection: "column", overflowY: "hidden" }}
-        onClick={(e) => e.stopPropagation()}
-        aria-label="Settings"
-      >
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8, flexShrink: 0 }}>
-          <h3 style={{ ...S.sectionTitle, margin: 0 }}>Settings</h3>
-          <button onClick={onClose} style={S.deleteBtn} title="Close">
-            <X size={18} />
-          </button>
-        </div>
-        <div style={{ fontSize: 12, color: "#8b94a3", marginBottom: 12, lineHeight: 1.5, flexShrink: 0 }}>
-          Map your Credit Karma cards to accounts, and manage the account and
-          category lists. Renaming cascades to every transaction; items in use
-          can't be deleted — rename them instead.
-        </div>
-        <div style={{ flex: 1, minHeight: 0, overflowY: "auto", paddingRight: 4 }}>
-          <AccountMapSection
-            transactions={transactions}
-            accountMap={accountMap}
-            onSave={onSaveAccountMap}
-          />
-          <ManagedList
-            title="Accounts"
-            items={config.accounts}
-            usage={usage.acc}
-            onAdd={onAddAccount}
-            onRename={onRenameAccount}
-            onDelete={onDeleteAccount}
-            onReorder={onReorderAccounts}
-          />
-          <ManagedList
-            title="Expense categories"
-            items={config.expenseCategories}
-            usage={usage.cat}
-            onAdd={(n) => onAddCategory("expense", n)}
-            onRename={onRenameCategory}
-            onDelete={onDeleteCategory}
-            onReorder={(names) => onReorderCategories("expense", names)}
-          />
-          <ManagedList
-            title="Income categories"
-            items={config.incomeCategories}
-            usage={usage.cat}
-            onAdd={(n) => onAddCategory("income", n)}
-            onRename={onRenameCategory}
-            onDelete={onDeleteCategory}
-            onReorder={(names) => onReorderCategories("income", names)}
-          />
-        </div>
-        <footer style={{ padding: "12px 16px", borderTop: "1px solid #2c2c2e", display: "flex", justifyContent: "flex-end", flexShrink: 0 }}>
-          <button
-            onClick={onClose}
-            style={{ background: "#3a3a3c", color: "#fff", border: "none", borderRadius: 8, padding: "8px 20px", cursor: "pointer", fontSize: 14 }}
-          >
-            Close
-          </button>
-        </footer>
-      </div>
-    </div>
   );
 }
 
