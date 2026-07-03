@@ -1,4 +1,4 @@
-# Household Ledger · v1.16.1
+# Household Ledger · v1.16.2
 
 Aplicativo mobile-first de controle financeiro doméstico. Registra
 transações da casa (despesas e receitas) por categoria e conta, com
@@ -24,7 +24,36 @@ A cada PR, atualize a versão em **dois lugares**:
 1. `src/App.jsx` — a string `v1.x.x` no span ao lado de "Household"
 2. `household-ledger.md` — o `· v1.x.x` no título `# Household Ledger`
 
-Versão atual: **v1.16.1** — **Fix: agrupamento errado no grupo "Manual
+Versão atual: **v1.16.2** — **Ajustes visuais na tab Import: segmented
+controls no lugar de cards/checkboxes** (patch, frontend puro). Dois
+ajustes de UI sobre a tab Import, sem tocar em `api/`, dedup
+(`markDuplicates`), column mapping CSV, `displayRows`/overrides de categoria
+(v1.16.0), `confirm()`, formato Redis ou modelo de transação:
+1. **Method picker (Credit Karma/CSV)** — os 2 cards grandes com
+   title+descrição viraram um **segmented control (toggle) de 2 opções**,
+   com uma legenda curta abaixo exibindo dinamicamente a descrição do
+   método selecionado (preserva a informação funcional — auto-mapeado vs.
+   manual/backfill — sem os cards grandes); padding maior que o do filtro de
+   duplicatas, por ser a primeira decisão do fluxo.
+2. **Filtro de duplicatas** — os 2 checkboxes mutuamente exclusivos "Only
+   duplicates"/"Only non-duplicates" (v1.15.2, PR #123) foram substituídos
+   por um **segmented control de 3 opções**: "All" / "New Only" / "Dup
+   Only". Estado interno simplificado: de 2 booleans
+   (`onlyDups`/`onlyNonDups` + toggle de exclusão mútua manual) para um
+   único enum `dupFilter` (`"all"|"new"|"dup"`). Continua só aparecendo
+   quando há duplicatas detectadas (`dupCount > 0`) — mesma guarda de antes;
+   o Set `selected` (o que é de fato importado) permanece independente do
+   filtro de visualização.
+
+Novos tokens de estilo reutilizáveis `S.segmented` (container) e
+`S.segmentedBtn(active)` (função), ao lado de `S.togglePill` (inalterado,
+continua em uso em Charts/MonthlyBarCard/CategoryStackedBarCard); replicam o
+padrão visual já usado no segmented control de granularidade do Analyze
+(fundo `#0f1216`, borda `#232a33`, opção ativa `#0A84FF`/branco) — padrão
+pronto para reuso em futuros segmented controls do app. — PR #126, branch
+`claude/import-tab-ux-improvements-i1b7az`.
+
+Versão anterior: **v1.16.1** — **Fix: agrupamento errado no grupo "Manual
 category corrections" do painel Suggested rules** (patch, frontend puro).
 `detectManualCategoryCorrections` agrupava as correções pelo token da
 categoria CK de origem (`ckCategoryToken(t.ckCategory)`), o que juntava num
@@ -39,8 +68,8 @@ removido (o pattern é o próprio key). Cada exemplo passou a carregar a sua
 própria categoria corrigida, e a linha "was X → you: Y" mostra o que o
 usuário escolheu naquela transação, não mais o destino mais frequente do
 grupo. Threshold ≥2 inalterado — correções avulsas de comerciantes distintos
-não geram mais sugestão (antes geravam uma sugestão errada). — branch
-`claude/import-tab-ux-improvements-i1b7az`.
+não geram mais sugestão (antes geravam uma sugestão errada). — PR #125,
+branch `claude/import-tab-ux-improvements-i1b7az`.
 
 Versão anterior: **v1.16.0** — **Edição de categoria na preview da tab Import**
 (feature nova, frontend puro). Cada linha da prévia do Import ganhou um
@@ -662,11 +691,17 @@ shell de altura cheia (`#root` em `100lvh` + shell `height:100%`): só o
    **Apply**, a seleção é limpa automaticamente. Tudo é client-side (uma
    chamada `scheduleSave`, sem novo endpoint).
 4. **Import** — importação de CSV (papaparse) com **dois métodos** apenas
-   (`BANK_PROFILES`, cards selecionáveis + dropzone com drag-and-drop):
+   (`BANK_PROFILES`). **Desde a v1.16.2 (PR #126)**, o seletor de método
+   deixou de ser os 2 cards grandes com title+descrição e virou um
+   **segmented control (toggle) de 2 opções** (`S.segmented`/
+   `S.segmentedBtn`), com dropzone de drag-and-drop abaixo; uma legenda
+   curta logo abaixo do toggle exibe dinamicamente a descrição do método
+   selecionado (mesma informação funcional de antes — auto-mapeado vs.
+   manual/backfill —, só sem os cards grandes). Padding do toggle é maior
+   que o do filtro de duplicatas, por ser a primeira decisão do fluxo.
    - **Credit Karma** (uso diário) — auto-mapeia as colunas do export
      (`account` passa por `classifyAccount`), preserva o sinal e já vem sem
-     pendentes; sem UI de mapeamento. Descrição do card traduzida PT→EN
-     (PR #104, v1.7.0), texto condensado ainda mais na v1.15.2 (PR #123).
+     pendentes; sem UI de mapeamento.
    - **CSV** (uso único, backfill do histórico) — mapeamento manual de
      colunas (`IMPORT_FIELDS`, `guessMapping`, selects por campo com hints de
      fallback). Suporta valores contábeis com parênteses (`(47.50)` →
@@ -674,8 +709,7 @@ shell de altura cheia (`#root` em `100lvh` + shell `height:100%`): só o
      `_skipped` em vez de descartar silenciosamente). O summary de diagnóstico
      exibe `N parsed · M valid · K skipped · X selected` — desde a v1.15.2
      (PR #123), omite o segmento "N parsed" quando `N === M` (parsed igual a
-     valid), reduzindo redundância no caso comum. Descrição do card também
-     condensada.
+     valid), reduzindo redundância no caso comum.
      Desde a **v1.15.2 (PR #123)**, a seção **Column mapping** (só aparece
      nesse fluxo CSV) virou **colapsável** via `CollapsibleCard` — vem aberta
      por padrão apenas quando algum campo obrigatório ainda não foi mapeado;
@@ -688,14 +722,16 @@ shell de altura cheia (`#root` em `100lvh` + shell `height:100%`): só o
    `ImportTransactions` já estava em inglês.
 
    **Deduplicação (híbrida).** Na prévia, cada linha tem checkbox e as
-   duplicadas vêm **desmarcadas** (badge `DUP`), com filtro "Only duplicates"
-   e Select/Deselect all — só as marcadas são importadas. **Desde a v1.15.2
-   (PR #123)**, quando há duplicatas detectadas aparece também um segundo
-   checkbox de filtro, **"Only non-duplicates"**, mutuamente exclusivo com
-   "Only duplicates" (marcar um desmarca o outro automaticamente); ambos são
-   filtros **de visualização da prévia apenas** — não afetam o Set
-   `selected` que determina o que de fato é importado. O botão **"Import N
-   transactions"** passou a ficar em uma **barra sticky** (`bottom: 0`,
+   duplicadas vêm **desmarcadas** (badge `DUP`), com Select/Deselect all —
+   só as marcadas são importadas. Quando há duplicatas detectadas
+   (`dupCount > 0`), aparece um filtro de visualização da prévia: **desde a
+   v1.16.2 (PR #126)**, um **segmented control de 3 opções** — "All" / "New
+   Only" / "Dup Only" (estado `dupFilter`, enum `"all"|"new"|"dup"`) — no
+   lugar dos 2 checkboxes mutuamente exclusivos "Only duplicates"/"Only
+   non-duplicates" introduzidos na v1.15.2 (PR #123). É um filtro **de
+   visualização da prévia apenas** — não afeta o Set `selected` que
+   determina o que de fato é importado. O botão **"Import N
+   transactions"** fica em uma **barra sticky** (`bottom: 0`,
    gradiente para o fundo do app), sempre visível sem precisar rolar até o
    fim da lista depois de carregar o arquivo; `maxHeight` da lista de
    preview reduzido de 360 para 300 px para abrir espaço para a barra. A
@@ -1143,6 +1179,17 @@ O app inicia com array vazio quando não há dados salvos (sem SEED).
   do painel Suggested rules (tab Audit) sem nenhum endpoint/persistência
   nova. Badge azul "EDITED" quando a categoria difere da auto-detectada.
   Frontend puro, sem mudança de contrato de API/Redis.
+- [x] Ajustes visuais na tab Import (PR #126, branch
+  `claude/import-tab-ux-improvements-i1b7az`, v1.16.2): method picker
+  (Credit Karma/CSV) trocado dos 2 cards grandes por um **segmented
+  control de 2 opções** com legenda dinâmica da descrição do método
+  selecionado abaixo; filtro de duplicatas trocado dos 2 checkboxes
+  mutuamente exclusivos "Only duplicates"/"Only non-duplicates" (PR #123)
+  por um **segmented control de 3 opções** (All / New Only / Dup Only,
+  enum `dupFilter`), mesma guarda `dupCount > 0` e mesma independência do
+  Set `selected`. Novos tokens de estilo reutilizáveis `S.segmented`/
+  `S.segmentedBtn`, no padrão visual do segmented control de granularidade
+  do Analyze. Frontend puro, sem mudança de contrato de API/Redis.
 
 ### Fase 5 — Inteligência e Auditoria
 
