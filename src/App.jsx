@@ -192,6 +192,89 @@ function currentAliasConfig() {
   return out;
 }
 
+// Raw Credit Karma category -> ledger category. Mirrors CAT/CATEGORY_MAP in
+// tools/credit-karma/bookmarklet.src.js and creditkarma-export.scriptable.js
+// (kept 1:1 in sync by hand — those exporters remain untouched). Only the
+// EXPENSE-side lookup table lives here; Transfer/Payment and Income are
+// resolved by branches ahead of the table lookup in `mapCkCategory`, exactly
+// like `mapCat`/`mapCategory` in the exporters.
+//
+// This used to be baked into the exporters only. It is now also a seed here
+// (`DEFAULT_CK_CATEGORY_MAP`) so the ledger can compute/audit the same
+// category mapping at IMPORT time (see `buildRow`), overridden at runtime by
+// `applyCkCategoryMapConfig()` from `/api/ck-category-map` — same pattern as
+// `applyAliasConfig()`/`ACCOUNT_ALIASES` above. Editable from Audit →
+// "Category mapping". Changing an entry here only affects future imports —
+// no retroactive cascade onto already-imported transactions.
+const DEFAULT_CK_CATEGORY_MAP = {
+  MORTGAGE_AND_RENT: 'Mortgage',
+  HOME_AND_GARDEN: 'Home',
+  SHOPPING: 'Shopping',
+  AUTO_AND_TRANSPORT: 'Transport',
+  FOOD_AND_DINING: 'Restaurant',
+  HEALTH_AND_FITNESS: 'Medical',
+  TRAVEL_AND_VACATION: 'Travel',
+  BILLS_AND_UTILITIES: 'Utilities',
+  TAXES: 'Other',
+  PETS: 'Dog',
+  GROCERIES: 'Groceries',
+  FEES_AND_CHARGES: 'Services',
+  PERSONAL_CARE: 'Services',
+  BUSINESS_SERVICES: 'Services',
+  ENTERTAINMENT: 'Entertainment',
+  GIFTS: 'Other',
+  EDUCATION: 'Other',
+  DONATIONS: 'Other',
+  MISC_EXPENSES: 'Other',
+};
+
+// Runtime CK category map (mutable) — seeded with the defaults above,
+// replaced by `applyCkCategoryMapConfig()` once `/api/ck-category-map` loads.
+// Module state (not React state) so the pure `mapCkCategory` calls from
+// `buildRow` always read the current value; components re-render via the
+// `ckCategoryMap` state in App.
+let CK_CATEGORY_MAP = { ...DEFAULT_CK_CATEGORY_MAP };
+
+function applyCkCategoryMapConfig(mapObj) {
+  CK_CATEGORY_MAP = { ...DEFAULT_CK_CATEGORY_MAP, ...(mapObj && typeof mapObj === "object" ? mapObj : {}) };
+}
+
+// The current runtime CK category map as a plain object (for seeding/
+// persisting React state).
+function currentCkCategoryMapConfig() {
+  return { ...CK_CATEGORY_MAP };
+}
+
+// Normalize a raw Credit Karma category name into the UPPER_SNAKE_CASE token
+// used as the lookup key — identical regex to `mapCat`/`mapCategory` in the
+// exporters, so tokens computed here line up with the seed's keys.
+function ckCategoryToken(name) {
+  return String(name || "")
+    .toUpperCase()
+    .replace(/&/g, "AND")
+    .replace(/[^A-Z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+}
+
+// Pure re-implementation of the exporters' `mapCat`/`mapCategory`: Transfer/
+// Payment checked first (excluded from all ledger totals), then Income, then
+// the table lookup with an "Other" fallback. `mapObj` is a parameter (not the
+// live `CK_CATEGORY_MAP`) so the audit UI can preview a draft mapping before
+// saving, mirroring `matchAccountWithAliases`/`buildAliasArray`.
+function mapCkCategory(ckCategoryRaw, ckType, mapObj) {
+  const token = ckCategoryToken(ckCategoryRaw);
+  const ty = String(ckType || "").toUpperCase();
+  if (
+    ty === "TRANSFER" || ty === "PAYMENT" ||
+    token.indexOf("TRANSFER") >= 0 || token.indexOf("CREDIT_CARD_PAYMENT") >= 0 ||
+    token === "PAYMENT" || token === "PAYMENTS" || token === "CARD_PAYMENT"
+  ) {
+    return TRANSFER_CATEGORY;
+  }
+  if (ty === "INCOME") return "Other Income";
+  return (mapObj && mapObj[token]) || "Other";
+}
+
 // ---------------------------------------------------------------------------
 // Bank import profiles
 // ---------------------------------------------------------------------------
@@ -208,7 +291,7 @@ const BANK_PROFILES = [
     // category, account, ck_account, provider, ck_category, type, account_urn,
     // last4. The account column is run through matchAccount, and ck_category is
     // kept for auditing.
-    columnMap: { date: 'date', description: 'description', amount: 'amount', category: 'category', account: 'account', ckCategory: 'ck_category', accountUrn: 'account_urn', last4: 'last4', sourceId: 'source_id' },
+    columnMap: { date: 'date', description: 'description', amount: 'amount', category: 'category', account: 'account', ckCategory: 'ck_category', ckType: 'type', accountUrn: 'account_urn', last4: 'last4', sourceId: 'source_id' },
     defaultAccount: '',
     // Preserve the sign: the CK export writes income always positive and
     // expense in the natural direction — a refund (expense minority sign)
@@ -599,6 +682,43 @@ export default function App() {
     [accountMap, scheduleSave]
   );
 
+  // ---- CK category map load / save ------------------------------------------
+  const [ckCategoryMap, setCkCategoryMap] = useState(() => currentCkCategoryMapConfig());
+
+  const loadCkCategoryMap = useCallback(async () => {
+    try {
+      const res = await fetch("/api/ck-category-map", {
+        method: "GET",
+        headers: buildAuthHeaders(),
+      });
+      if (!res.ok) return;
+      const data = await res.json();
+      if (data.map && typeof data.map === "object") {
+        applyCkCategoryMapConfig(data.map);
+        setCkCategoryMap(currentCkCategoryMapConfig());
+      }
+    } catch {
+      // Silently ignore — defaults already seeded.
+    }
+  }, []);
+
+  useEffect(() => {
+    if (authed) loadCkCategoryMap();
+  }, [authed, loadCkCategoryMap]);
+
+  // Persist the CK->ledger category map. Deliberately no cascade: only new
+  // imports (buildRow) are affected — existing transactions keep whatever
+  // category they were imported with.
+  const saveCkCategoryMap = useCallback((nextMapObj) => {
+    applyCkCategoryMapConfig(nextMapObj);
+    setCkCategoryMap(currentCkCategoryMapConfig());
+    return fetch("/api/ck-category-map", {
+      method: "PUT",
+      headers: buildAuthHeaders(),
+      body: JSON.stringify({ map: nextMapObj }),
+    }).catch(() => {});
+  }, []);
+
   // ---- Config (accounts + categories) load / save --------------------------
   const loadConfig = useCallback(async () => {
     try {
@@ -856,6 +976,9 @@ export default function App() {
             accountMap={accountMap}
             accountAliases={accountAliases}
             onSaveAccountAliases={saveAccountAliasesAndApply}
+            ckCategoryMap={ckCategoryMap}
+            onSaveCkCategoryMap={saveCkCategoryMap}
+            config={config}
           />
         ) : (
           <Charts transactions={transactions} hideValues={hideValues} config={config} />
@@ -1052,7 +1175,7 @@ function Header({ hideValues, onToggleHide, onLogout, onOpenSettings, saving, sa
             <LayoutDashboard size={14} color="#fff" />
           </div>
           <span style={{ fontWeight: 700, fontSize: 15, letterSpacing: -0.5, color: "#e5e7eb" }}>Household</span>
-          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.10.0</span>
+          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.11.0</span>
         </div>
         <SaveIndicator saving={saving} dirty={dirty} savedAt={savedAt} saveError={saveError} />
       </div>
@@ -3705,7 +3828,7 @@ function ManagedList({ title, items, usage, onAdd, onRename, onDelete, onReorder
 // Audit tab
 // ===========================================================================
 
-function AuditTab({ transactions, accountMap, accountAliases, onSaveAccountAliases }) {
+function AuditTab({ transactions, accountMap, accountAliases, onSaveAccountAliases, ckCategoryMap, onSaveCkCategoryMap, config }) {
   return (
     <div style={S.col}>
       <h3 style={S.sectionTitle}>Audit</h3>
@@ -3715,8 +3838,98 @@ function AuditTab({ transactions, accountMap, accountAliases, onSaveAccountAlias
         aliases={accountAliases}
         onSave={onSaveAccountAliases}
       />
+      <CkCategoryMapSection
+        transactions={transactions}
+        map={ckCategoryMap}
+        onSave={onSaveCkCategoryMap}
+        config={config}
+      />
       <ClassificationHistorySection transactions={transactions} accountMap={accountMap} accountAliases={accountAliases} />
     </div>
+  );
+}
+
+// Editable Credit Karma -> ledger category mapping. Lists every token known
+// from the seed plus any raw `ckCategory` token seen in already-loaded
+// transactions that isn't in the seed (so a category the exporters never
+// tokenized before still shows up here for review). Each row's destination is
+// a dropdown of current expense/income categories plus "Transfer" and "Other
+// Income" (both valid targets per `mapCkCategory`'s Transfer/Income branches).
+// Saving is a plain PUT — no impact preview, no retroactive cascade: this
+// only changes how NEW imports map `ckCategory` -> `category` from now on.
+function CkCategoryMapSection({ transactions, map, onSave, config }) {
+  const [draft, setDraft] = useState(map || {});
+  useEffect(() => { setDraft(map || {}); }, [map]);
+
+  const destinationOptions = useMemo(() => {
+    const expense = config?.expenseCategories || EXPENSE_CATEGORIES;
+    const income = config?.incomeCategories || INCOME_CATEGORIES;
+    return [...expense, ...income, TRANSFER_CATEGORY];
+  }, [config]);
+
+  // Tokens: seed keys ∪ any ckCategory token observed in loaded transactions
+  // that isn't already a seed key (surfaces categories the seed doesn't cover
+  // yet, e.g. a new Credit Karma category added after the seed was written).
+  const tokens = useMemo(() => {
+    const seen = new Set(Object.keys(DEFAULT_CK_CATEGORY_MAP));
+    const extra = [];
+    for (const t of transactions || []) {
+      if (!t.ckCategory) continue;
+      const tok = ckCategoryToken(t.ckCategory);
+      if (tok && !seen.has(tok)) {
+        seen.add(tok);
+        extra.push(tok);
+      }
+    }
+    extra.sort();
+    return [...Object.keys(DEFAULT_CK_CATEGORY_MAP).sort(), ...extra];
+  }, [transactions]);
+
+  const dirty = useMemo(() => JSON.stringify(draft) !== JSON.stringify(map || {}), [draft, map]);
+
+  const setDestination = (token, dest) => {
+    setDraft((prev) => ({ ...prev, [token]: dest }));
+  };
+
+  return (
+    <CollapsibleCard title="Category mapping" badge={tokens.length}>
+      <div style={{ fontSize: 12, color: "#8b94a3", margin: "0 0 10px", lineHeight: 1.5 }}>
+        Where each Credit Karma category token lands in the ledger. Transfer
+        and Income (both handled by dedicated rules before this table) are
+        also selectable as destinations for special cases. Saving only
+        affects future imports — existing transactions keep their current
+        category.
+      </div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+        {tokens.map((token) => (
+          <div
+            key={token}
+            style={{ display: "flex", alignItems: "center", gap: 8, background: "#161a20", border: "1px solid #1e2530", borderRadius: 10, padding: "8px 10px" }}
+          >
+            <div style={{ flex: 1, minWidth: 0, fontSize: 12, color: "#e5e7eb", overflowWrap: "anywhere", fontFamily: "monospace" }}>
+              {token}
+            </div>
+            <select
+              value={draft[token] || DEFAULT_CK_CATEGORY_MAP[token] || "Other"}
+              onChange={(e) => setDestination(token, e.target.value)}
+              style={{ ...S.select, flex: "0 0 auto", maxWidth: 160 }}
+            >
+              {destinationOptions.map((c) => (
+                <option key={c} value={c}>{c}</option>
+              ))}
+            </select>
+          </div>
+        ))}
+      </div>
+      <button
+        type="button"
+        onClick={() => onSave(draft)}
+        disabled={!dirty}
+        style={{ ...S.primaryBtn, marginTop: 10, opacity: dirty ? 1 : 0.5, cursor: dirty ? "pointer" : "not-allowed" }}
+      >
+        Save mapping
+      </button>
+    </CollapsibleCard>
   );
 }
 
@@ -3888,6 +4101,7 @@ const IMPORT_FIELDS = [
   { key: "category", label: "Category", aliases: ["category", "type"] },
   { key: "account", label: "Account", aliases: ["account", "card"] },
   { key: "ckCategory", label: "Source category (audit)", aliases: ["ck_category", "ck category", "source category", "original category"] },
+  { key: "ckType", label: "Source type (audit)", aliases: ["type", "ck_type", "ck type"] },
   { key: "accountUrn", label: "Account ID (URN)", aliases: ["account_urn", "account urn", "urn", "account id"] },
   { key: "last4", label: "Card last 4", aliases: ["last4", "last 4", "last_four", "card last 4"] },
   { key: "sourceId", label: "Source ID (dedup)", aliases: ["source_id", "source id", "transaction id", "txn id", "id"] },
@@ -3967,17 +4181,41 @@ function buildRow(raw, mapping, profile, accountMap) {
     ? (classifyAccount(rawAccount, accountUrn, accountMap) || profile?.defaultAccount || "")
     : (profile?.defaultAccount || "");
 
+  // Keep the raw source category (e.g. from Credit Karma) for auditing the
+  // category-mapping decisions. Optional — only present when the column maps.
+  const ckCategory = mapping.ckCategory ? val("ckCategory") : "";
+  const ckType = mapping.ckType ? val("ckType") : "";
+  // When the raw CK category traveled with the row, compute the ledger
+  // category ourselves via the editable `CK_CATEGORY_MAP` (Audit → "Category
+  // mapping") instead of trusting the already-mapped `category` column — this
+  // is what lets a user-edited mapping affect NEW imports without touching
+  // the external exporters. Falls back to the CSV's own `category` column
+  // when there's no raw CK category (generic CSV path, or older exports).
+  // Safety net: the CSV's own `category` column was computed by the exporter
+  // with access to the raw CK `categoryType` (which is NOT exported as-is —
+  // `ckType` here only ever carries 'income'/'expense'). That means the
+  // editable-map recompute below can never see a raw 'transfer'/'payment'
+  // type and could wrongly demote an already-correct Transfer row (e.g. a
+  // Zelle/ACH whose raw category name has no "TRANSFER"/"PAYMENT" token) to
+  // "Other". If either the recompute or the CSV already says Transfer, the
+  // result must stay Transfer — the editable map is only allowed to affect
+  // non-Transfer categorization, never to "de-transfer" a row.
+  const csvCategory = matchOption(val("category"), CATEGORIES, "Other");
+  const recomputedCategory = ckCategory
+    ? mapCkCategory(ckCategory, ckType, CK_CATEGORY_MAP)
+    : csvCategory;
+  const category = (recomputedCategory === TRANSFER_CATEGORY || csvCategory === TRANSFER_CATEGORY)
+    ? TRANSFER_CATEGORY
+    : matchOption(recomputedCategory, CATEGORIES, "Other");
+
   const row = {
     id: uid(),
     date,
     description: val("description"),
     amount,
-    category: matchOption(val("category"), CATEGORIES, "Other"),
+    category,
     account,
   };
-  // Keep the raw source category (e.g. from Credit Karma) for auditing the
-  // category-mapping decisions. Optional — only present when the column maps.
-  const ckCategory = mapping.ckCategory ? val("ckCategory") : "";
   if (ckCategory) row.ckCategory = ckCategory;
   // Keep the raw source account string for auditing the classification: lets
   // you see what each row was classified from (or why it stayed unmapped).
