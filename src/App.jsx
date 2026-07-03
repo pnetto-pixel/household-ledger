@@ -1374,7 +1374,7 @@ function Header({ hideValues, onToggleHide, onLogout, onOpenSettings, saving, sa
             <LayoutDashboard size={14} color="#fff" />
           </div>
           <span style={{ fontWeight: 700, fontSize: 15, letterSpacing: -0.5, color: "#e5e7eb" }}>Household</span>
-          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.16.2</span>
+          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.16.3</span>
         </div>
         <SaveIndicator saving={saving} dirty={dirty} savedAt={savedAt} saveError={saveError} />
       </div>
@@ -4266,8 +4266,8 @@ function AuditTab({
     [transactions, ckCategoryMap]
   );
   const suggestedCorrections = useMemo(
-    () => detectManualCategoryCorrections(transactions),
-    [transactions]
+    () => detectManualCategoryCorrections(transactions, categoryDescriptionRules),
+    [transactions, categoryDescriptionRules]
   );
 
   // Pre-fill/highlight signals for the "Account aliases"/"Category mapping"/
@@ -5576,11 +5576,18 @@ function descFragment(desc) {
 // group carries up to 3 examples (each with its own corrected category) and
 // the most-frequent destination category (what the user keeps picking) as the
 // rule target. Threshold >= 2. Sorted by count desc. Pure — memoized by caller.
-function detectManualCategoryCorrections(transactions) {
+// Like Group A (matchAccountWithAliases) and Group B (token already mapped
+// away from "Other"), skips rows already covered by an existing Description
+// rule — categoryManual is a permanent snapshot on historical rows (never
+// rewritten once a rule starts auto-classifying new imports), so without this
+// check a group would resurface forever even after the user creates the
+// exact rule the suggestion asked for.
+function detectManualCategoryCorrections(transactions, descriptionRules) {
   const groups = new Map();
   for (const t of transactions || []) {
     if (t.categoryManual !== true) continue;
     if (isTransfer(t.category)) continue;
+    if (matchDescriptionCategoryRule(t, descriptionRules) === t.category) continue; // already covered
     const key = descFragment(t.description) || (t.ckCategory ? ckCategoryToken(t.ckCategory) : "");
     if (!key) continue;
     let e = groups.get(key);
