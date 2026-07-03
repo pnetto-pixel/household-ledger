@@ -1,4 +1,4 @@
-# Household Ledger · v1.12.0
+# Household Ledger · v1.13.0
 
 Aplicativo mobile-first de controle financeiro doméstico. Registra
 transações da casa (despesas e receitas) por categoria e conta, com
@@ -24,13 +24,13 @@ A cada PR, atualize a versão em **dois lugares**:
 1. `src/App.jsx` — a string `v1.x.x` no span ao lado de "Household"
 2. `household-ledger.md` — o `· v1.x.x` no título `# Household Ledger`
 
-Versão atual: **v1.12.0** (heurística Apple Daily Cash editável: nova seção
-**Apple Daily Cash rule** na tab **Audit**, regra
-`DEFAULT_APPLE_DAILY_CASH_RULE` (provider pattern + keywords + categoria de
-destino) editável via `api/apple-daily-cash-rule.js`; `buildRow` aplica a
-regra estritamente depois da rede de segurança do mapa CK→ledger (PR #111) —
-é a única etapa do pipeline com permissão de promover de `Transfer` para
-outra categoria, e só quando o padrão realmente casa — PR #113.)
+Versão atual: **v1.13.0** (sugestão automática de regras novas: nova seção
+**Suggested rules** no topo da tab **Audit**, detecta agrupamentos de
+transações Unassigned por fragmento de `srcAccount` normalizado e
+agrupamentos de transações `category === "Other"` por `ckCategoryToken`,
+100% client-side sobre dados já em memória, sem escrita automática — PR #115.
+Com esta entrega, o item "Auditoria de classificação de categorias" da Fase
+5 fica **completo**, ver Roadmap.)
 
 ---
 
@@ -580,9 +580,33 @@ shell de altura cheia (`#root` em `100lvh` + shell `height:100%`): só o
    impacto e sem cascata retroativa** — só afeta novos imports a partir da
    mudança.
 
-   É o novo lar planejado para as próximas funcionalidades de auditoria de
-   classificação da Fase 5 (motor de sugestão automática de regras) — ainda
-   não implementado, ver Roadmap.
+   No **topo** da `AuditTab`, acima de "Account aliases", desde o **PR #115
+   (v1.13.0)**, a seção **"Suggested rules"**: detecta automaticamente,
+   100% client-side sobre as transações já carregadas em memória (sem novo
+   endpoint), dois grupos de candidatos a regra:
+   - **Grupo A (contas)** — `detectSuggestedAliasFragments` agrupa
+     transações `Unassigned` por `normAccount(srcAccount)` (mesma
+     normalização usada por `matchAccountWithAliases`), com threshold ≥2
+     ocorrências; exclui `srcAccount`s que já casam com algum alias
+     existente.
+   - **Grupo B (categorias)** — `detectSuggestedCategoryTokens` agrupa
+     transações com `category === "Other"` e `ckCategory` presente por
+     `ckCategoryToken`, threshold ≥2; só inclui tokens cujo mapeamento
+     corrente (`api/ck-category-map.js`) resolve para "Other".
+   Cada sugestão tem uma ação — **"Use this fragment"** (Grupo A) ou
+   **"Review this token"** (Grupo B) — que rola a tela até a seção alvo
+   (Account aliases ou Category mapping), força sua expansão
+   (`CollapsibleCard` ganhou props `id`/`openSignal` para isso) e
+   pré-preenche/destaca o campo relevante: no caso de aliases, preenche o
+   campo de novo fragmento; no caso de category mapping, destaca
+   visualmente a linha do token. **Nenhuma escrita automática** — o usuário
+   sempre confirma manualmente pelos fluxos de save já existentes (preview
+   & apply para aliases; save direto para category mapping). Há um
+   dismiss opcional por sugestão, só client-side, que **não persiste entre
+   sessões** (não há endpoint nem chave no Redis para isso).
+
+   Com esta seção, o item "Auditoria de classificação de categorias" da
+   Fase 5 fica **completo** — ver Roadmap.
 
 **Toggle do olho** no cabeçalho esconde/mostra todos os valores
 monetários globalmente (persistido em `localStorage`).
@@ -964,7 +988,28 @@ O app inicia com array vazio quando não há dados salvos (sem SEED).
   destino, aviso explícito sobre a exceção de promover Transfer. Sem
   preview de impacto/cascata retroativa — só novos imports. Pendente
   nesta fatia: sugestão automática de regras novas — ver item abaixo.
-- [~] **Auditoria de classificação de categorias** — área no app onde o
+- [x] **Sugestão automática de regras novas** (PR #115, SHA
+  ae8624f41ad6745fccc3f3ab55cda05ae56dcabc, v1.13.0) — última fatia do item
+  "Auditoria de classificação de categorias" abaixo, que com esta entrega
+  fica **completo**. Novas funções puras
+  `detectSuggestedAliasFragments`/`detectSuggestedCategoryTokens`, 100%
+  client-side sobre transações já em memória (sem novo endpoint): Grupo A
+  agrupa transações `Unassigned` por `normAccount(srcAccount)` (mesma
+  normalização de `matchAccountWithAliases`), threshold ≥2, excluindo
+  `srcAccount`s que já casam com alias existente; Grupo B agrupa
+  transações `category === "Other"` com `ckCategory` presente por
+  `ckCategoryToken`, threshold ≥2, só tokens cujo mapeamento corrente
+  resolve para "Other". Nova seção **"Suggested rules"** na `AuditTab`,
+  posicionada no **topo** (acima de Account aliases/Category
+  mapping/Apple Daily Cash rule/Classification history). Ações "Use this
+  fragment"/"Review this token" rolam até a seção alvo, forçam sua
+  abertura (`CollapsibleCard` ganhou props `id`/`openSignal`) e
+  pré-preenchem/destacam o campo relevante — **nenhuma escrita
+  automática**, o usuário sempre confirma pelos fluxos de save já
+  existentes. Dismiss opcional, só client-side, não persiste entre
+  sessões. Ver item "Auditoria de classificação de categorias" abaixo e
+  seção UI/Audit.
+- [x] **Auditoria de classificação de categorias** — área no app onde o
   usuário pode ver e editar as regras de auto-classificação que o app usa. A
   decisão de layout (tab dedicada **Audit**, em vez de dentro do
   `SettingsModal`) foi tomada e entregue no PR #107 (v1.9.0) — ver item
@@ -992,9 +1037,22 @@ O app inicia com array vazio quando não há dados salvos (sem SEED).
     acima.
   - **Sugestão de regras novas**: detectar automaticamente transações
     recorrentes sem account match (Unassigned) ou com categoria `Other`, e
-    propor uma regra baseada em fragmentos da descrição/provider. *(pendente)*
-  O objetivo é transformar a auto-classificação de uma caixa-preta em um
-  algoritmo auditável e refinável ao longo do tempo pelo usuário.
+    propor uma regra baseada em fragmentos da descrição/provider. **[x]
+    Entregue no PR #115 (v1.13.0)** — seção **Suggested rules** no topo da
+    tab Audit, detecção 100% client-side (Grupo A: fragmento de conta;
+    Grupo B: token de categoria CK), ações que levam até a seção relevante
+    e pré-preenchem/destacam, sem escrita automática — ver item acima.
+  Com esta última fatia, **todos os 5 sub-itens estão entregues** (Account
+  aliases: PR #105/#107; Classification history: PR #109; Category
+  mapping: PR #111; Apple Daily Cash rule: PR #113; Suggested rules: PR
+  #115) — este item da Fase 5 está **completo**. O objetivo era transformar
+  a auto-classificação de uma caixa-preta em um algoritmo auditável e
+  refinável ao longo do tempo pelo usuário; alcançado.
+
+  **Nota**: a Fase 5 como um todo **não** está completa — restam pendentes
+  os três itens abaixo ("Trends", "Budgets", "Recurrents" — reavaliar
+  formato), que são discussões de design separadas, sem relação com este
+  item de auditoria de classificação.
 - [ ] **Trends (mês a mês) — reavaliar formato** *(removido do Analyze no PR
   #104)*: antes vivia como LineChart top-5 categorias de despesa (12 meses) +
   StackedBarChart de mix mensal + tabela comparativa mês atual vs. anterior
