@@ -1,4 +1,4 @@
-# Household Ledger · v1.11.0
+# Household Ledger · v1.12.0
 
 Aplicativo mobile-first de controle financeiro doméstico. Registra
 transações da casa (despesas e receitas) por categoria e conta, com
@@ -24,11 +24,13 @@ A cada PR, atualize a versão em **dois lugares**:
 1. `src/App.jsx` — a string `v1.x.x` no span ao lado de "Household"
 2. `household-ledger.md` — o `· v1.x.x` no título `# Household Ledger`
 
-Versão atual: **v1.11.0** (mapa CK→ledger editável: nova seção **Category
-mapping** na tab **Audit**, mapa `DEFAULT_CK_CATEGORY_MAP` editável via
-`api/ck-category-map.js`, `buildRow` recalcula a categoria do import Credit
-Karma através do mapa — com rede de segurança que nunca rebaixa `Transfer`
-para outra categoria — PR #111.)
+Versão atual: **v1.12.0** (heurística Apple Daily Cash editável: nova seção
+**Apple Daily Cash rule** na tab **Audit**, regra
+`DEFAULT_APPLE_DAILY_CASH_RULE` (provider pattern + keywords + categoria de
+destino) editável via `api/apple-daily-cash-rule.js`; `buildRow` aplica a
+regra estritamente depois da rede de segurança do mapa CK→ledger (PR #111) —
+é a única etapa do pipeline com permissão de promover de `Transfer` para
+outra categoria, e só quando o padrão realmente casa — PR #113.)
 
 ---
 
@@ -166,6 +168,29 @@ o `Deposit` entra positivo (soma a receita) e o `Adjustment` entra negativo
 com "Apple Card" + descrição "Deposit" ou "Adjustment". Um depósito manual
 feito pelo usuário na Apple Savings também casaria com essa regra (trade-off
 aceito — são raros).
+
+**Heurística Apple Daily Cash editável (PR #113, v1.12.0).** Essa heurística
+deixou de existir apenas nos exportadores externos (`tools/credit-karma/`) —
+agora também é aplicada e editável dentro do próprio app. Novo endpoint
+`api/apple-daily-cash-rule.js` (GET/PUT, mesmo padrão de
+`api/ck-category-map.js`) persiste `{ providerPattern, keywords,
+destinationCategory, savedAt }` em Redis
+`household:*:appledailycashrule`. Sem campo `enabled` — esvaziar `keywords`
+já desliga a regra na prática. Seed `DEFAULT_APPLE_DAILY_CASH_RULE` =
+`{ providerPattern: "Apple Card", keywords: ["Deposit", "Adjustment"],
+destinationCategory: "Other Income" }`. As funções puras
+`appleDailyCashRuleMatches`/`applyAppleDailyCashRule` casam o provider
+pattern contra `srcAccount`/`account` e a keyword contra `description`; se
+casar, forçam a categoria de destino — **nunca tocam `amount`/sinal**. Em
+`buildRow`, a regra roda **estritamente depois** da rede de segurança de
+Transfer do mapa CK→ledger (PR #111) e é a **única etapa do pipeline de
+classificação com permissão de promover de `Transfer` para a categoria de
+destino** — só o faz quando o padrão realmente casa (comportamento aditivo;
+para a esmagadora maioria das transações, idêntico a antes). O
+`explainClassification` (Classification history) foi atualizado para usar o
+mesmo helper `appleDailyCashRuleMatches`/config editável, eliminando a
+divergência anterior entre a explicação exibida (regex hardcoded) e a lógica
+real aplicada no import.
 
 ### Mapa CK → ledger de categorias (editável, PR #111)
 
@@ -542,9 +567,22 @@ shell de altura cheia (`#root` em `100lvh` + shell `height:100%`): só o
    para a regra de segurança que nunca rebaixa `Transfer` no recálculo de
    `buildRow`.
 
+   Logo abaixo de "Category mapping", desde o **PR #113 (v1.12.0)**, uma nova
+   seção **"Apple Daily Cash rule"**: edita a heurística que reclassifica o
+   cashback do Apple Card (`Deposit`/`Adjustment`, marcado como `Transfer`
+   pelo CK) para `Other Income` — inputs de texto para o **provider
+   pattern** e as **keywords** (separadas por vírgula), e um select da
+   **categoria de destino**. Mesmo padrão visual `CollapsibleCard`/draft/
+   dirty/save das seções vizinhas. Exibe um aviso explícito de que essa
+   regra pode promover uma transação de `Transfer` para a categoria de
+   destino — a única exceção documentada à regra geral de nunca rebaixar/
+   alterar Transfer no pipeline de classificação. **Sem preview de
+   impacto e sem cascata retroativa** — só afeta novos imports a partir da
+   mudança.
+
    É o novo lar planejado para as próximas funcionalidades de auditoria de
-   classificação da Fase 5 (heurísticas especiais editáveis, motor de
-   sugestão automática de regras) — ainda não implementadas, ver Roadmap.
+   classificação da Fase 5 (motor de sugestão automática de regras) — ainda
+   não implementado, ver Roadmap.
 
 **Toggle do olho** no cabeçalho esconde/mostra todos os valores
 monetários globalmente (persistido em `localStorage`).
@@ -902,6 +940,30 @@ O app inicia com array vazio quando não há dados salvos (sem SEED).
   partir de agora (decisão confirmada com o usuário). Pendente nesta fatia:
   heurísticas especiais editáveis, sugestão automática de regras — ver item
   abaixo.
+- [x] **Heurística Apple Daily Cash editável** (PR #113, SHA
+  2ba7d53063e6546beaa4651c708f9d32d541515c, v1.12.0) — fatia do item
+  "Auditoria de classificação de categorias" abaixo. Novo endpoint
+  `api/apple-daily-cash-rule.js` (GET/PUT, mesmo padrão de
+  `api/ck-category-map.js`), persiste `{ providerPattern, keywords,
+  destinationCategory, savedAt }` em `household:*:appledailycashrule`
+  (sem campo `enabled` — `keywords` vazio já desliga a regra). Seed
+  `DEFAULT_APPLE_DAILY_CASH_RULE` = `{ providerPattern: "Apple Card",
+  keywords: ["Deposit", "Adjustment"], destinationCategory: "Other
+  Income" }`, editável em runtime. Funções puras
+  `appleDailyCashRuleMatches`/`applyAppleDailyCashRule` casam provider
+  pattern contra `srcAccount`/`account` e keyword contra `description`;
+  nunca tocam `amount`/sinal. Em `buildRow`, a regra roda estritamente
+  depois do safety-net de Transfer do mapa CK→ledger (PR #111) — é a
+  única etapa com permissão de promover de `Transfer` para a categoria de
+  destino, e só quando o padrão realmente casa (aditivo). O
+  `explainClassification` (Classification history) foi atualizado para
+  usar o mesmo helper/config editável, eliminando a divergência anterior
+  entre exibição (regex hardcoded) e lógica real. Nova seção **"Apple
+  Daily Cash rule"** na `AuditTab`, mesmo padrão visual das seções
+  vizinhas: inputs de provider pattern/keywords + select de categoria de
+  destino, aviso explícito sobre a exceção de promover Transfer. Sem
+  preview de impacto/cascata retroativa — só novos imports. Pendente
+  nesta fatia: sugestão automática de regras novas — ver item abaixo.
 - [~] **Auditoria de classificação de categorias** — área no app onde o
   usuário pode ver e editar as regras de auto-classificação que o app usa. A
   decisão de layout (tab dedicada **Audit**, em vez de dentro do
@@ -915,7 +977,10 @@ O app inicia com array vazio quando não há dados salvos (sem SEED).
     *pendente*: exceções por descrição/provider dentro do mesmo token.
   - **Heurísticas especiais** (ex.: Apple Daily Cash): listar as regras
     embutidas, mostrar quais transações cada uma capturou, permitir ajuste
-    da descrição ou do provider-pattern. *(pendente)*
+    da descrição ou do provider-pattern. **[x] Entregue no PR #113
+    (v1.12.0)** — seção **Apple Daily Cash rule** na tab Audit, editando
+    provider pattern, keywords e categoria de destino; sem preview de
+    impacto por transação — ver item acima.
   - **Aliases de conta**: ver quais fragmentos de marca casam com qual conta
     do ledger; adicionar/remover aliases; ver transações afetadas antes de
     salvar. **[x] Entregue no PR #105**, agora hospedado na tab **Audit**
