@@ -1,4 +1,4 @@
-# Household Ledger · v1.14.0
+# Household Ledger · v1.15.0
 
 Aplicativo mobile-first de controle financeiro doméstico. Registra
 transações da casa (despesas e receitas) por categoria e conta, com
@@ -24,16 +24,25 @@ A cada PR, atualize a versão em **dois lugares**:
 1. `src/App.jsx` — a string `v1.x.x` no span ao lado de "Household"
 2. `household-ledger.md` — o `· v1.x.x` no título `# Household Ledger`
 
-Versão atual: **v1.14.0** — **Painel de regras de categoria, Fatia 1**
-(novo tipo de regra editável "descrição/provider contém X → categoria Y",
-com precedência de override sobre o mapa CK para categorias não-Transfer;
-nova seção **Description rules** na tab Audit; a seção **Classification
-history** foi removida a pedido do usuário) — PR #117, SHA
-404dc8b8ac608df0bbf03cefd4d5f1b5b6386eba. A Fatia 2 (detecção de
-"correções manuais" / candidatos a regra por descrição, o "double check")
-fica **pendente** como próximo passo — ver Roadmap Fase 5.
+Versão atual: **v1.15.0** — **Painel de regras de categoria, Fatia 2**
+(detecção de "correções manuais" de categoria: novos campos opcionais
+`categoryManual`/`autoCategory` na transação, função pura
+`detectManualCategoryCorrections` agrupando correções recorrentes por token
+CK/fragmento de descrição, e terceiro grupo "Manual category corrections" no
+painel **Suggested rules** com ação para pré-preencher uma regra de
+descrição — o "double check", **forward-only**, sem retroatividade sobre
+correções feitas antes desta versão) — PR #119, branch
+`feature/manual-correction-detection`, SHA
+9e0475e8986aa9a43e9fbf4f6c8f2c4ab81c7c91.
 
-Versão anterior: **v1.13.0** (sugestão automática de regras novas: nova
+Versão anterior: **v1.14.0** (Painel de regras de categoria, Fatia 1: novo
+tipo de regra editável "descrição/provider contém X → categoria Y", com
+precedência de override sobre o mapa CK para categorias não-Transfer; nova
+seção **Description rules** na tab Audit; a seção **Classification
+history** foi removida a pedido do usuário) — PR #117, SHA
+404dc8b8ac608df0bbf03cefd4d5f1b5b6386eba.
+
+Versão anterior a essa: **v1.13.0** (sugestão automática de regras novas: nova
 seção **Suggested rules** no topo da tab **Audit**, detecta agrupamentos de
 transações Unassigned por fragmento de `srcAccount` normalizado e
 agrupamentos de transações `category === "Other"` por `ckCategoryToken`,
@@ -131,13 +140,35 @@ Cada transação:
   "accountUrn": "urn:account:fdp::accountid:81f7bbd0-…", // opcional — id estável do cartão
   "last4": "7612",             // opcional — últimos 4 do cartão (rótulo)
   "ckCategory": "GROCERIES",   // opcional — categoria crua da fonte (auditoria)
-  "sourceId": "abc123"         // opcional — id da transação na fonte (dedup)
+  "sourceId": "abc123",        // opcional — id da transação na fonte (dedup)
+  "categoryManual": true,      // opcional — usuário trocou a categoria manualmente
+  "autoCategory": "Groceries"  // opcional — categoria computada por buildRow no import (snapshot)
 }
 ```
 
 Persistido no Redis como `{ transactions: [...], savedAt }`. Os campos
 `srcAccount` e `ckCategory` só existem quando a fonte do import os fornece;
 servem para auditar as decisões de classificação de conta e categoria.
+
+**`categoryManual`/`autoCategory` (PR #119, v1.15.0, Fatia 2 do painel de
+regras de categoria).** Ambos aditivos e opcionais — transações antigas sem
+esses campos se comportam como "não editadas". `autoCategory` é gravado
+**só no import**, em `buildRow`, como snapshot da categoria que o pipeline
+computou (linha aditiva depois da categoria final; não altera precedência,
+o safety-net de Transfer nem o sinal do `amount`); nunca é reescrito depois.
+Serve só para exibir "was X → you: Y" na UI da sugestão. `categoryManual`
+é setado em runtime pela UI, não pelo import:
+- **`true`** quando o usuário troca a categoria manualmente (`EditModal`,
+  ou bulk "Set category" na tab Transactions).
+- **`false`** quando a transação vira `Transfer` (via `EditModal` ou bulk
+  "Mark as Transfer") — virar Transfer não conta como "correção de
+  categoria" para efeito de detecção.
+- Ausente = a categoria nunca foi editada manualmente.
+
+Esses campos alimentam `detectManualCategoryCorrections` (ver "Regras de
+categoria por descrição/provider" abaixo). Não mudam o contrato de
+`/api/transactions` nem o formato Redis `household:*:transactions`
+(passthrough).
 
 **Sinal do `amount`.** O valor é um **fluxo de caixa sinalizado**,
 preservado verbatim do Credit Karma e **independente da categoria**:
@@ -274,10 +305,22 @@ explica a precedência sobre o mapa CK (exceto Transfer). **Sem preview de
 impacto e sem cascata retroativa** — só afeta novos imports a partir da
 mudança (mesmo padrão das demais seções de regra da tab Audit).
 
-**Fatia 2 (pendente)**: detecção automática de "correções manuais" — o
-usuário edita manualmente a categoria de uma transação de forma consistente
-(mesmo padrão de descrição/provider várias vezes) e o app propõe transformar
-isso numa regra por descrição ("double check"). Ainda não implementada.
+**Fatia 2 (PR #119, v1.15.0) — concluída.** Detecção automática de
+"correções manuais" recorrentes ("double check"): nova função pura
+`detectManualCategoryCorrections` filtra transações com
+`categoryManual === true` e categoria final ≠ `Transfer` (ver
+`categoryManual`/`autoCategory` no Modelo de dados), agrupa por token CK
+(`ckCategoryToken`) com fallback para fragmento normalizado da descrição
+(cobre tanto imports Credit Karma quanto CSV genérico), threshold ≥2
+ocorrências no grupo. A UI é um terceiro grupo "Manual category
+corrections" dentro da seção existente **Suggested rules** (mesmo padrão
+dos grupos A/B: dismiss por sessão, sem persistência entre sessões). A ação
+"Create rule from this" pré-preenche a seção **Description rules** (Fatia
+1) com o pattern do fragmento comum e a categoria de destino = categoria
+manual mais frequente do grupo — o usuário revisa e salva manualmente, sem
+escrita automática. **Trade-off aceito: forward-only** — correções manuais
+feitas antes desta versão (sem `categoryManual`/`autoCategory` gravados)
+não são detectadas retroativamente.
 
 ### Orçamentos
 
@@ -635,7 +678,9 @@ shell de altura cheia (`#root` em `100lvh` + shell `height:100%`): só o
    padrão das seções vizinhas). Ver "Regras de categoria por
    descrição/provider" no Modelo de dados para a precedência exata em
    `buildRow`. A **Fatia 2** (detecção automática de correções manuais
-   recorrentes como candidatas a regra) fica **pendente**.
+   recorrentes como candidatas a regra, PR #119, v1.15.0) está **concluída**
+   — ver o Grupo C ("Manual category corrections") na seção **Suggested
+   rules** abaixo.
 
    No **topo** da `AuditTab`, acima de "Account aliases", desde o **PR #115
    (v1.13.0)**, a seção **"Suggested rules"**: detecta automaticamente,
@@ -650,16 +695,31 @@ shell de altura cheia (`#root` em `100lvh` + shell `height:100%`): só o
      transações com `category === "Other"` e `ckCategory` presente por
      `ckCategoryToken`, threshold ≥2; só inclui tokens cujo mapeamento
      corrente (`api/ck-category-map.js`) resolve para "Other".
-   Cada sugestão tem uma ação — **"Use this fragment"** (Grupo A) ou
-   **"Review this token"** (Grupo B) — que rola a tela até a seção alvo
-   (Account aliases ou Category mapping), força sua expansão
-   (`CollapsibleCard` ganhou props `id`/`openSignal` para isso) e
-   pré-preenche/destaca o campo relevante: no caso de aliases, preenche o
-   campo de novo fragmento; no caso de category mapping, destaca
-   visualmente a linha do token. **Nenhuma escrita automática** — o usuário
-   sempre confirma manualmente pelos fluxos de save já existentes (preview
-   & apply para aliases; save direto para category mapping). Há um
-   dismiss opcional por sugestão, só client-side, que **não persiste entre
+   - **Grupo C (correções manuais, PR #119, v1.15.0)** — "Manual category
+     corrections": `detectManualCategoryCorrections` agrupa transações com
+     `categoryManual === true` e categoria final ≠ `Transfer` por token CK
+     (`ckCategoryToken`) com fallback para fragmento normalizado da
+     descrição (cobre CK e CSV genérico), threshold ≥2. Ação **"Create rule
+     from this"** rola/expande a seção **Description rules** e pré-preenche
+     um novo rascunho de regra com o pattern do fragmento comum e a
+     categoria de destino = categoria manual mais frequente do grupo — o
+     usuário revisa e salva manualmente. **Forward-only**: só detecta
+     correções feitas depois desta versão (depende de `categoryManual`/
+     `autoCategory`, gravados a partir do PR #119); correções manuais
+     anteriores não são detectadas retroativamente. Ver "Regras de
+     categoria por descrição/provider" no Modelo de dados.
+   Cada sugestão tem uma ação — **"Use this fragment"** (Grupo A),
+   **"Review this token"** (Grupo B) ou **"Create rule from this"** (Grupo
+   C) — que rola a tela até a seção alvo (Account aliases, Category mapping
+   ou Description rules), força sua expansão (`CollapsibleCard` ganhou
+   props `id`/`openSignal` para isso) e pré-preenche/destaca o campo
+   relevante: no caso de aliases, preenche o campo de novo fragmento; no
+   caso de category mapping, destaca visualmente a linha do token; no caso
+   de correções manuais, pré-preenche um rascunho de regra de descrição.
+   **Nenhuma escrita automática** — o usuário sempre confirma manualmente
+   pelos fluxos de save já existentes (preview & apply para aliases; save
+   direto para category mapping/description rules). Há um dismiss
+   opcional por sugestão, só client-side, que **não persiste entre
    sessões** (não há endpoint nem chave no Redis para isso).
 
    Com esta seção, o item "Auditoria de classificação de categorias" da
@@ -1084,11 +1144,31 @@ O app inicia com array vazio quando não há dados salvos (sem SEED).
   history"** (PR #109) e a função `explainClassification` foram
   **removidas** a pedido do usuário. Ver "Regras de categoria por
   descrição/provider" no Modelo de dados e seção UI/Audit para detalhes.
-  **Pendente**: **Fatia 2** — detecção automática de "correções manuais"
-  recorrentes (o usuário edita a categoria manualmente de forma consistente
-  para um mesmo padrão de descrição/provider) como candidatas a nova regra
-  ("double check"), no mesmo espírito do motor de sugestão de regras do PR
-  #115. Ainda não implementada.
+  **Fatia 2 entregue** — ver item logo abaixo.
+- [x] **Painel de regras de categoria, Fatia 2** (PR #119, branch
+  `feature/manual-correction-detection`, SHA
+  9e0475e8986aa9a43e9fbf4f6c8f2c4ab81c7c91, v1.15.0) — detecção automática
+  de "correções manuais" de categoria ("double check"), no mesmo espírito
+  do motor de sugestão de regras do PR #115. Novos campos opcionais e
+  aditivos na transação: `categoryManual: true` (setado quando o usuário
+  troca a categoria manualmente via `EditModal` ou bulk "Set category";
+  setado `false` quando a transação vira `Transfer` via `EditModal` ou bulk
+  "Mark as Transfer", já que virar Transfer não conta como correção de
+  categoria) e `autoCategory` (categoria computada por `buildRow` no
+  import, snapshot só para exibição, nunca reescrita). Nova função pura
+  `detectManualCategoryCorrections` agrupa transações com `categoryManual
+  === true` e categoria ≠ Transfer por token CK (`ckCategoryToken`) com
+  fallback para fragmento normalizado da descrição, threshold ≥2. Terceiro
+  grupo "Manual category corrections" na seção **Suggested rules** (mesmo
+  padrão dos grupos A/B), com ação "Create rule from this" que pré-preenche
+  a seção **Description rules** (Fatia 1) com o pattern comum e a categoria
+  manual mais frequente do grupo — sem escrita automática, o usuário
+  confirma e salva manualmente. **Trade-off aceito: forward-only** —
+  correções manuais anteriores a esta versão não são detectadas
+  retroativamente (não houve pedido do usuário por um scan retroativo do
+  histórico; se vier a ser pedido, tratar como uma futura "Fatia 3"). Com
+  esta entrega, o item "Painel de regras de categoria" está completo (Fatia
+  1 + Fatia 2).
 - [x] **Auditoria de classificação de categorias** — área no app onde o
   usuário pode ver e editar as regras de auto-classificação que o app usa. A
   decisão de layout (tab dedicada **Audit**, em vez de dentro do
