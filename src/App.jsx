@@ -1374,7 +1374,7 @@ function Header({ hideValues, onToggleHide, onLogout, onOpenSettings, saving, sa
             <LayoutDashboard size={14} color="#fff" />
           </div>
           <span style={{ fontWeight: 700, fontSize: 15, letterSpacing: -0.5, color: "#e5e7eb" }}>Household</span>
-          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.15.0</span>
+          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.15.1</span>
         </div>
         <SaveIndicator saving={saving} dirty={dirty} savedAt={savedAt} saveError={saveError} />
       </div>
@@ -4077,17 +4077,28 @@ function SuggestedRulesSection({ suggestedFragments, suggestedTokens, suggestedC
   const fragments = suggestedFragments.filter((f) => !dismissed.has(`frag:${f.fragment}`));
   const tokens = suggestedTokens.filter((t) => !dismissed.has(`tok:${t.token}`));
   const corrections = (suggestedCorrections || []).filter((c) => !dismissed.has(`manual:${c.key}`));
-  if (fragments.length === 0 && tokens.length === 0 && corrections.length === 0) return null;
+  const total = fragments.length + tokens.length + corrections.length;
 
   const dismiss = (key) => setDismissed((prev) => new Set(prev).add(key));
 
   return (
-    <CollapsibleCard title="Suggested rules" badge={fragments.length + tokens.length + corrections.length} defaultOpen>
+    <CollapsibleCard title="Suggested rules" badge={total > 0 ? total : undefined} defaultOpen>
       <div style={{ fontSize: 12, color: "#8b94a3", margin: "0 0 10px", lineHeight: 1.5 }}>
-        Patterns detected in your current transactions that repeat often
-        enough to be worth turning into a rule. Nothing here is saved
-        automatically — each action jumps to the matching section below so you
-        can pick the destination and save yourself.
+        {total === 0 ? (
+          <>
+            Nothing to suggest yet — this is normal, not an error. This panel
+            fills in automatically as you import more transactions and correct
+            categories manually, once a pattern repeats enough to be worth
+            turning into a rule.
+          </>
+        ) : (
+          <>
+            Patterns detected in your current transactions that repeat often
+            enough to be worth turning into a rule. Nothing here is saved
+            automatically — each action jumps to the matching section below so
+            you can pick the destination and save yourself.
+          </>
+        )}
       </div>
 
       <div style={{ fontSize: 12, color: "#cbd5e1", fontWeight: 600, margin: "4px 0 6px" }}>
@@ -4178,7 +4189,12 @@ function SuggestedRulesSection({ suggestedFragments, suggestedTokens, suggestedC
         Manual category corrections
       </div>
       {corrections.length === 0 ? (
-        <div style={{ fontSize: 12, color: "#8b94a3" }}>No repeated manual corrections yet.</div>
+        <div style={{ fontSize: 12, color: "#8b94a3" }}>
+          No repeated manual corrections yet. This group only lists category
+          corrections you make manually (via Edit or bulk selection) from now
+          on, grouped once they repeat — so it's expected to be empty right
+          after this update.
+        </div>
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
           {corrections.map((c) => (
