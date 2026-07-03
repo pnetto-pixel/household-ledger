@@ -18,6 +18,7 @@ import {
   ChevronRight,
   ChevronUp,
   Check,
+  ShieldCheck,
 } from "lucide-react";
 import {
   ResponsiveContainer,
@@ -849,6 +850,13 @@ export default function App() {
           />
         ) : tab === "import" ? (
           <ImportTransactions onImport={addTransactions} accountMap={accountMap} config={config} transactions={transactions} />
+        ) : tab === "audit" ? (
+          <AuditTab
+            transactions={transactions}
+            accountMap={accountMap}
+            accountAliases={accountAliases}
+            onSaveAccountAliases={saveAccountAliasesAndApply}
+          />
         ) : (
           <Charts transactions={transactions} hideValues={hideValues} config={config} />
         )}
@@ -862,8 +870,6 @@ export default function App() {
           transactions={transactions}
           accountMap={accountMap}
           onSaveAccountMap={saveAndApplyAccountMap}
-          accountAliases={accountAliases}
-          onSaveAccountAliases={saveAccountAliasesAndApply}
           onClose={() => setSettingsOpen(false)}
           onAddAccount={addAccount}
           onRenameAccount={renameAccount}
@@ -1046,7 +1052,7 @@ function Header({ hideValues, onToggleHide, onLogout, onOpenSettings, saving, sa
             <LayoutDashboard size={14} color="#fff" />
           </div>
           <span style={{ fontWeight: 700, fontSize: 15, letterSpacing: -0.5, color: "#e5e7eb" }}>Household</span>
-          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.8.0</span>
+          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.9.0</span>
         </div>
         <SaveIndicator saving={saving} dirty={dirty} savedAt={savedAt} saveError={saveError} />
       </div>
@@ -1090,6 +1096,7 @@ const TABS = [
   { id: "analyze", label: "Analyze", Icon: TrendingUp },
   { id: "transactions", label: "Txns", Icon: List },
   { id: "import", label: "Import", Icon: Upload },
+  { id: "audit", label: "Audit", Icon: ShieldCheck },
 ];
 
 function TabBar({ tab, setTab, wide }) {
@@ -3694,7 +3701,25 @@ function ManagedList({ title, items, usage, onAdd, onRename, onDelete, onReorder
   );
 }
 
-function SettingsModal({ config, transactions, accountMap, onSaveAccountMap, accountAliases, onSaveAccountAliases, onClose, onAddAccount, onRenameAccount, onDeleteAccount, onAddCategory, onRenameCategory, onDeleteCategory, onReorderAccounts, onReorderCategories }) {
+// ===========================================================================
+// Audit tab
+// ===========================================================================
+
+function AuditTab({ transactions, accountMap, accountAliases, onSaveAccountAliases }) {
+  return (
+    <div style={S.col}>
+      <h3 style={S.sectionTitle}>Audit</h3>
+      <AccountAliasesSection
+        transactions={transactions}
+        accountMap={accountMap}
+        aliases={accountAliases}
+        onSave={onSaveAccountAliases}
+      />
+    </div>
+  );
+}
+
+function SettingsModal({ config, transactions, accountMap, onSaveAccountMap, onClose, onAddAccount, onRenameAccount, onDeleteAccount, onAddCategory, onRenameCategory, onDeleteCategory, onReorderAccounts, onReorderCategories }) {
   const usage = useMemo(() => {
     const acc = {}, cat = {};
     for (const t of transactions) {
@@ -3727,12 +3752,6 @@ function SettingsModal({ config, transactions, accountMap, onSaveAccountMap, acc
             transactions={transactions}
             accountMap={accountMap}
             onSave={onSaveAccountMap}
-          />
-          <AccountAliasesSection
-            transactions={transactions}
-            accountMap={accountMap}
-            aliases={accountAliases}
-            onSave={onSaveAccountAliases}
           />
           <ManagedList
             title="Accounts"
