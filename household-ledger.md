@@ -1,4 +1,4 @@
-# Household Ledger · v1.13.0
+# Household Ledger · v1.14.0
 
 Aplicativo mobile-first de controle financeiro doméstico. Registra
 transações da casa (despesas e receitas) por categoria e conta, com
