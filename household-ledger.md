@@ -1,4 +1,4 @@
-# Household Ledger · v1.16.2
+# Household Ledger · v1.16.3
 
 Aplicativo mobile-first de controle financeiro doméstico. Registra
 transações da casa (despesas e receitas) por categoria e conta, com
@@ -24,7 +24,33 @@ A cada PR, atualize a versão em **dois lugares**:
 1. `src/App.jsx` — a string `v1.x.x` no span ao lado de "Household"
 2. `household-ledger.md` — o `· v1.x.x` no título `# Household Ledger`
 
-Versão atual: **v1.16.2** — **Ajustes visuais na tab Import: segmented
+Versão atual: **v1.16.3** — **Fix: sugestão do Grupo C ("Manual category
+corrections") continuava reaparecendo mesmo depois de o usuário criar a
+Description rule sugerida e clicar "Dismiss"** (patch, frontend puro).
+Causa raiz: ao contrário do Grupo A (`detectSuggestedAliasFragments`, pula
+se `matchAccountWithAliases` já cobre) e do Grupo B
+(`detectSuggestedCategoryTokens`, pula se o token já está mapeado para algo
+≠ "Other"), o Grupo C (`detectManualCategoryCorrections`) nunca verificava
+se a transação já estava coberta por uma Description rule existente. Como
+`categoryManual === true` é uma flag permanente gravada na transação
+histórica (forward-only, PR #119) e nunca reescrita, o grupo continuava
+reaparecendo para sempre — nada marcava aquele grupo como "resolvido" depois
+de o usuário criar exatamente a regra sugerida. (O "Dismiss" é, à parte,
+deliberadamente só de sessão — reseta ao recarregar o app; isso não mudou e
+não era o bug.) Fix em `src/App.jsx`:
+`detectManualCategoryCorrections(transactions, descriptionRules)` ganhou um
+segundo parâmetro `descriptionRules` e um novo skip — `if
+(matchDescriptionCategoryRule(t, descriptionRules) === t.category) continue;`
+— reusando a função já existente `matchDescriptionCategoryRule` (a mesma do
+pipeline de import) para pular transações cuja categoria já é produzida por
+uma Description rule vigente, no mesmo espírito dos Grupos A/B. O callsite
+em `AuditTab` passou a fornecer `categoryDescriptionRules` (prop já
+existente) e essa dependência foi adicionada ao `useMemo`. Nenhuma mudança
+em `api/`, formato Redis, modelo de transação, Grupos A/B, pipeline de
+import ou UI de criar/editar Description rules. — PR #127, branch
+`claude/import-tab-ux-improvements-i1b7az` (pendente de merge).
+
+Versão anterior: **v1.16.2** — **Ajustes visuais na tab Import: segmented
 controls no lugar de cards/checkboxes** (patch, frontend puro). Dois
 ajustes de UI sobre a tab Import, sem tocar em `api/`, dedup
 (`markDuplicates`), column mapping CSV, `displayRows`/overrides de categoria
@@ -428,6 +454,20 @@ manual mais frequente do grupo — o usuário revisa e salva manualmente, sem
 escrita automática. **Trade-off aceito: forward-only** — correções manuais
 feitas antes desta versão (sem `categoryManual`/`autoCategory` gravados)
 não são detectadas retroativamente.
+
+**Fix v1.16.3 (PR #127) — skip por Description rule já existente.** Ao
+contrário dos Grupos A/B (que pulam candidatos já cobertos por uma regra/
+mapeamento vigente), o Grupo C nunca checava cobertura por Description rule
+— então uma sugestão continuava reaparecendo para sempre mesmo depois de o
+usuário criar exatamente a regra sugerida (nada nunca marcava o grupo como
+"resolvido", já que `categoryManual` é permanente e forward-only).
+`detectManualCategoryCorrections` passou a receber um segundo parâmetro
+`descriptionRules` e pula a transação quando
+`matchDescriptionCategoryRule(t, descriptionRules) === t.category` — reusa a
+mesma função do pipeline de import. `AuditTab` agora passa
+`categoryDescriptionRules` nessa chamada (dependência adicionada ao
+`useMemo`). Só afeta a detecção; nenhuma mudança em `api/`, formato Redis,
+modelo de transação ou nos Grupos A/B.
 
 ### Orçamentos
 
@@ -855,7 +895,13 @@ shell de altura cheia (`#root` em `100lvh` + shell `height:100%`): só o
      para o token CK (`ckCategoryToken`) quando não há fragmento (v1.16.1;
      antes era CK-token-first) —, threshold ≥2. Cada exemplo exibe a
      categoria que o usuário escolheu naquela transação ("was X → you: Y").
-     Ação **"Create rule
+     **Desde a v1.16.3 (PR #127)**, no mesmo espírito dos Grupos A/B, a
+     função também pula transações cuja categoria já é produzida por uma
+     Description rule vigente (`matchDescriptionCategoryRule(t,
+     descriptionRules) === t.category`) — antes o grupo continuava
+     reaparecendo para sempre mesmo depois de o usuário criar exatamente a
+     regra sugerida, já que `categoryManual` é permanente/forward-only e
+     nada marcava o grupo como "resolvido". Ação **"Create rule
      from this"** rola/expande a seção **Description rules** e pré-preenche
      um novo rascunho de regra com o pattern do fragmento comum e a
      categoria de destino = categoria manual mais frequente do grupo — o
@@ -1190,6 +1236,18 @@ O app inicia com array vazio quando não há dados salvos (sem SEED).
   Set `selected`. Novos tokens de estilo reutilizáveis `S.segmented`/
   `S.segmentedBtn`, no padrão visual do segmented control de granularidade
   do Analyze. Frontend puro, sem mudança de contrato de API/Redis.
+- [x] **Fix: Grupo C ("Manual category corrections") reaparecia mesmo após
+  o usuário criar a Description rule sugerida** (PR #127, branch
+  `claude/import-tab-ux-improvements-i1b7az`, v1.16.3, pendente de merge) —
+  ao contrário dos Grupos A/B (que pulam candidatos já cobertos), o Grupo C
+  nunca checava cobertura por Description rule existente, então a sugestão
+  não tinha como ser marcada como "resolvida" (`categoryManual` é permanente
+  e forward-only, PR #119). `detectManualCategoryCorrections` ganhou o
+  parâmetro `descriptionRules` e passa a pular transações cuja categoria já
+  é produzida por uma regra vigente (`matchDescriptionCategoryRule`);
+  `AuditTab` passou a fornecer `categoryDescriptionRules` nessa chamada. O
+  "Dismiss" (só de sessão) não mudou — não era a causa do bug. Frontend
+  puro, sem mudança de contrato de API/Redis, nenhum impacto nos Grupos A/B.
 
 ### Fase 5 — Inteligência e Auditoria
 
