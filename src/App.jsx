@@ -1374,7 +1374,7 @@ function Header({ hideValues, onToggleHide, onLogout, onOpenSettings, saving, sa
             <LayoutDashboard size={14} color="#fff" />
           </div>
           <span style={{ fontWeight: 700, fontSize: 15, letterSpacing: -0.5, color: "#e5e7eb" }}>Household</span>
-          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.15.2</span>
+          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.16.0</span>
         </div>
         <SaveIndicator saving={saving} dirty={dirty} savedAt={savedAt} saveError={saveError} />
       </div>
@@ -5191,11 +5191,41 @@ function ImportTransactions({ onImport, accountMap, config, transactions }) {
   const [selected, setSelected] = useState(() => new Set());
   const [onlyDups, setOnlyDups] = useState(false);
   const [onlyNonDups, setOnlyNonDups] = useState(false);
+  // Per-row category corrections made in the preview, before import. Keyed
+  // by row id -> { category, categoryManual }. Same manual-correction
+  // semantics as EditModal (see setCategoryOverride below), so these
+  // corrections feed detectManualCategoryCorrections / "Suggested rules"
+  // just like edits made after import. Reset whenever the parsed/mapped
+  // batch changes (same trigger as `selected`/`onlyDups`/`onlyNonDups`).
+  const [categoryOverrides, setCategoryOverrides] = useState(() => new Map());
   useEffect(() => {
     setSelected(new Set(dedupedRows.filter((r) => !r._dup).map((r) => r.id)));
     setOnlyDups(false);
     setOnlyNonDups(false);
+    setCategoryOverrides(new Map());
   }, [dedupedRows]);
+
+  const setCategoryOverride = (id, autoCategory, newCategory) => {
+    setCategoryOverrides((prev) => {
+      const next = new Map(prev);
+      if (newCategory === autoCategory) {
+        next.delete(id);
+      } else {
+        next.set(id, { category: newCategory, categoryManual: newCategory !== TRANSFER_CATEGORY });
+      }
+      return next;
+    });
+  };
+
+  // Rows as they should be shown/imported, with any preview-time category
+  // corrections applied on top of the deduped/auto-classified rows.
+  const displayRows = useMemo(() => {
+    if (categoryOverrides.size === 0) return dedupedRows;
+    return dedupedRows.map((r) => {
+      const ov = categoryOverrides.get(r.id);
+      return ov ? { ...r, ...ov } : r;
+    });
+  }, [dedupedRows, categoryOverrides]);
 
   // Mutually exclusive: checking one clears the other.
   const toggleOnlyDups = (checked) => {
@@ -5224,7 +5254,7 @@ function ImportTransactions({ onImport, accountMap, config, transactions }) {
   const selectedCount = selected.size;
   const confirm = () => {
     if (selectedCount === 0 || missingRequired.length > 0) return;
-    const toImport = dedupedRows.filter((r) => selected.has(r.id)).map(({ _dup, ...t }) => t);
+    const toImport = displayRows.filter((r) => selected.has(r.id)).map(({ _dup, ...t }) => t);
     onImport(toImport);
     setDone(`Imported ${toImport.length} transactions${dupCount ? ` · ${dupCount} duplicate(s) detected` : ""}.`);
     resetAll();
@@ -5339,8 +5369,10 @@ function ImportTransactions({ onImport, accountMap, config, transactions }) {
             ) : null}
           </div>
           <div style={{ ...S.list, maxHeight: 300, overflowY: "auto" }}>
-            {dedupedRows.filter((t) => (onlyDups ? t._dup : onlyNonDups ? !t._dup : true)).slice(0, 400).map((t) => {
+            {displayRows.filter((t) => (onlyDups ? t._dup : onlyNonDups ? !t._dup : true)).slice(0, 400).map((t) => {
               const checked = selected.has(t.id);
+              const autoCategory = t.autoCategory ?? t.category;
+              const edited = t.category !== autoCategory;
               return (
                 <div
                   key={t.id}
@@ -5352,9 +5384,20 @@ function ImportTransactions({ onImport, accountMap, config, transactions }) {
                     <div style={{ fontSize: 14, color: "#e5e7eb", overflowWrap: "anywhere" }}>
                       {t.description || t.category}
                       {t._dup ? <span style={{ marginLeft: 6, fontSize: 10, fontWeight: 700, color: "#fbbf24", border: "1px solid #5b4a16", borderRadius: 6, padding: "1px 5px", verticalAlign: "1px" }}>DUP</span> : null}
+                      {edited ? <span title={`Auto-detected as ${autoCategory}`} style={{ marginLeft: 6, fontSize: 10, fontWeight: 700, color: "#60a5fa", border: "1px solid #1d3a5f", borderRadius: 6, padding: "1px 5px", verticalAlign: "1px" }}>EDITED</span> : null}
                     </div>
-                    <div style={{ fontSize: 11, color: "#8b94a3" }}>
-                      {t.date} · {t.category}{t.account ? ` · ${t.account}` : ""}
+                    <div style={{ fontSize: 11, color: "#8b94a3", display: "flex", alignItems: "center", gap: 6, marginTop: 3 }}>
+                      <span style={{ whiteSpace: "nowrap" }}>{t.date}{t.account ? ` · ${t.account}` : ""}</span>
+                      <select
+                        value={t.category}
+                        onClick={(e) => e.stopPropagation()}
+                        onChange={(e) => setCategoryOverride(t.id, autoCategory, e.target.value)}
+                        style={S.importCatSelect}
+                      >
+                        {CATEGORIES.map((c) => (
+                          <option key={c} value={c}>{c}</option>
+                        ))}
+                      </select>
                     </div>
                   </div>
                   <span style={{ fontSize: 14, color: "#cbd5e1", whiteSpace: "nowrap" }}>{usd.format(t.amount)}</span>
@@ -5846,6 +5889,21 @@ const S = {
     padding: "10px 12px",
     color: "#e5e7eb",
     fontSize: 14,
+  },
+  // Compact category picker inside the Import preview row — same tokens as
+  // `select` but sized to sit inline next to the date/account line without
+  // breaking the row layout or the sticky import bar below it.
+  importCatSelect: {
+    flex: "0 1 auto",
+    minWidth: 0,
+    maxWidth: 130,
+    background: "#0f1216",
+    border: "1px solid #232a33",
+    borderRadius: 8,
+    padding: "2px 4px",
+    color: "#8b94a3",
+    fontSize: 11,
+    lineHeight: 1.4,
   },
   primaryBtn: {
     width: "100%",

@@ -1,4 +1,4 @@
-# Household Ledger · v1.15.2
+# Household Ledger · v1.16.0
 
 Aplicativo mobile-first de controle financeiro doméstico. Registra
 transações da casa (despesas e receitas) por categoria e conta, com
@@ -24,7 +24,28 @@ A cada PR, atualize a versão em **dois lugares**:
 1. `src/App.jsx` — a string `v1.x.x` no span ao lado de "Household"
 2. `household-ledger.md` — o `· v1.x.x` no título `# Household Ledger`
 
-Versão atual: **v1.15.2** — **UX improvements on Import tab: non-duplicates
+Versão atual: **v1.16.0** — **Edição de categoria na preview da tab Import**
+(feature nova, frontend puro). Cada linha da prévia do Import ganhou um
+`<select>` compacto com a lista completa `CATEGORIES` (incl. Transfer) no
+lugar do texto estático da categoria — clique no select não dispara o
+toggle de seleção da linha. Os overrides ficam num estado local
+(`categoryOverrides` Map), resetado ao trocar de arquivo/mapping (junto com
+`selected`/filtros). Mesma semântica do `EditModal`: só conta como override
+se a categoria escolhida difere da `autoCategory`; `categoryManual =
+categoria !== Transfer` (virar Transfer nunca conta como correção manual).
+`displayRows` aplica os overrides e é o que a lista e o `confirm()`
+enxergam — a transação importada carrega a `category` corrigida,
+`categoryManual` correto e `autoCategory` original intactos, alimentando
+`detectManualCategoryCorrections` e o grupo "Manual category corrections"
+do painel **Suggested rules** (tab Audit) exatamente pelo mesmo mecanismo já
+existente — sem escrita automática nem endpoint novo (passthrough normal via
+`PUT /api/transactions`). Badge azul "EDITED" (`#60a5fa`) quando a categoria
+difere da auto-detectada, com `title` mostrando a original. Nada mudou em
+`api/`, `buildRow`, `markDuplicates`, formato Redis ou modelo de transação
+além dos campos já existentes (`categoryManual`/`autoCategory`, PR #119). —
+PR #124, branch `claude/import-tab-ux-improvements-i1b7az`.
+
+Versão anterior: **v1.15.2** — **UX improvements on Import tab: non-duplicates
 filter, sticky import button, condensed mapping/summary** (frontend puro,
 refinamento de UX sobre a tab Import já entregue na Fase 4). Novo checkbox
 "Only non-duplicates" ao lado do "Only duplicates" existente, mutuamente
@@ -40,8 +61,7 @@ de carregar o arquivo; `maxHeight` da lista de preview reduzido de 360 para
 colapsável via `CollapsibleCard`, aberta por padrão só quando falta campo
 obrigatório mapeado; o aviso de campo obrigatório faltando continua sempre
 visível fora do card, independente do estado colapsado. — PR #123, branch
-`claude/import-tab-ux-improvements-i1b7az` (pendente de merge nesta
-referência).
+`claude/import-tab-ux-improvements-i1b7az`, squash merge, SHA 4819642.
 
 Versão anterior: **v1.15.1** — **Fix: painel "Suggested rules" invisível quando
 vazio** (a seção na tab Audit tinha um `return null` quando os 3 grupos
@@ -194,6 +214,14 @@ Serve só para exibir "was X → you: Y" na UI da sugestão. `categoryManual`
   "Mark as Transfer") — virar Transfer não conta como "correção de
   categoria" para efeito de detecção.
 - Ausente = a categoria nunca foi editada manualmente.
+
+**Desde a v1.16.0 (PR #124)**, `categoryManual`/`autoCategory` também são
+setados **no momento do import**: a prévia da tab Import permite editar a
+categoria de cada linha antes de confirmar, e se a categoria escolhida
+difere da `autoCategory` computada por `buildRow`, a transação já entra no
+ledger com `categoryManual: true` (mesma regra `categoria !== Transfer`
+para contar como manual) — não é mais só o `EditModal`/bulk actions em
+runtime que geram esses campos.
 
 Esses campos alimentam `detectManualCategoryCorrections` (ver "Regras de
 categoria por descrição/provider" abaixo). Não mudam o contrato de
@@ -665,6 +693,20 @@ shell de altura cheia (`#root` em `100lvh` + shell `height:100%`): só o
      falhava quando o `sourceId` estava ausente.
 
    O export do CK emite a coluna `source_id`.
+
+   **Edição de categoria na preview (v1.16.0, PR #124).** Cada linha da
+   prévia tem um `<select>` compacto com todas as `CATEGORIES` (incl.
+   `Transfer`) no lugar do texto estático da categoria — clicar no select
+   não dispara o toggle de seleção da linha. Quando a categoria escolhida
+   difere da auto-detectada, a linha exibe um badge azul **"EDITED"**
+   (`#60a5fa`, `title` mostra a categoria original). Os overrides ficam em
+   estado local, resetados ao trocar de arquivo/mapping (junto com
+   `selected`/filtros), e são aplicados antes da confirmação — a transação
+   importada carrega a categoria corrigida com `categoryManual`/
+   `autoCategory` corretos, alimentando o mecanismo existente de detecção
+   de correções manuais (`detectManualCategoryCorrections`) e o grupo
+   "Manual category corrections" do painel **Suggested rules** na tab
+   Audit, sem nenhuma escrita/endpoint novo.
 5. **Audit** (PR #107, v1.9.0) — 5ª tab, ícone `ShieldCheck`, última posição
    na tab bar. Renderiza `AccountAliasesSection` (mesmas props de antes:
    `transactions`, `accountMap`, `aliases={accountAliases}`,
@@ -1052,8 +1094,8 @@ O app inicia com array vazio quando não há dados salvos (sem SEED).
   método CSV, e placeholder do dropzone de upload. Único arquivo tocado:
   `src/App.jsx`
 - [x] UX improvements na tab Import (PR #123, branch
-  `claude/import-tab-ux-improvements-i1b7az`, v1.15.2, pendente de merge
-  nesta referência): novo checkbox "Only non-duplicates" ao lado de "Only
+  `claude/import-tab-ux-improvements-i1b7az`, v1.15.2, squash merge, SHA
+  4819642): novo checkbox "Only non-duplicates" ao lado de "Only
   duplicates" (mutuamente exclusivos, só aparecem quando há duplicatas
   detectadas — filtro só de visualização da prévia, não afeta o Set
   `selected` usado para importar); botão "Import N transactions" movido para
@@ -1064,6 +1106,20 @@ O app inicia com array vazio quando não há dados salvos (sem SEED).
   CSV) virou colapsável via `CollapsibleCard`, aberta por padrão só quando
   falta campo obrigatório mapeado (aviso de campo faltando continua sempre
   visível fora do card). Frontend puro, sem mudança de contrato de API/Redis.
+- [x] Edição de categoria na preview da tab Import (PR #124, branch
+  `claude/import-tab-ux-improvements-i1b7az`, v1.16.0): refinamento sobre o
+  Import redesenhado da Fase 4, cruzando com o mecanismo de correções
+  manuais da Fase 5 (PR #119). Cada linha da prévia ganhou um `<select>` de
+  categoria (lista completa `CATEGORIES`, incl. Transfer) no lugar do texto
+  estático; overrides em estado local (`categoryOverrides` Map, resetado ao
+  trocar arquivo/mapping), aplicados via `displayRows` antes da
+  confirmação — mesma semântica do `EditModal` para `categoryManual`/
+  `autoCategory` (ver Modelo de dados). A transação importada já entra no
+  ledger com a categoria corrigida, alimentando
+  `detectManualCategoryCorrections` e o grupo "Manual category corrections"
+  do painel Suggested rules (tab Audit) sem nenhum endpoint/persistência
+  nova. Badge azul "EDITED" quando a categoria difere da auto-detectada.
+  Frontend puro, sem mudança de contrato de API/Redis.
 
 ### Fase 5 — Inteligência e Auditoria
 
