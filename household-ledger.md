@@ -1,4 +1,4 @@
-# Household Ledger · v1.9.0
+# Household Ledger · v1.10.0
 
 Aplicativo mobile-first de controle financeiro doméstico. Registra
 transações da casa (despesas e receitas) por categoria e conta, com
@@ -24,9 +24,10 @@ A cada PR, atualize a versão em **dois lugares**:
 1. `src/App.jsx` — a string `v1.x.x` no span ao lado de "Household"
 2. `household-ledger.md` — o `· v1.x.x` no título `# Household Ledger`
 
-Versão atual: **v1.9.0** (nova 5ª tab **Audit**: a seção "Account aliases"
-saiu do `SettingsModal` e passou a viver numa tab dedicada, preparando espaço
-para as futuras funcionalidades de auditoria de classificação — PR #107.)
+Versão atual: **v1.10.0** (nova seção **Classification history** dentro da
+tab **Audit**: lista somente-leitura das transações com busca + paginação,
+mostrando a explicação de por que cada uma foi classificada com a conta/
+categoria atuais — PR #109.)
 
 ---
 
@@ -462,19 +463,40 @@ shell de altura cheia (`#root` em `100lvh` + shell `height:100%`): só o
 
    O export do CK emite a coluna `source_id`.
 5. **Audit** (PR #107, v1.9.0) — 5ª tab, ícone `ShieldCheck`, última posição
-   na tab bar. Hoje renderiza somente `AccountAliasesSection` (mesmas props
-   de antes: `transactions`, `accountMap`, `aliases={accountAliases}`,
+   na tab bar. Renderiza `AccountAliasesSection` (mesmas props de antes:
+   `transactions`, `accountMap`, `aliases={accountAliases}`,
    `onSave={onSaveAccountAliases}`), a seção **Account aliases** que antes
    vivia dentro do `SettingsModal` — chips de fragmento por conta (add/remove)
    + fluxo **Preview impact** → **Confirm & apply** (ver "Aliases de conta
    editáveis" no Modelo de dados). Nenhuma lógica de negócio mudou
    (`saveAccountAliasesAndApply`, `computeAliasImpact`, `buildAliasArray`,
    `applyAliasConfig`, `matchAccount`, `classifyAccount`,
-   `api/account-aliases.js` — tudo igual, só mudou onde é renderizado). É o
-   novo lar planejado para as próximas funcionalidades de auditoria de
-   classificação da Fase 5 (mapa CK→ledger, heurísticas especiais, histórico
-   de decisões por transação, motor de sugestão automática de regras) —
-   ainda não implementadas, ver Roadmap.
+   `api/account-aliases.js` — tudo igual, só mudou onde é renderizado).
+
+   Logo abaixo de "Account aliases", desde o **PR #109 (v1.10.0)**, uma nova
+   seção **"Classification history"**: lista **somente leitura** das
+   transações, com busca textual simples (substring sobre description /
+   account / category / srcAccount / ckCategory) e paginação "Show more" em
+   blocos de 25. Para cada transação exibe data, descrição, conta/categoria
+   atuais e a explicação retornada por `explainClassification(txn,
+   accountMap, aliasesArray)` — a mesma precedência do classificador real
+   (URN mapeado > match exato de nome > match de alias > "No rule matched" /
+   "Set manually" para conta; categoria mapeada do Credit Karma > heurística
+   Apple Daily Cash > "Manually set" > "As imported"). Não introduz nenhum
+   endpoint, escrita no Redis ou edição de regra — é só uma janela para as
+   decisões já tomadas pelo classificador. Diferente dos totais/gráficos, essa
+   lista **não filtra `Transfer`** (é trilha por transação individual, não
+   agregado financeiro). A heurística Apple Daily Cash aqui é **reimplementada
+   apenas para exibição** client-side dentro de `explainClassification` — se a
+   regra real usada pelos exportadores mudar sem atualizar esta função, a
+   explicação mostrada pode dessincronizar do comportamento real (trade-off
+   aceito, mesmo espírito de outras heurísticas client-side já documentadas
+   neste arquivo).
+
+   É o novo lar planejado para as próximas funcionalidades de auditoria de
+   classificação da Fase 5 (mapa CK→ledger editável, heurísticas especiais
+   editáveis, motor de sugestão automática de regras) — ainda não
+   implementadas, ver Roadmap.
 
 **Toggle do olho** no cabeçalho esconde/mostra todos os valores
 monetários globalmente (persistido em `localStorage`).
@@ -782,6 +804,30 @@ O app inicia com array vazio quando não há dados salvos (sem SEED).
   alias preservada. Fora de escopo nesta fatia (pendente): mapa CK→ledger e
   heurísticas especiais editáveis, painel de histórico de decisões por
   transação, motor de sugestão automática de regras — ver item abaixo.
+- [x] **Histórico de decisões por transação** (PR #109, SHA
+  5a2bfd77c14db0a86d6b6331b6ebb9a46769fb1f, v1.10.0) — fatia do item
+  "Auditoria de classificação de categorias" abaixo. Nova função pura
+  `explainClassification(txn, accountMap, aliasesArray)` retorna
+  `{ accountReason, categoryReason }`: conta segue URN mapeado > match exato
+  de nome de conta > match de alias > vazio ("No rule matched"/"Unassigned")
+  > "Set manually"; categoria segue mapeamento Credit Karma (`ckCategory` ≠
+  `category`) > heurística Apple Daily Cash (leitura, não editável) >
+  "Manually set" > "As imported". Durante a auditoria foi extraído o helper
+  `matchAccountWithAliasesReason`, compartilhado com `matchAccountWithAliases`,
+  para eliminar o risco de duas fontes de verdade divergirem (assinaturas
+  públicas de `matchAccountWithAliases`/`matchAccount`/`classifyAccount`
+  permanecem inalteradas). Nova seção **Classification history** dentro da
+  `AuditTab`, abaixo de "Account aliases": lista as transações com busca
+  textual simples e paginação "Show more" (blocos de 25), mostrando data,
+  descrição, conta/categoria atuais e a explicação de
+  `explainClassification`. 100% somente leitura — nenhum endpoint novo,
+  nenhuma escrita no Redis, nenhuma edição de regra. Decisão intencional:
+  essa lista **não filtra `Transfer`** (trilha por transação individual, ao
+  contrário dos totais/gráficos). Nota: a heurística Apple Daily Cash exibida
+  aqui é reimplementada só para leitura client-side — risco de dessincronizar
+  se a regra real dos exportadores mudar sem atualizar esta função também.
+  Pendente nesta fatia: mapa CK→ledger editável, heurísticas especiais
+  editáveis, sugestão automática de regras — ver item abaixo.
 - [~] **Auditoria de classificação de categorias** — área no app onde o
   usuário pode ver e editar as regras de auto-classificação que o app usa. A
   decisão de layout (tab dedicada **Audit**, em vez de dentro do
@@ -798,9 +844,11 @@ O app inicia com array vazio quando não há dados salvos (sem SEED).
     do ledger; adicionar/remover aliases; ver transações afetadas antes de
     salvar. **[x] Entregue no PR #105**, agora hospedado na tab **Audit**
     desde o PR #107 — ver itens acima.
-  - **Histórico de decisões** — por transação, um tooltip ou painel mostrando
-    por que foi classificada como X (qual regra/alias casou, se foi
-    classificação manual ou automática). *(pendente)*
+  - **Histórico de decisões** — por transação, um painel mostrando por que
+    foi classificada como X (qual regra/alias casou, se foi classificação
+    manual ou automática). **[x] Entregue no PR #109 (v1.10.0)** — seção
+    "Classification history" na tab **Audit**, somente leitura — ver item
+    acima.
   - **Sugestão de regras novas**: detectar automaticamente transações
     recorrentes sem account match (Unassigned) ou com categoria `Other`, e
     propor uma regra baseada em fragmentos da descrição/provider. *(pendente)*
