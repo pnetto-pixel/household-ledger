@@ -1052,7 +1052,7 @@ function Header({ hideValues, onToggleHide, onLogout, onOpenSettings, saving, sa
             <LayoutDashboard size={14} color="#fff" />
           </div>
           <span style={{ fontWeight: 700, fontSize: 15, letterSpacing: -0.5, color: "#e5e7eb" }}>Household</span>
-          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.9.0</span>
+          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.10.0</span>
         </div>
         <SaveIndicator saving={saving} dirty={dirty} savedAt={savedAt} saveError={saveError} />
       </div>
@@ -3715,7 +3715,88 @@ function AuditTab({ transactions, accountMap, accountAliases, onSaveAccountAlias
         aliases={accountAliases}
         onSave={onSaveAccountAliases}
       />
+      <ClassificationHistorySection transactions={transactions} accountMap={accountMap} accountAliases={accountAliases} />
     </div>
+  );
+}
+
+// Read-only audit trail: for every transaction, explain in plain text why it
+// landed on its current account and category (see `explainClassification`).
+// Purely a viewer over already-loaded `transactions` — no writes, no new
+// endpoint. A text filter + "show more" keeps the DOM small on large ledgers
+// instead of rendering thousands of rows at once.
+const CLASSIFICATION_PAGE_SIZE = 25;
+
+function ClassificationHistorySection({ transactions, accountMap, accountAliases }) {
+  const [query, setQuery] = useState("");
+  const [visible, setVisible] = useState(CLASSIFICATION_PAGE_SIZE);
+  const aliasesArray = useMemo(() => buildAliasArray(accountAliases || {}), [accountAliases]);
+
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    const list = [...(transactions || [])].sort((a, b) => (b.date || "").localeCompare(a.date || ""));
+    if (!q) return list;
+    return list.filter((t) =>
+      [t.description, t.account, t.category, t.srcAccount, t.ckCategory]
+        .filter(Boolean)
+        .some((v) => String(v).toLowerCase().includes(q))
+    );
+  }, [transactions, query]);
+
+  useEffect(() => { setVisible(CLASSIFICATION_PAGE_SIZE); }, [query]);
+
+  const shown = filtered.slice(0, visible);
+
+  return (
+    <CollapsibleCard title="Classification history" badge={transactions?.length || 0}>
+      <div style={{ fontSize: 12, color: "#8b94a3", margin: "0 0 10px", lineHeight: 1.5 }}>
+        Read-only explanation of how each transaction's account and category
+        were determined (URN card map, alias fragment, Credit Karma category,
+        or manual entry). Nothing here can be edited — fix rules in "Account
+        aliases" or the account map in Settings instead.
+      </div>
+      <div style={{ position: "relative", marginBottom: 10 }}>
+        <Search size={14} color="#8b94a3" style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)" }} />
+        <input
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Filter by description, account, or category…"
+          style={{ ...S.input, padding: "9px 11px 9px 32px", fontSize: 13 }}
+        />
+      </div>
+      {shown.length === 0 ? (
+        <Empty>No matching transactions.</Empty>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+          {shown.map((t) => {
+            const { accountReason, categoryReason } = explainClassification(t, accountMap, aliasesArray);
+            return (
+              <div key={t.id} style={{ background: "#161a20", border: "1px solid #1e2530", borderRadius: 10, padding: "9px 11px" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", gap: 8, fontSize: 13, color: "#e5e7eb" }}>
+                  <span style={{ overflowWrap: "anywhere" }}>{t.description || "(no description)"}</span>
+                  <span style={{ color: "#8b94a3", flexShrink: 0, fontSize: 12 }}>{t.date}</span>
+                </div>
+                <div style={{ fontSize: 12, color: "#8b94a3", marginTop: 4 }}>
+                  Account: <span style={{ color: "#cbd5e1" }}>{t.account || "Unassigned"}</span> — {accountReason}
+                </div>
+                <div style={{ fontSize: 12, color: "#8b94a3", marginTop: 2 }}>
+                  Category: <span style={{ color: "#cbd5e1" }}>{t.category || "—"}</span> — {categoryReason}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+      {filtered.length > shown.length ? (
+        <button
+          type="button"
+          onClick={() => setVisible((v) => v + CLASSIFICATION_PAGE_SIZE)}
+          style={{ marginTop: 10, width: "100%", background: "transparent", border: "1px solid #2a313c", color: "#cbd5e1", borderRadius: 8, padding: "8px 12px", fontSize: 13, cursor: "pointer" }}
+        >
+          Show more ({filtered.length - shown.length} remaining)
+        </button>
+      ) : null}
+    </CollapsibleCard>
   );
 }
 
@@ -4292,15 +4373,27 @@ function normAccount(s) {
 // hiding under ATT Reward. Pure (takes the alias array as a parameter) so the
 // impact-preview UI can try a draft alias table without mutating the module's
 // live `ACCOUNT_ALIASES`.
-function matchAccountWithAliases(rawValue, aliasesArray) {
+// Core matcher shared by `matchAccountWithAliases` and `explainClassification`
+// so the two can never drift out of sync: returns both the resolved account
+// and a plain-text reason for which branch fired.
+function matchAccountWithAliasesReason(rawValue, aliasesArray) {
   const n = normAccount(rawValue);
-  if (!n) return "";
+  if (!n) return { account: "", reason: "" };
   const exact = ACCOUNTS.find((a) => normAccount(a) === n);
-  if (exact) return exact;
-  for (const [account, aliases] of aliasesArray) {
-    if (aliases.some((al) => n.includes(al))) return account;
+  if (exact) {
+    return { account: exact, reason: `Exact account name match: '${rawValue}' → ${exact}` };
   }
-  return "";
+  for (const [account, aliases] of aliasesArray) {
+    const hit = aliases.find((al) => n.includes(al));
+    if (hit) {
+      return { account, reason: `Matched alias fragment: '${hit}' → ${account}` };
+    }
+  }
+  return { account: "", reason: "" };
+}
+
+function matchAccountWithAliases(rawValue, aliasesArray) {
+  return matchAccountWithAliasesReason(rawValue, aliasesArray).account;
 }
 
 // Same as above, using the current live alias table.
@@ -4334,6 +4427,48 @@ function computeAliasImpact(transactions, accountMap, aliasesArray) {
     }
   }
   return impacted;
+}
+
+// Read-only, client-side explanation of how a transaction ended up with its
+// current account and category — for the "Classification history" audit
+// panel. Never mutates or re-derives the transaction; it only re-runs the
+// same rules (`classifyAccount`/`matchAccountWithAliases`) to describe which
+// one fired, plus surfaces the raw Credit Karma category and the Apple Daily
+// Cash heuristic (both applied at import time in `buildRow`, not here) as
+// plain text. Pure function — no side effects, safe to call per-row in a list.
+function explainClassification(txn, accountMap, aliasesArray) {
+  const t = txn || {};
+  let accountReason;
+  if (t.accountUrn && accountMap && accountMap[t.accountUrn]) {
+    accountReason = `Mapped by card ID (URN) → ${accountMap[t.accountUrn]}`;
+  } else {
+    const raw = t.srcAccount || "";
+    const { reason } = matchAccountWithAliasesReason(raw, aliasesArray || []);
+    if (reason) {
+      accountReason = reason;
+    } else {
+      accountReason = t.account
+        ? "Set manually (no source data)"
+        : "No rule matched (Unassigned)";
+    }
+  }
+
+  let categoryReason;
+  const appleDailyCash =
+    /apple card/i.test(`${t.srcAccount || ""} ${t.description || ""}`) &&
+    /(deposit|adjustment)/i.test(t.description || "") &&
+    t.category === "Other Income";
+  if (t.ckCategory && t.ckCategory !== t.category) {
+    categoryReason = `Mapped from Credit Karma category: ${t.ckCategory}`;
+  } else if (appleDailyCash) {
+    categoryReason = "Apple Daily Cash heuristic (Deposit/Adjustment)";
+  } else if (!t.ckCategory) {
+    categoryReason = "Manually set";
+  } else {
+    categoryReason = "As imported";
+  }
+
+  return { accountReason, categoryReason };
 }
 
 // ===========================================================================
