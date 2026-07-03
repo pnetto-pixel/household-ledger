@@ -1374,7 +1374,7 @@ function Header({ hideValues, onToggleHide, onLogout, onOpenSettings, saving, sa
             <LayoutDashboard size={14} color="#fff" />
           </div>
           <span style={{ fontWeight: 700, fontSize: 15, letterSpacing: -0.5, color: "#e5e7eb" }}>Household</span>
-          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.14.0</span>
+          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.15.0</span>
         </div>
         <SaveIndicator saving={saving} dirty={dirty} savedAt={savedAt} saveError={saveError} />
       </div>
@@ -2843,7 +2843,7 @@ function Transactions({ transactions, money, hideValues, isWide, onDelete, onUpd
             </select>
             <button
               disabled={!bulkCat}
-              onClick={() => { applyBulk({ category: bulkCat }); setBulkCat(""); }}
+              onClick={() => { applyBulk({ category: bulkCat, categoryManual: bulkCat !== TRANSFER_CATEGORY }); setBulkCat(""); }}
               style={S.exportBtn(!bulkCat)}
             >
               Apply
@@ -2866,7 +2866,7 @@ function Transactions({ transactions, money, hideValues, isWide, onDelete, onUpd
             </button>
           </div>
 
-          <button onClick={() => applyBulk({ category: TRANSFER_CATEGORY })} style={S.exportBtn(false)} title="Mark as account transfer / card payment (excluded from totals)">
+          <button onClick={() => applyBulk({ category: TRANSFER_CATEGORY, categoryManual: false })} style={S.exportBtn(false)} title="Mark as account transfer / card payment (excluded from totals)">
             Mark as Transfer
           </button>
 
@@ -3487,14 +3487,24 @@ function EditModal({ txn, onClose, onSave }) {
       setErr("Enter a valid amount.");
       return;
     }
-    onSave({
+    const next = {
       ...txn,
       date,
       description: description.trim(),
       amount: amt,
       category,
       account,
-    });
+    };
+    // Track manual category corrections (forward-only, explicit flag). Only
+    // touch the flag when the category actually changed: correcting to a
+    // non-Transfer category flags it as a manual fix (feeds the Audit "manual
+    // corrections" suggestions); moving to Transfer clears the flag (becoming
+    // a transfer is not a category correction); leaving the category unchanged
+    // preserves whatever flag the row already had.
+    if (category !== txn.category) {
+      next.categoryManual = category !== TRANSFER_CATEGORY;
+    }
+    onSave(next);
   };
 
   return (
@@ -4062,16 +4072,17 @@ function ManagedList({ title, items, usage, onAdd, onRename, onDelete, onReorder
 // the destination and saves through those sections' own existing flows.
 // Dismissal here is client-side only for the current session (not persisted)
 // and simply hides an item from view until the tab/app is reloaded.
-function SuggestedRulesSection({ suggestedFragments, suggestedTokens, onUseFragment, onReviewToken }) {
+function SuggestedRulesSection({ suggestedFragments, suggestedTokens, suggestedCorrections, onUseFragment, onReviewToken, onCreateRule }) {
   const [dismissed, setDismissed] = useState(() => new Set());
   const fragments = suggestedFragments.filter((f) => !dismissed.has(`frag:${f.fragment}`));
   const tokens = suggestedTokens.filter((t) => !dismissed.has(`tok:${t.token}`));
-  if (fragments.length === 0 && tokens.length === 0) return null;
+  const corrections = (suggestedCorrections || []).filter((c) => !dismissed.has(`manual:${c.key}`));
+  if (fragments.length === 0 && tokens.length === 0 && corrections.length === 0) return null;
 
   const dismiss = (key) => setDismissed((prev) => new Set(prev).add(key));
 
   return (
-    <CollapsibleCard title="Suggested rules" badge={fragments.length + tokens.length} defaultOpen>
+    <CollapsibleCard title="Suggested rules" badge={fragments.length + tokens.length + corrections.length} defaultOpen>
       <div style={{ fontSize: 12, color: "#8b94a3", margin: "0 0 10px", lineHeight: 1.5 }}>
         Patterns detected in your current transactions that repeat often
         enough to be worth turning into a rule. Nothing here is saved
@@ -4162,6 +4173,55 @@ function SuggestedRulesSection({ suggestedFragments, suggestedTokens, onUseFragm
           ))}
         </div>
       )}
+
+      <div style={{ fontSize: 12, color: "#cbd5e1", fontWeight: 600, margin: "12px 0 6px" }}>
+        Manual category corrections
+      </div>
+      {corrections.length === 0 ? (
+        <div style={{ fontSize: 12, color: "#8b94a3" }}>No repeated manual corrections yet.</div>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+          {corrections.map((c) => (
+            <div key={c.key} style={{ background: "#161a20", border: "1px solid #1e2530", borderRadius: 10, padding: "8px 10px" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <div style={{ flex: 1, minWidth: 0, fontSize: 12, fontFamily: "monospace", color: "#e5e7eb", overflowWrap: "anywhere" }}>
+                  {c.pattern}
+                </div>
+                <span style={{ fontSize: 11, color: "#8b94a3", flexShrink: 0 }}>{c.count} corrected → {c.destinationCategory}</span>
+              </div>
+              {c.examples.length ? (
+                <div style={{ fontSize: 11, color: "#8b94a3", marginTop: 4, overflowWrap: "anywhere" }}>
+                  {c.examples.map((ex, i) => (
+                    <div key={i}>
+                      {ex.description}
+                      {ex.autoCategory ? (
+                        <span style={{ color: "#636366" }}> — was {ex.autoCategory} → you: {c.destinationCategory}</span>
+                      ) : null}
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+              <div style={{ display: "flex", gap: 8, marginTop: 6 }}>
+                <button
+                  type="button"
+                  onClick={() => onCreateRule(c)}
+                  style={{ background: "#0A84FF", border: "none", color: "#fff", borderRadius: 8, padding: "5px 12px", fontSize: 12, fontWeight: 600, cursor: "pointer" }}
+                >
+                  Create rule from this
+                </button>
+                <button
+                  type="button"
+                  onClick={() => dismiss(`manual:${c.key}`)}
+                  title="Dismiss for this session"
+                  style={{ background: "transparent", border: "1px solid #2a313c", color: "#8b94a3", borderRadius: 8, padding: "5px 10px", fontSize: 12, cursor: "pointer" }}
+                >
+                  Dismiss
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
     </CollapsibleCard>
   );
 }
@@ -4182,13 +4242,19 @@ function AuditTab({
     () => detectSuggestedCategoryTokens(transactions, ckCategoryMap),
     [transactions, ckCategoryMap]
   );
+  const suggestedCorrections = useMemo(
+    () => detectManualCategoryCorrections(transactions),
+    [transactions]
+  );
 
-  // Pre-fill/highlight signals for the "Account aliases"/"Category mapping"
-  // sections below, set by the "Use this fragment"/"Review this token"
-  // buttons. Never written anywhere — purely local UI state driving a scroll
-  // + a pre-filled/highlighted field the user still has to act on and save.
+  // Pre-fill/highlight signals for the "Account aliases"/"Category mapping"/
+  // "Description rules" sections below, set by the "Use this fragment"/"Review
+  // this token"/"Create rule from this" buttons. Never written anywhere —
+  // purely local UI state driving a scroll + a pre-filled/highlighted field the
+  // user still has to act on and save.
   const [aliasPrefill, setAliasPrefill] = useState(null);
   const [categoryHighlight, setCategoryHighlight] = useState(null);
+  const [rulePrefill, setRulePrefill] = useState(null);
 
   const handleUseFragment = (fragment) => {
     setAliasPrefill({ fragment, nonce: Date.now() });
@@ -4198,6 +4264,15 @@ function AuditTab({
     setCategoryHighlight({ token, nonce: Date.now() });
     document.getElementById("category-mapping-section")?.scrollIntoView({ behavior: "smooth", block: "start" });
   };
+  const handleCreateRule = (correction) => {
+    setRulePrefill({
+      pattern: correction.pattern,
+      matchField: "description",
+      destinationCategory: correction.destinationCategory,
+      nonce: Date.now(),
+    });
+    document.getElementById("description-rules-section")?.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
 
   return (
     <div style={S.col}>
@@ -4205,8 +4280,10 @@ function AuditTab({
       <SuggestedRulesSection
         suggestedFragments={suggestedFragments}
         suggestedTokens={suggestedTokens}
+        suggestedCorrections={suggestedCorrections}
         onUseFragment={handleUseFragment}
         onReviewToken={handleReviewToken}
+        onCreateRule={handleCreateRule}
       />
       <AccountAliasesSection
         transactions={transactions}
@@ -4231,6 +4308,7 @@ function AuditTab({
         rules={categoryDescriptionRules}
         onSave={onSaveCategoryDescriptionRules}
         config={config}
+        prefill={rulePrefill}
       />
     </div>
   );
@@ -4439,7 +4517,7 @@ function AppleDailyCashRuleSection({ rule, onSave, config }) {
 // destination dropdown. Same visual/save pattern as the sibling sections —
 // plain PUT, no impact preview, no retroactive cascade: only affects NEW
 // imports.
-function DescriptionRulesSection({ rules, onSave, config }) {
+function DescriptionRulesSection({ rules, onSave, config, prefill }) {
   const [draft, setDraft] = useState(() => (rules || []).map((r) => ({ ...r })));
   const [confirmDelete, setConfirmDelete] = useState(null);
   const [newRule, setNewRule] = useState({ pattern: "", matchField: "both", destinationCategory: "" });
@@ -4447,6 +4525,19 @@ function DescriptionRulesSection({ rules, onSave, config }) {
   useEffect(() => {
     setDraft((rules || []).map((r) => ({ ...r })));
   }, [rules]);
+
+  // Pre-fill the "add rule" form from a Suggested-rules "Create rule from this"
+  // action. The user still reviews and clicks "+" / "Save rules" — nothing is
+  // persisted automatically.
+  useEffect(() => {
+    if (prefill && prefill.nonce) {
+      setNewRule({
+        pattern: prefill.pattern || "",
+        matchField: prefill.matchField || "description",
+        destinationCategory: prefill.destinationCategory || "",
+      });
+    }
+  }, [prefill]);
 
   // Destination options: current expense + income categories, NO Transfer
   // (a description rule may never de-transfer a row).
@@ -4492,7 +4583,12 @@ function DescriptionRulesSection({ rules, onSave, config }) {
   };
 
   return (
-    <CollapsibleCard title="Description rules" badge={draft.length}>
+    <CollapsibleCard
+      id="description-rules-section"
+      title="Description rules"
+      badge={draft.length}
+      openSignal={prefill && prefill.nonce}
+    >
       <div style={{ fontSize: 12, color: "#8b94a3", margin: "0 0 10px", lineHeight: 1.5 }}>
         Force a destination category when a transaction's description and/or
         provider contains a text fragment. The first matching rule wins, so
@@ -4866,6 +4962,11 @@ function buildRow(raw, mapping, profile, accountMap) {
     account,
   };
   if (ckCategory) row.ckCategory = ckCategory;
+  // The auto-classified category this import computed. Written ONLY here and
+  // never rewritten afterwards — used purely by the Audit UI to show "was X →
+  // you: Y" once the user manually corrects the category. The manual-correction
+  // detection itself does NOT depend on this field.
+  row.autoCategory = category;
   // Keep the raw source account string for auditing the classification: lets
   // you see what each row was classified from (or why it stayed unmapped).
   if (rawAccount) row.srcAccount = rawAccount;
@@ -5373,6 +5474,61 @@ function detectSuggestedCategoryTokens(transactions, ckCategoryMapObj) {
   }
   return [...groups.values()]
     .filter((g) => g.count >= 2)
+    .sort((a, b) => b.count - a.count);
+}
+
+// A short, normalized description fragment used both to group generic-CSV
+// manual corrections (no ckCategory) and to seed a description rule's pattern.
+// Reuses `descWords` (the dedup tokenizer: >=3 chars, stop words removed),
+// drops purely-numeric tokens (store/order numbers vary per transaction), and
+// keeps the first up-to-2 significant words joined — e.g. "STARBUCKS #4821" and
+// "STARBUCKS STORE 12" both collapse to "starbucks".
+function descFragment(desc) {
+  const words = descWords(desc).filter((w) => !/^[0-9]+$/.test(w));
+  return words.slice(0, 2).join(" ");
+}
+
+// Group C (manual category corrections): rows the user explicitly re-categorized
+// (categoryManual === true), excluding Transfer. Grouping key is the CK category
+// token when present, otherwise a normalized description fragment (covers
+// generic CSV imports without ckCategory). Each group carries up to 3 examples,
+// the most-frequent destination category (what the user keeps picking), and a
+// suggested description `pattern` for the "Create rule from this" action.
+// Threshold >= 2. Sorted by count desc. Pure — memoized by the caller.
+function detectManualCategoryCorrections(transactions) {
+  const groups = new Map();
+  for (const t of transactions || []) {
+    if (t.categoryManual !== true) continue;
+    if (isTransfer(t.category)) continue;
+    const key = t.ckCategory ? ckCategoryToken(t.ckCategory) : descFragment(t.description);
+    if (!key) continue;
+    let e = groups.get(key);
+    if (!e) {
+      e = { key, count: 0, examples: [], destCounts: new Map(), patternCounts: new Map() };
+      groups.set(key, e);
+    }
+    e.count++;
+    e.destCounts.set(t.category, (e.destCounts.get(t.category) || 0) + 1);
+    const frag = descFragment(t.description);
+    if (frag) e.patternCounts.set(frag, (e.patternCounts.get(frag) || 0) + 1);
+    if (e.examples.length < 3 && t.description) {
+      e.examples.push({ description: t.description, autoCategory: t.autoCategory || "" });
+    }
+  }
+  const pickTop = (m) => {
+    let best = -1, val = "";
+    for (const [k, n] of m) if (n > best) { best = n; val = k; }
+    return val;
+  };
+  return [...groups.values()]
+    .filter((g) => g.count >= 2)
+    .map((g) => ({
+      key: g.key,
+      count: g.count,
+      examples: g.examples,
+      destinationCategory: pickTop(g.destCounts),
+      pattern: pickTop(g.patternCounts) || g.key,
+    }))
     .sort((a, b) => b.count - a.count);
 }
 
