@@ -342,6 +342,55 @@ function applyAppleDailyCashRule(row, ruleConfig) {
 }
 
 // ---------------------------------------------------------------------------
+// Category-by-description rules (PR: Description rules, Audit tab)
+// ---------------------------------------------------------------------------
+// Ordered list of override rules that force a destination category when the
+// row's description and/or provider (srcAccount/account) contains a substring
+// pattern. First matching rule wins (array order is semantic). These OVERRIDE
+// the CK category map / CSV category for NON-Transfer rows, but by design can
+// never create nor destroy a Transfer: `destinationCategory` is never
+// "Transfer" (guaranteed both server-side in api/category-description-rules.js
+// and client-side in the save path), and the Transfer safety net in buildRow
+// still keeps a CK-sourced Transfer as Transfer even when a rule matches.
+// Seed is empty (no pre-populated rule). Same runtime-override pattern as
+// CK_CATEGORY_MAP / APPLE_DAILY_CASH_RULE: module state, replaced by
+// applyCategoryDescriptionRulesConfig() once /api/category-description-rules
+// loads.
+const DEFAULT_CATEGORY_DESCRIPTION_RULES = [];
+
+let CATEGORY_DESCRIPTION_RULES = [...DEFAULT_CATEGORY_DESCRIPTION_RULES];
+
+function applyCategoryDescriptionRulesConfig(rules) {
+  CATEGORY_DESCRIPTION_RULES = Array.isArray(rules) ? rules.filter(Boolean) : [];
+}
+
+// The current runtime rules as a plain array (for seeding/persisting React state).
+function currentCategoryDescriptionRulesConfig() {
+  return CATEGORY_DESCRIPTION_RULES.map((r) => ({ ...r }));
+}
+
+// True when the row matches the rule's substring pattern on the configured
+// field(s). Case-insensitive substring match — no regex.
+function descriptionRuleMatches(row, rule) {
+  const desc = String(row.description || "").toLowerCase();
+  const prov = String(row.srcAccount || row.account || "").toLowerCase();
+  const pat = String(rule.pattern || "").toLowerCase();
+  if (!pat) return false;
+  if (rule.matchField === "description") return desc.includes(pat);
+  if (rule.matchField === "provider") return prov.includes(pat);
+  return desc.includes(pat) || prov.includes(pat); // "both"
+}
+
+// Returns the destinationCategory of the FIRST rule that matches, or null when
+// none match. Never returns "Transfer" (sanitized out on save).
+function matchDescriptionCategoryRule(row, rules) {
+  for (const rule of rules || []) {
+    if (descriptionRuleMatches(row, rule)) return rule.destinationCategory;
+  }
+  return null;
+}
+
+// ---------------------------------------------------------------------------
 // Bank import profiles
 // ---------------------------------------------------------------------------
 
@@ -822,6 +871,49 @@ export default function App() {
     }).catch(() => {});
   }, []);
 
+  // ---- Category description rules load / save --------------------------------
+  const [categoryDescriptionRules, setCategoryDescriptionRules] = useState(
+    () => currentCategoryDescriptionRulesConfig()
+  );
+
+  const loadCategoryDescriptionRules = useCallback(async () => {
+    try {
+      const res = await fetch("/api/category-description-rules", {
+        method: "GET",
+        headers: buildAuthHeaders(),
+      });
+      if (!res.ok) return;
+      const data = await res.json();
+      if (Array.isArray(data.rules)) {
+        applyCategoryDescriptionRulesConfig(data.rules);
+        setCategoryDescriptionRules(currentCategoryDescriptionRulesConfig());
+      }
+    } catch {
+      // Silently ignore — defaults already seeded.
+    }
+  }, []);
+
+  useEffect(() => {
+    if (authed) loadCategoryDescriptionRules();
+  }, [authed, loadCategoryDescriptionRules]);
+
+  // Persist the description rules. Deliberately no cascade: only new imports
+  // (buildRow) are affected — existing transactions keep their category.
+  // Client-side guard: never persist a Transfer destination (the endpoint also
+  // enforces this) so a rule can never de-transfer a row.
+  const saveCategoryDescriptionRules = useCallback((nextRules) => {
+    const clean = (Array.isArray(nextRules) ? nextRules : []).filter(
+      (r) => r && r.pattern && r.destinationCategory && r.destinationCategory !== TRANSFER_CATEGORY
+    );
+    applyCategoryDescriptionRulesConfig(clean);
+    setCategoryDescriptionRules(currentCategoryDescriptionRulesConfig());
+    return fetch("/api/category-description-rules", {
+      method: "PUT",
+      headers: buildAuthHeaders(),
+      body: JSON.stringify({ rules: clean }),
+    }).catch(() => {});
+  }, []);
+
   // ---- Config (accounts + categories) load / save --------------------------
   const loadConfig = useCallback(async () => {
     try {
@@ -1083,6 +1175,8 @@ export default function App() {
             onSaveCkCategoryMap={saveCkCategoryMap}
             appleDailyCashRule={appleDailyCashRule}
             onSaveAppleDailyCashRule={saveAppleDailyCashRule}
+            categoryDescriptionRules={categoryDescriptionRules}
+            onSaveCategoryDescriptionRules={saveCategoryDescriptionRules}
             config={config}
           />
         ) : (
@@ -1280,7 +1374,7 @@ function Header({ hideValues, onToggleHide, onLogout, onOpenSettings, saving, sa
             <LayoutDashboard size={14} color="#fff" />
           </div>
           <span style={{ fontWeight: 700, fontSize: 15, letterSpacing: -0.5, color: "#e5e7eb" }}>Household</span>
-          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.13.0</span>
+          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.14.0</span>
         </div>
         <SaveIndicator saving={saving} dirty={dirty} savedAt={savedAt} saveError={saveError} />
       </div>
@@ -4076,6 +4170,7 @@ function AuditTab({
   transactions, accountMap, accountAliases, onSaveAccountAliases,
   ckCategoryMap, onSaveCkCategoryMap,
   appleDailyCashRule, onSaveAppleDailyCashRule,
+  categoryDescriptionRules, onSaveCategoryDescriptionRules,
   config,
 }) {
   const aliasesArray = useMemo(() => buildAliasArray(accountAliases || {}), [accountAliases]);
@@ -4132,7 +4227,11 @@ function AuditTab({
         onSave={onSaveAppleDailyCashRule}
         config={config}
       />
-      <ClassificationHistorySection transactions={transactions} accountMap={accountMap} accountAliases={accountAliases} />
+      <DescriptionRulesSection
+        rules={categoryDescriptionRules}
+        onSave={onSaveCategoryDescriptionRules}
+        config={config}
+      />
     </div>
   );
 }
@@ -4331,82 +4430,206 @@ function AppleDailyCashRuleSection({ rule, onSave, config }) {
   );
 }
 
-// Read-only audit trail: for every transaction, explain in plain text why it
-// landed on its current account and category (see `explainClassification`).
-// Purely a viewer over already-loaded `transactions` — no writes, no new
-// endpoint. A text filter + "show more" keeps the DOM small on large ledgers
-// instead of rendering thousands of rows at once.
-const CLASSIFICATION_PAGE_SIZE = 25;
+// Editable, ordered list of category-by-description override rules. Each rule
+// forces a destination category when the description and/or provider contains
+// a substring pattern; the FIRST matching rule wins, so order is semantic
+// (reorder with ↑/↓). These take precedence over the Credit Karma category
+// map — EXCEPT they never touch rows that are already Transfer (see the
+// Transfer safety net in buildRow). Transfer is deliberately absent from the
+// destination dropdown. Same visual/save pattern as the sibling sections —
+// plain PUT, no impact preview, no retroactive cascade: only affects NEW
+// imports.
+function DescriptionRulesSection({ rules, onSave, config }) {
+  const [draft, setDraft] = useState(() => (rules || []).map((r) => ({ ...r })));
+  const [confirmDelete, setConfirmDelete] = useState(null);
+  const [newRule, setNewRule] = useState({ pattern: "", matchField: "both", destinationCategory: "" });
 
-function ClassificationHistorySection({ transactions, accountMap, accountAliases }) {
-  const [query, setQuery] = useState("");
-  const [visible, setVisible] = useState(CLASSIFICATION_PAGE_SIZE);
-  const aliasesArray = useMemo(() => buildAliasArray(accountAliases || {}), [accountAliases]);
+  useEffect(() => {
+    setDraft((rules || []).map((r) => ({ ...r })));
+  }, [rules]);
 
-  const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    const list = [...(transactions || [])].sort((a, b) => (b.date || "").localeCompare(a.date || ""));
-    if (!q) return list;
-    return list.filter((t) =>
-      [t.description, t.account, t.category, t.srcAccount, t.ckCategory]
-        .filter(Boolean)
-        .some((v) => String(v).toLowerCase().includes(q))
-    );
-  }, [transactions, query]);
+  // Destination options: current expense + income categories, NO Transfer
+  // (a description rule may never de-transfer a row).
+  const destinationOptions = useMemo(() => {
+    const expense = config?.expenseCategories || EXPENSE_CATEGORIES;
+    const income = config?.incomeCategories || INCOME_CATEGORIES;
+    return [...expense, ...income];
+  }, [config]);
 
-  useEffect(() => { setVisible(CLASSIFICATION_PAGE_SIZE); }, [query]);
+  const dirty = useMemo(
+    () => JSON.stringify(draft) !== JSON.stringify((rules || []).map((r) => ({ ...r }))),
+    [draft, rules]
+  );
 
-  const shown = filtered.slice(0, visible);
+  const updateRule = (idx, patch) => {
+    setDraft((prev) => prev.map((r, i) => (i === idx ? { ...r, ...patch } : r)));
+  };
+
+  const deleteRule = (idx) => {
+    setDraft((prev) => prev.filter((_, i) => i !== idx));
+    setConfirmDelete(null);
+  };
+
+  const reorder = (idx, dir) => {
+    setDraft((prev) => {
+      const next = [...prev];
+      const j = idx + dir;
+      if (j < 0 || j >= next.length) return prev;
+      [next[idx], next[j]] = [next[j], next[idx]];
+      return next;
+    });
+  };
+
+  const addRule = () => {
+    const pattern = newRule.pattern.trim();
+    const destinationCategory = newRule.destinationCategory || destinationOptions[0] || "";
+    if (!pattern || !destinationCategory) return;
+    setDraft((prev) => [
+      ...prev,
+      { id: uid(), pattern, matchField: newRule.matchField, destinationCategory },
+    ]);
+    setNewRule({ pattern: "", matchField: "both", destinationCategory: "" });
+  };
 
   return (
-    <CollapsibleCard title="Classification history" badge={transactions?.length || 0}>
+    <CollapsibleCard title="Description rules" badge={draft.length}>
       <div style={{ fontSize: 12, color: "#8b94a3", margin: "0 0 10px", lineHeight: 1.5 }}>
-        Read-only explanation of how each transaction's account and category
-        were determined (URN card map, alias fragment, Credit Karma category,
-        or manual entry). Nothing here can be edited — fix rules in "Account
-        aliases" or the account map in Settings instead.
+        Force a destination category when a transaction's description and/or
+        provider contains a text fragment. The first matching rule wins, so
+        order matters — reorder with ↑/↓. These take precedence over the Credit
+        Karma category map, except they never change transactions that are
+        already Transfer. Only the category is set; the imported amount and its
+        sign are never touched. Saving only affects future imports — existing
+        transactions keep their current category.
       </div>
-      <div style={{ position: "relative", marginBottom: 10 }}>
-        <Search size={14} color="#8b94a3" style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)" }} />
+
+      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+        {draft.map((r, idx) => (
+          <div
+            key={r.id || idx}
+            style={{
+              display: "flex", flexDirection: "column", gap: 6, borderRadius: 10,
+              padding: "8px 10px", background: "#161a20", border: "1px solid #1e2530",
+            }}
+          >
+            <input
+              type="text"
+              value={r.pattern}
+              onChange={(e) => updateRule(idx, { pattern: e.target.value })}
+              placeholder="e.g. starbucks"
+              style={S.input}
+            />
+            <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+              <select
+                value={r.matchField}
+                onChange={(e) => updateRule(idx, { matchField: e.target.value })}
+                style={{ ...S.select, flex: 1 }}
+              >
+                <option value="description">Description</option>
+                <option value="provider">Provider</option>
+                <option value="both">Both</option>
+              </select>
+              <select
+                value={r.destinationCategory}
+                onChange={(e) => updateRule(idx, { destinationCategory: e.target.value })}
+                style={{ ...S.select, flex: 1 }}
+              >
+                {destinationOptions.map((c) => (
+                  <option key={c} value={c}>{c}</option>
+                ))}
+              </select>
+            </div>
+            <div style={{ display: "flex", gap: 6, alignItems: "center", justifyContent: "flex-end" }}>
+              <button
+                type="button"
+                onClick={() => reorder(idx, -1)}
+                disabled={idx === 0}
+                title="Move up"
+                style={{ ...S.iconBtnSmall, opacity: idx === 0 ? 0.35 : 1, cursor: idx === 0 ? "not-allowed" : "pointer" }}
+              >
+                <ChevronUp size={15} />
+              </button>
+              <button
+                type="button"
+                onClick={() => reorder(idx, 1)}
+                disabled={idx === draft.length - 1}
+                title="Move down"
+                style={{ ...S.iconBtnSmall, opacity: idx === draft.length - 1 ? 0.35 : 1, cursor: idx === draft.length - 1 ? "not-allowed" : "pointer" }}
+              >
+                <ChevronDown size={15} />
+              </button>
+              <button
+                type="button"
+                onClick={() => (confirmDelete === idx ? deleteRule(idx) : setConfirmDelete(idx))}
+                onBlur={() => setConfirmDelete((c) => (c === idx ? null : c))}
+                title="Delete rule"
+                style={{
+                  ...S.iconBtnSmall,
+                  color: "#f87171",
+                  borderColor: confirmDelete === idx ? "#f87171" : "#232a33",
+                  fontSize: 12,
+                  width: confirmDelete === idx ? "auto" : undefined,
+                  padding: confirmDelete === idx ? "0 8px" : undefined,
+                }}
+              >
+                {confirmDelete === idx ? "Confirm?" : <Trash2 size={15} />}
+              </button>
+            </div>
+          </div>
+        ))}
+        {draft.length === 0 ? (
+          <div style={{ fontSize: 12, color: "#636366", padding: "4px 0" }}>No rules yet.</div>
+        ) : null}
+      </div>
+
+      {/* Add rule */}
+      <div style={{ marginTop: 10, borderTop: "1px solid #1e2530", paddingTop: 10, display: "flex", flexDirection: "column", gap: 6 }}>
         <input
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="Filter by description, account, or category…"
-          style={{ ...S.input, padding: "9px 11px 9px 32px", fontSize: 13 }}
+          type="text"
+          value={newRule.pattern}
+          onChange={(e) => setNewRule((p) => ({ ...p, pattern: e.target.value }))}
+          placeholder="New rule pattern (e.g. starbucks)"
+          style={S.input}
         />
-      </div>
-      {shown.length === 0 ? (
-        <Empty>No matching transactions.</Empty>
-      ) : (
-        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-          {shown.map((t) => {
-            const { accountReason, categoryReason } = explainClassification(t, accountMap, aliasesArray);
-            return (
-              <div key={t.id} style={{ background: "#161a20", border: "1px solid #1e2530", borderRadius: 10, padding: "9px 11px" }}>
-                <div style={{ display: "flex", justifyContent: "space-between", gap: 8, fontSize: 13, color: "#e5e7eb" }}>
-                  <span style={{ overflowWrap: "anywhere" }}>{t.description || "(no description)"}</span>
-                  <span style={{ color: "#8b94a3", flexShrink: 0, fontSize: 12 }}>{t.date}</span>
-                </div>
-                <div style={{ fontSize: 12, color: "#8b94a3", marginTop: 4 }}>
-                  Account: <span style={{ color: "#cbd5e1" }}>{t.account || "Unassigned"}</span> — {accountReason}
-                </div>
-                <div style={{ fontSize: 12, color: "#8b94a3", marginTop: 2 }}>
-                  Category: <span style={{ color: "#cbd5e1" }}>{t.category || "—"}</span> — {categoryReason}
-                </div>
-              </div>
-            );
-          })}
+        <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+          <select
+            value={newRule.matchField}
+            onChange={(e) => setNewRule((p) => ({ ...p, matchField: e.target.value }))}
+            style={{ ...S.select, flex: 1 }}
+          >
+            <option value="description">Description</option>
+            <option value="provider">Provider</option>
+            <option value="both">Both</option>
+          </select>
+          <select
+            value={newRule.destinationCategory || (destinationOptions[0] || "")}
+            onChange={(e) => setNewRule((p) => ({ ...p, destinationCategory: e.target.value }))}
+            style={{ ...S.select, flex: 1 }}
+          >
+            {destinationOptions.map((c) => (
+              <option key={c} value={c}>{c}</option>
+            ))}
+          </select>
+          <button
+            type="button"
+            onClick={addRule}
+            disabled={!newRule.pattern.trim()}
+            title="Add rule"
+            style={{ ...S.iconBtnSmall, opacity: newRule.pattern.trim() ? 1 : 0.4, cursor: newRule.pattern.trim() ? "pointer" : "not-allowed" }}
+          >
+            <Plus size={16} />
+          </button>
         </div>
-      )}
-      {filtered.length > shown.length ? (
-        <button
-          type="button"
-          onClick={() => setVisible((v) => v + CLASSIFICATION_PAGE_SIZE)}
-          style={{ marginTop: 10, width: "100%", background: "transparent", border: "1px solid #2a313c", color: "#cbd5e1", borderRadius: 8, padding: "8px 12px", fontSize: 13, cursor: "pointer" }}
-        >
-          Show more ({filtered.length - shown.length} remaining)
-        </button>
-      ) : null}
+      </div>
+
+      <button
+        type="button"
+        onClick={() => onSave(draft)}
+        disabled={!dirty}
+        style={{ ...S.primaryBtn, marginTop: 10, opacity: dirty ? 1 : 0.5, cursor: dirty ? "pointer" : "not-allowed" }}
+      >
+        Save rules
+      </button>
     </CollapsibleCard>
   );
 }
@@ -4602,11 +4825,26 @@ function buildRow(raw, mapping, profile, accountMap) {
   const recomputedCategory = ckCategory
     ? mapCkCategory(ckCategory, ckType, CK_CATEGORY_MAP)
     : csvCategory;
-  const safetyNetCategory = (recomputedCategory === TRANSFER_CATEGORY || csvCategory === TRANSFER_CATEGORY)
-    ? TRANSFER_CATEGORY
-    : matchOption(recomputedCategory, CATEGORIES, "Other");
 
   const description = val("description");
+
+  // Description/provider override rules (Audit → "Description rules"). These
+  // OVERRIDE the CK-map/CSV category for the "CK got the category wrong, my
+  // rule fixes it" case. `descOverride` is never Transfer (guaranteed by the
+  // endpoint sanitize AND the client save path), so this only ever replaces a
+  // NON-Transfer category — and crucially it feeds INTO the Transfer safety
+  // net below, which still forces Transfer when the CK original said Transfer.
+  // That means a description rule can never de-transfer a row (intentional
+  // invariant). Never touches `amount`/its sign.
+  const descOverride = matchDescriptionCategoryRule(
+    { description, srcAccount: rawAccount, account },
+    CATEGORY_DESCRIPTION_RULES
+  );
+  const overridden = descOverride != null ? descOverride : recomputedCategory;
+
+  const safetyNetCategory = (overridden === TRANSFER_CATEGORY || csvCategory === TRANSFER_CATEGORY)
+    ? TRANSFER_CATEGORY
+    : matchOption(overridden, CATEGORIES, "Other");
   // Apple Daily Cash heuristic runs LAST, after the CK->ledger map and the
   // Transfer safety-net above. Unlike everything before it, this heuristic is
   // explicitly allowed to move a row OUT of Transfer into its destination
@@ -5138,50 +5376,6 @@ function detectSuggestedCategoryTokens(transactions, ckCategoryMapObj) {
     .sort((a, b) => b.count - a.count);
 }
 
-// Read-only, client-side explanation of how a transaction ended up with its
-// current account and category — for the "Classification history" audit
-// panel. Never mutates or re-derives the transaction; it only re-runs the
-// same rules (`classifyAccount`/`matchAccountWithAliases`) to describe which
-// one fired, plus surfaces the raw Credit Karma category and the Apple Daily
-// Cash heuristic (both applied at import time in `buildRow`, not here) as
-// plain text. Pure function — no side effects, safe to call per-row in a list.
-function explainClassification(txn, accountMap, aliasesArray) {
-  const t = txn || {};
-  let accountReason;
-  if (t.accountUrn && accountMap && accountMap[t.accountUrn]) {
-    accountReason = `Mapped by card ID (URN) → ${accountMap[t.accountUrn]}`;
-  } else {
-    const raw = t.srcAccount || "";
-    const { reason } = matchAccountWithAliasesReason(raw, aliasesArray || []);
-    if (reason) {
-      accountReason = reason;
-    } else {
-      accountReason = t.account
-        ? "Set manually (no source data)"
-        : "No rule matched (Unassigned)";
-    }
-  }
-
-  let categoryReason;
-  // Re-run the same pure heuristic/config used at import time in `buildRow`
-  // (not a hardcoded regex) so this explanation can never drift out of sync
-  // with the editable rule in Audit → "Apple Daily Cash rule".
-  const appleDailyCash =
-    appleDailyCashRuleMatches(t, APPLE_DAILY_CASH_RULE) &&
-    t.category === APPLE_DAILY_CASH_RULE.destinationCategory;
-  if (t.ckCategory && t.ckCategory !== t.category) {
-    categoryReason = `Mapped from Credit Karma category: ${t.ckCategory}`;
-  } else if (appleDailyCash) {
-    categoryReason = "Apple Daily Cash heuristic (Deposit/Adjustment)";
-  } else if (!t.ckCategory) {
-    categoryReason = "Manually set";
-  } else {
-    categoryReason = "As imported";
-  }
-
-  return { accountReason, categoryReason };
-}
-
 // ===========================================================================
 // Small shared bits
 // ===========================================================================
@@ -5634,6 +5828,18 @@ const S = {
     display: "grid",
     placeItems: "center",
     height: 16,
+  },
+  iconBtnSmall: {
+    background: "#161a20",
+    border: "1px solid #232a33",
+    color: "#8b94a3",
+    cursor: "pointer",
+    borderRadius: 8,
+    height: 30,
+    minWidth: 30,
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
   },
   dateGroupHeader: {
     display: "flex",
