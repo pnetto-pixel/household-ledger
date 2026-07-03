@@ -1,4 +1,4 @@
-# Household Ledger · v1.15.1
+# Household Ledger · v1.15.2
 
 Aplicativo mobile-first de controle financeiro doméstico. Registra
 transações da casa (despesas e receitas) por categoria e conta, com
@@ -24,7 +24,26 @@ A cada PR, atualize a versão em **dois lugares**:
 1. `src/App.jsx` — a string `v1.x.x` no span ao lado de "Household"
 2. `household-ledger.md` — o `· v1.x.x` no título `# Household Ledger`
 
-Versão atual: **v1.15.1** — **Fix: painel "Suggested rules" invisível quando
+Versão atual: **v1.15.2** — **UX improvements on Import tab: non-duplicates
+filter, sticky import button, condensed mapping/summary** (frontend puro,
+refinamento de UX sobre a tab Import já entregue na Fase 4). Novo checkbox
+"Only non-duplicates" ao lado do "Only duplicates" existente, mutuamente
+exclusivos entre si (marcar um desmarca o outro) e ambos só aparecem quando
+há duplicatas detectadas — é só um filtro de **visualização** da prévia; o
+Set `selected` que decide o que é importado permanece independente. O botão
+"Import N transactions" passou a ficar em uma **barra sticky** (`bottom: 0`,
+gradiente para o fundo do app), visível sem precisar rolar até o fim depois
+de carregar o arquivo; `maxHeight` da lista de preview reduzido de 360 para
+300 para abrir espaço. Textos condensados: descrições dos method cards
+(Credit Karma / CSV) encurtadas, e a linha de resumo omite "N parsed" quando
+é igual a "N valid". A seção **Column mapping** (fluxo CSV) virou
+colapsável via `CollapsibleCard`, aberta por padrão só quando falta campo
+obrigatório mapeado; o aviso de campo obrigatório faltando continua sempre
+visível fora do card, independente do estado colapsado. — PR #123, branch
+`claude/import-tab-ux-improvements-i1b7az` (pendente de merge nesta
+referência).
+
+Versão anterior: **v1.15.1** — **Fix: painel "Suggested rules" invisível quando
 vazio** (a seção na tab Audit tinha um `return null` quando os 3 grupos
 — Unassigned fragments, Category tokens/Other, Manual category corrections —
 estavam vazios, o que a tornava praticamente indescobrível; removido o
@@ -599,13 +618,21 @@ shell de altura cheia (`#root` em `100lvh` + shell `height:100%`): só o
    - **Credit Karma** (uso diário) — auto-mapeia as colunas do export
      (`account` passa por `classifyAccount`), preserva o sinal e já vem sem
      pendentes; sem UI de mapeamento. Descrição do card traduzida PT→EN
-     (PR #104, v1.7.0).
+     (PR #104, v1.7.0), texto condensado ainda mais na v1.15.2 (PR #123).
    - **CSV** (uso único, backfill do histórico) — mapeamento manual de
      colunas (`IMPORT_FIELDS`, `guessMapping`, selects por campo com hints de
      fallback). Suporta valores contábeis com parênteses (`(47.50)` →
      `-47.50`) e detecta cabeçalhos repetidos no meio do arquivo (retorna
      `_skipped` em vez de descartar silenciosamente). O summary de diagnóstico
-     exibe `N parsed · M valid · K skipped · X selected`.
+     exibe `N parsed · M valid · K skipped · X selected` — desde a v1.15.2
+     (PR #123), omite o segmento "N parsed" quando `N === M` (parsed igual a
+     valid), reduzindo redundância no caso comum. Descrição do card também
+     condensada.
+     Desde a **v1.15.2 (PR #123)**, a seção **Column mapping** (só aparece
+     nesse fluxo CSV) virou **colapsável** via `CollapsibleCard` — vem aberta
+     por padrão apenas quando algum campo obrigatório ainda não foi mapeado;
+     o aviso de campo obrigatório faltando permanece **sempre visível**, fora
+     do card, independente do estado colapsado.
    Quando nenhum sinal de conta existe, a linha fica **Unassigned** (não mais
    "ATT Reward"). OFX/QFX e os profiles Chase foram removidos (o mapa de
    contas por URN cobre o caso Chase). O placeholder do dropzone de upload
@@ -614,9 +641,18 @@ shell de altura cheia (`#root` em `100lvh` + shell `height:100%`): só o
 
    **Deduplicação (híbrida).** Na prévia, cada linha tem checkbox e as
    duplicadas vêm **desmarcadas** (badge `DUP`), com filtro "Only duplicates"
-   e Select/Deselect all — só as marcadas são importadas. A detecção
-   (`markDuplicates`) compara contra os dados existentes **e** dentro do
-   próprio lote em dois estágios (PR #51):
+   e Select/Deselect all — só as marcadas são importadas. **Desde a v1.15.2
+   (PR #123)**, quando há duplicatas detectadas aparece também um segundo
+   checkbox de filtro, **"Only non-duplicates"**, mutuamente exclusivo com
+   "Only duplicates" (marcar um desmarca o outro automaticamente); ambos são
+   filtros **de visualização da prévia apenas** — não afetam o Set
+   `selected` que determina o que de fato é importado. O botão **"Import N
+   transactions"** passou a ficar em uma **barra sticky** (`bottom: 0`,
+   gradiente para o fundo do app), sempre visível sem precisar rolar até o
+   fim da lista depois de carregar o arquivo; `maxHeight` da lista de
+   preview reduzido de 360 para 300 px para abrir espaço para a barra. A
+   detecção (`markDuplicates`) compara contra os dados existentes **e**
+   dentro do próprio lote em dois estágios (PR #51):
 
    - **Fast-path por `sourceId`** (Credit Karma): quando os dois lados têm
      `sourceId`, compara por id — assim dois gastos reais idênticos nunca são
@@ -1015,6 +1051,19 @@ O app inicia com array vazio quando não há dados salvos (sem SEED).
   (`ImportTransactions`): descrição do método Credit Karma, descrição do
   método CSV, e placeholder do dropzone de upload. Único arquivo tocado:
   `src/App.jsx`
+- [x] UX improvements na tab Import (PR #123, branch
+  `claude/import-tab-ux-improvements-i1b7az`, v1.15.2, pendente de merge
+  nesta referência): novo checkbox "Only non-duplicates" ao lado de "Only
+  duplicates" (mutuamente exclusivos, só aparecem quando há duplicatas
+  detectadas — filtro só de visualização da prévia, não afeta o Set
+  `selected` usado para importar); botão "Import N transactions" movido para
+  barra sticky (`bottom: 0`, gradiente) sempre visível sem scroll, lista de
+  preview com `maxHeight` reduzido de 360 para 300; textos das descrições dos
+  method cards (Credit Karma/CSV) condensados e o resumo de diagnóstico
+  omite "N parsed" quando igual a "N valid"; seção **Column mapping** (fluxo
+  CSV) virou colapsável via `CollapsibleCard`, aberta por padrão só quando
+  falta campo obrigatório mapeado (aviso de campo faltando continua sempre
+  visível fora do card). Frontend puro, sem mudança de contrato de API/Redis.
 
 ### Fase 5 — Inteligência e Auditoria
 
