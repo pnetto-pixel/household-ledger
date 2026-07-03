@@ -1,4 +1,4 @@
-# Household Ledger · v1.8.0
+# Household Ledger · v1.9.0
 
 Aplicativo mobile-first de controle financeiro doméstico. Registra
 transações da casa (despesas e receitas) por categoria e conta, com
@@ -24,8 +24,9 @@ A cada PR, atualize a versão em **dois lugares**:
 1. `src/App.jsx` — a string `v1.x.x` no span ao lado de "Household"
 2. `household-ledger.md` — o `· v1.x.x` no título `# Household Ledger`
 
-Versão atual: **v1.8.0** (aliases de conta editáveis em runtime via Settings
-+ preview de impacto antes de aplicar, `api/account-aliases.js` — PR #105.)
+Versão atual: **v1.9.0** (nova 5ª tab **Audit**: a seção "Account aliases"
+saiu do `SettingsModal` e passou a viver numa tab dedicada, preparando espaço
+para as futuras funcionalidades de auditoria de classificação — PR #107.)
 
 ---
 
@@ -58,7 +59,7 @@ household-ledger/
 │   ├── auth.js             # verificação de token Google + senha + allowlist
 │   └── redis.js            # singleton ioredis
 ├── src/
-│   ├── App.jsx             # app completo (4 tabs)
+│   ├── App.jsx             # app completo (5 tabs)
 │   └── main.jsx            # entrypoint React
 ├── index.html
 ├── vite.config.js
@@ -199,7 +200,9 @@ não-vazias e deduplicadas). As funções puras (`matchAccount`, `isIncome`,
 via o `config` state no App (`Transfer` continua fixo). A UI é o
 `SettingsModal` (engrenagem no header), que reúne **Card mapping** +
 adiciona/renomeia/exclui nas três listas (cards colapsáveis via
-`CollapsibleCard`). **Renomear faz cascata** — conta atualiza transações +
+`CollapsibleCard`). Desde o PR #107 (v1.9.0), o `SettingsModal` **não contém
+mais** a seção "Account aliases" — ela foi movida para a tab dedicada
+**Audit** (ver UI). **Renomear faz cascata** — conta atualiza transações +
 valores do mapa de contas; categoria atualiza transações + chaves de
 orçamento. Itens em uso por transações não podem ser excluídos (renomear,
 sim).
@@ -251,8 +254,9 @@ Venture X`.
 `{ aliases: { [conta]: [fragmento, ...] }, savedAt }`. A função pura
 `matchAccountWithAliases(rawValue, aliasesArray)` faz o match (assinatura de
 `matchAccount`/`classifyAccount` inalterada). Editável pela seção **Account
-aliases** dentro do `SettingsModal` (`AccountAliasesSection`/
-`AccountAliasRow`), logo abaixo de `AccountMapSection`: chips de fragmento
+aliases** (`AccountAliasesSection`/`AccountAliasRow`), que desde o PR #107
+(v1.9.0) vive na tab dedicada **Audit** (antes ficava dentro do
+`SettingsModal`, logo abaixo de `AccountMapSection`): chips de fragmento
 por conta (add/remove) e fluxo **Preview impact** (mostra até 50 transações
 afetadas + contador, client-side via `computeAliasImpact`) → **Confirm &
 apply** (persiste via PUT e reclassifica em cascata as transações existentes
@@ -281,7 +285,7 @@ imports futuros.
 
 ## UI
 
-Mobile-first, tema escuro iOS. Tab bar inferior fixa com 4 abas. A entrada de transações é exclusivamente via Import — não há formulário manual de adição. Configuração (match de cartões CK + listas de contas/categorias) fica atrás da **engrenagem** no header (`SettingsModal`); o antigo botão Refresh foi removido.
+Mobile-first, tema escuro iOS. Tab bar inferior fixa com 5 abas. A entrada de transações é exclusivamente via Import — não há formulário manual de adição. Configuração (match de cartões CK + listas de contas/categorias) fica atrás da **engrenagem** no header (`SettingsModal`); o antigo botão Refresh foi removido. A auditoria de classificação de conta (aliases) vive na tab dedicada **Audit** (ver abaixo).
 
 **Identidade visual (PR #23 — iOS 26 "Liquid Glass")**
 
@@ -294,9 +298,9 @@ Mobile-first, tema escuro iOS. Tab bar inferior fixa com 4 abas. A entrada de tr
 - **Modernização Copilot-inspired**: Dashboard com **hero card** de saldo líquido (gradiente, glow, 40 px, split receita/despesa), StatCards com borda de acento à esquerda + label uppercase, `TxnRow` com **avatar colorido** da categoria (inicial + paleta estável via `catDotColor`/`CATEGORY_COLORS`), logo tile azul no header, e linhas de orçamento com dot da categoria + glow na barra estourada. As **legendas dos ícones** da tab bar (Dashboard/Analyze/Txns/Import) seguem visíveis.
 - **Tela cheia iOS PWA (full-bleed)**: o `viewport-fit=cover` só passa a valer com o meta limpo (sem `maximum-scale`) **e** uma reinstalação na tela inicial (o iOS faz snapshot do viewport no add-to-home-screen). A medição no device foi decisiva: `100dvh`/`100svh` = a *layout viewport* (812 pt no iPhone 16 Pro, que **exclui** a área do home indicator), enquanto `100vh`/`100lvh` = a tela física completa (874 pt). Por isso `html`/`body`/`#root` usam **`height: 100lvh`** com `overflow: hidden` (sem rubber-band) e o shell `height: 100%`. Resultado: a tab bar encosta na borda física real (medido `belowNav = 0`), sem faixa preta. `env(safe-area-inset-bottom)` no padding da barra mantém os ícones acima do home indicator; `env(safe-area-inset-top)` no header limpa a Dynamic Island.
 
-São **4 tabs**: Dashboard, Analyze, Transactions, Import. O app usa shell de
-altura cheia (`#root` em `100lvh` + shell `height:100%`): só o `<main>` faz
-scroll, então header e tab bar ficam fixos.
+São **5 tabs**: Dashboard, Analyze, Transactions, Import, Audit. O app usa
+shell de altura cheia (`#root` em `100lvh` + shell `height:100%`): só o
+`<main>` faz scroll, então header e tab bar ficam fixos.
 
 1. **Dashboard** — `PeriodFilter` (seletor ano/mês) fica acima do hero e
    controla o período exibido. **Hero card** mostra o saldo líquido, receita
@@ -457,6 +461,20 @@ scroll, então header e tab bar ficam fixos.
      falhava quando o `sourceId` estava ausente.
 
    O export do CK emite a coluna `source_id`.
+5. **Audit** (PR #107, v1.9.0) — 5ª tab, ícone `ShieldCheck`, última posição
+   na tab bar. Hoje renderiza somente `AccountAliasesSection` (mesmas props
+   de antes: `transactions`, `accountMap`, `aliases={accountAliases}`,
+   `onSave={onSaveAccountAliases}`), a seção **Account aliases** que antes
+   vivia dentro do `SettingsModal` — chips de fragmento por conta (add/remove)
+   + fluxo **Preview impact** → **Confirm & apply** (ver "Aliases de conta
+   editáveis" no Modelo de dados). Nenhuma lógica de negócio mudou
+   (`saveAccountAliasesAndApply`, `computeAliasImpact`, `buildAliasArray`,
+   `applyAliasConfig`, `matchAccount`, `classifyAccount`,
+   `api/account-aliases.js` — tudo igual, só mudou onde é renderizado). É o
+   novo lar planejado para as próximas funcionalidades de auditoria de
+   classificação da Fase 5 (mapa CK→ledger, heurísticas especiais, histórico
+   de decisões por transação, motor de sugestão automática de regras) —
+   ainda não implementadas, ver Roadmap.
 
 **Toggle do olho** no cabeçalho esconde/mostra todos os valores
 monetários globalmente (persistido em `localStorage`).
@@ -732,6 +750,19 @@ O app inicia com array vazio quando não há dados salvos (sem SEED).
 
 ### Fase 5 — Inteligência e Auditoria
 
+- [x] **Nova tab Audit** (PR #107, SHA 7782746, v1.9.0) — migração
+  estrutural: adicionada 5ª tab **Audit** (ícone `ShieldCheck`, última
+  posição na tab bar); novo componente `AuditTab` renderiza
+  `AccountAliasesSection` (mesmas props de antes); a seção "Account aliases"
+  foi removida de dentro do `SettingsModal`, que agora contém só
+  `AccountMapSection` + as 3 `ManagedList`. Nenhuma lógica de negócio
+  tocada (`saveAccountAliasesAndApply`, `computeAliasImpact`,
+  `buildAliasArray`, `applyAliasConfig`, `matchAccount`, `classifyAccount`,
+  `api/account-aliases.js` — tudo igual, só mudou onde é renderizado). É
+  preparação de espaço para os próximos sub-itens do item "Auditoria de
+  classificação de categorias" abaixo (mapa CK→ledger, heurísticas
+  especiais, histórico de decisões, sugestão automática de regras), que
+  continuam pendentes.
 - [x] **Aliases de conta editáveis + preview de impacto** (PR #105,
   v1.8.0) — fatia do item "Auditoria de classificação de categorias"
   abaixo. Novo endpoint `api/account-aliases.js` (GET/PUT, mesmo padrão de
@@ -751,9 +782,11 @@ O app inicia com array vazio quando não há dados salvos (sem SEED).
   alias preservada. Fora de escopo nesta fatia (pendente): mapa CK→ledger e
   heurísticas especiais editáveis, painel de histórico de decisões por
   transação, motor de sugestão automática de regras — ver item abaixo.
-- [~] **Auditoria de classificação de categorias** — área no app (sugestão:
-  dentro do `SettingsModal` ou tab dedicada) onde o usuário pode ver e editar
-  as regras de auto-classificação que o app usa, a saber:
+- [~] **Auditoria de classificação de categorias** — área no app onde o
+  usuário pode ver e editar as regras de auto-classificação que o app usa. A
+  decisão de layout (tab dedicada **Audit**, em vez de dentro do
+  `SettingsModal`) foi tomada e entregue no PR #107 (v1.9.0) — ver item
+  acima. Regras a saber:
   - **Mapa CK → ledger** (`mapCat` / `CAT` nos exportadores): de qual categoria
     do Credit Karma cada ledger-category é mapeada (ex.: `GROCERIES` →
     `Groceries`, `TRAVEL` → `Travel`). Poder renomear o destino ou criar
@@ -763,7 +796,8 @@ O app inicia com array vazio quando não há dados salvos (sem SEED).
     da descrição ou do provider-pattern. *(pendente)*
   - **Aliases de conta**: ver quais fragmentos de marca casam com qual conta
     do ledger; adicionar/remover aliases; ver transações afetadas antes de
-    salvar. **[x] Entregue no PR #105** — ver item acima.
+    salvar. **[x] Entregue no PR #105**, agora hospedado na tab **Audit**
+    desde o PR #107 — ver itens acima.
   - **Histórico de decisões** — por transação, um tooltip ou painel mostrando
     por que foi classificada como X (qual regra/alias casou, se foi
     classificação manual ou automática). *(pendente)*
