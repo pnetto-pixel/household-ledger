@@ -1374,7 +1374,7 @@ function Header({ hideValues, onToggleHide, onLogout, onOpenSettings, saving, sa
             <LayoutDashboard size={14} color="#fff" />
           </div>
           <span style={{ fontWeight: 700, fontSize: 15, letterSpacing: -0.5, color: "#e5e7eb" }}>Household</span>
-          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.15.1</span>
+          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.15.2</span>
         </div>
         <SaveIndicator saving={saving} dirty={dirty} savedAt={savedAt} saveError={saveError} />
       </div>
@@ -5190,10 +5190,22 @@ function ImportTransactions({ onImport, accountMap, config, transactions }) {
   // unchecked. Resets whenever the parsed/mapped batch changes.
   const [selected, setSelected] = useState(() => new Set());
   const [onlyDups, setOnlyDups] = useState(false);
+  const [onlyNonDups, setOnlyNonDups] = useState(false);
   useEffect(() => {
     setSelected(new Set(dedupedRows.filter((r) => !r._dup).map((r) => r.id)));
     setOnlyDups(false);
+    setOnlyNonDups(false);
   }, [dedupedRows]);
+
+  // Mutually exclusive: checking one clears the other.
+  const toggleOnlyDups = (checked) => {
+    setOnlyDups(checked);
+    if (checked) setOnlyNonDups(false);
+  };
+  const toggleOnlyNonDups = (checked) => {
+    setOnlyNonDups(checked);
+    if (checked) setOnlyDups(false);
+  };
 
   const toggleRow = (id) => setSelected((prev) => {
     const next = new Set(prev);
@@ -5229,8 +5241,8 @@ function ImportTransactions({ onImport, accountMap, config, transactions }) {
   });
 
   const methods = [
-    { id: "ck", title: "Credit Karma", desc: "Export file (bookmarklet / Scriptable). Automatic mapping and sign, pending transactions already excluded." },
-    { id: "csv", title: "CSV", desc: "Generic spreadsheet with manual column mapping. For importing old history." },
+    { id: "ck", title: "Credit Karma", desc: "Daily export — auto-mapped, sign preserved." },
+    { id: "csv", title: "CSV", desc: "Manual mapping — for backfilling old history." },
   ];
 
   return (
@@ -5272,28 +5284,31 @@ function ImportTransactions({ onImport, accountMap, config, transactions }) {
 
       {headers.length > 0 ? (
         <>
-          {/* Manual column mapping — CSV method only */}
+          {/* Manual column mapping — CSV method only. Collapsed by default
+              once the auto-guessed mapping already satisfies the required
+              fields; forced open when something still needs attention. */}
           {method === "csv" && (
             <>
-              <h3 style={S.sectionTitle}>Column mapping</h3>
-              <div style={S.col}>
-                {IMPORT_FIELDS.map((f) => {
-                  const fallbackHint =
-                    f.key === "category" ? "— use default: Other —"
-                    : f.key === "account" ? "— use default: Unassigned —"
-                    : "— skip —";
-                  return (
-                    <Field key={f.key} label={f.required ? `${f.label} *` : f.label}>
-                      <select value={mapping[f.key] || ""} onChange={(e) => setColumn(f.key, e.target.value)} style={S.input}>
-                        <option value="">{f.required ? "— none —" : fallbackHint}</option>
-                        {headers.map((h) => (
-                          <option key={h} value={h}>{h}</option>
-                        ))}
-                      </select>
-                    </Field>
-                  );
-                })}
-              </div>
+              <CollapsibleCard title="Column mapping" defaultOpen={missingRequired.length > 0}>
+                <div style={S.col}>
+                  {IMPORT_FIELDS.map((f) => {
+                    const fallbackHint =
+                      f.key === "category" ? "— use default: Other —"
+                      : f.key === "account" ? "— use default: Unassigned —"
+                      : "— skip —";
+                    return (
+                      <Field key={f.key} label={f.required ? `${f.label} *` : f.label}>
+                        <select value={mapping[f.key] || ""} onChange={(e) => setColumn(f.key, e.target.value)} style={S.input}>
+                          <option value="">{f.required ? "— none —" : fallbackHint}</option>
+                          {headers.map((h) => (
+                            <option key={h} value={h}>{h}</option>
+                          ))}
+                        </select>
+                      </Field>
+                    );
+                  })}
+                </div>
+              </CollapsibleCard>
               {missingRequired.length > 0 ? (
                 <div style={{ color: "#fbbf24", fontSize: 13 }}>
                   Map a column for: {missingRequired.map((f) => f.label).join(", ")}.
@@ -5304,20 +5319,27 @@ function ImportTransactions({ onImport, accountMap, config, transactions }) {
 
           <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", fontSize: 12, color: "#8b94a3" }}>
             <span>
-              {rawRows.length} parsed · {csvRows.length} valid{skippedCount > 0 ? <span style={{ color: "#fbbf24" }}> · {skippedCount} skipped (non-numeric rows)</span> : null} · <span style={{ color: "#cbd5e1" }}>{selectedCount} selected</span>
+              {rawRows.length === csvRows.length ? `${csvRows.length} valid` : `${rawRows.length} parsed · ${csvRows.length} valid`}
+              {skippedCount > 0 ? <span style={{ color: "#fbbf24" }}> · {skippedCount} skipped (non-numeric rows)</span> : null} · <span style={{ color: "#cbd5e1" }}>{selectedCount} selected</span>
               {dupCount ? <span style={{ color: "#fbbf24" }}> · {dupCount} duplicate{dupCount === 1 ? "" : "s"} auto-unchecked</span> : null}
             </span>
             <button onClick={selectAll} style={S.linkBtn}>Select all</button>
             <button onClick={selectNone} style={S.linkBtn}>Deselect all</button>
             {dupCount ? (
-              <label style={{ display: "flex", alignItems: "center", gap: 5, cursor: "pointer", color: "#cbd5e1" }}>
-                <input type="checkbox" checked={onlyDups} onChange={(e) => setOnlyDups(e.target.checked)} style={S.checkbox} />
-                Only duplicates
-              </label>
+              <>
+                <label style={{ display: "flex", alignItems: "center", gap: 5, cursor: "pointer", color: "#cbd5e1" }}>
+                  <input type="checkbox" checked={onlyDups} onChange={(e) => toggleOnlyDups(e.target.checked)} style={S.checkbox} />
+                  Only duplicates
+                </label>
+                <label style={{ display: "flex", alignItems: "center", gap: 5, cursor: "pointer", color: "#cbd5e1" }}>
+                  <input type="checkbox" checked={onlyNonDups} onChange={(e) => toggleOnlyNonDups(e.target.checked)} style={S.checkbox} />
+                  Only non-duplicates
+                </label>
+              </>
             ) : null}
           </div>
-          <div style={{ ...S.list, maxHeight: 360, overflowY: "auto" }}>
-            {dedupedRows.filter((t) => (onlyDups ? t._dup : true)).slice(0, 400).map((t) => {
+          <div style={{ ...S.list, maxHeight: 300, overflowY: "auto" }}>
+            {dedupedRows.filter((t) => (onlyDups ? t._dup : onlyNonDups ? !t._dup : true)).slice(0, 400).map((t) => {
               const checked = selected.has(t.id);
               return (
                 <div
@@ -5340,17 +5362,19 @@ function ImportTransactions({ onImport, accountMap, config, transactions }) {
               );
             })}
           </div>
-          <button
-            onClick={confirm}
-            disabled={selectedCount === 0 || missingRequired.length > 0}
-            style={{
-              ...S.primaryBtn,
-              opacity: selectedCount === 0 || missingRequired.length > 0 ? 0.5 : 1,
-              cursor: selectedCount === 0 || missingRequired.length > 0 ? "not-allowed" : "pointer",
-            }}
-          >
-            Import {selectedCount} transaction{selectedCount === 1 ? "" : "s"}
-          </button>
+          <div style={S.importActionsBar}>
+            <button
+              onClick={confirm}
+              disabled={selectedCount === 0 || missingRequired.length > 0}
+              style={{
+                ...S.primaryBtn,
+                opacity: selectedCount === 0 || missingRequired.length > 0 ? 0.5 : 1,
+                cursor: selectedCount === 0 || missingRequired.length > 0 ? "not-allowed" : "pointer",
+              }}
+            >
+              Import {selectedCount} transaction{selectedCount === 1 ? "" : "s"}
+            </button>
+          </div>
         </>
       ) : null}
     </div>
@@ -5852,6 +5876,17 @@ const S = {
     fontSize: 12,
     cursor: "pointer",
     padding: 0,
+  },
+  // Keeps the "Import N transactions" CTA reachable without scrolling past
+  // the preview list — sticks to the bottom of <main> (the only scroll
+  // parent) with a soft gradient so it doesn't clip abruptly over content.
+  importActionsBar: {
+    position: "sticky",
+    bottom: 0,
+    marginTop: -4,
+    paddingTop: 16,
+    paddingBottom: 2,
+    background: "linear-gradient(to bottom, rgba(11,13,16,0) 0%, #0b0d10 55%)",
   },
   searchWrap: {
     display: "flex",
