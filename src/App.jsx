@@ -275,6 +275,72 @@ function mapCkCategory(ckCategoryRaw, ckType, mapObj) {
   return (mapObj && mapObj[token]) || "Other";
 }
 
+// Apple Daily Cash heuristic: Apple Card cashback deposits sometimes arrive
+// from Credit Karma tagged as Transfer (or something else entirely), even
+// though they're really income. Editable seed + runtime override, same
+// pattern as `DEFAULT_CK_CATEGORY_MAP`/`applyCkCategoryMapConfig` above —
+// overridden at runtime by `applyAppleDailyCashRuleConfig()` from
+// `/api/apple-daily-cash-rule`. Editable from Audit → "Apple Daily Cash rule".
+// No "enabled" flag: an empty `keywords` list simply never matches.
+const DEFAULT_APPLE_DAILY_CASH_RULE = {
+  providerPattern: "Apple Card",
+  keywords: ["Deposit", "Adjustment"],
+  destinationCategory: "Other Income",
+};
+
+// Runtime Apple Daily Cash rule (mutable) — seeded with the default above,
+// replaced by `applyAppleDailyCashRuleConfig()` once
+// `/api/apple-daily-cash-rule` loads. Module state (not React state), same
+// reasoning as `CK_CATEGORY_MAP`.
+let APPLE_DAILY_CASH_RULE = { ...DEFAULT_APPLE_DAILY_CASH_RULE };
+
+function applyAppleDailyCashRuleConfig(ruleObj) {
+  APPLE_DAILY_CASH_RULE = {
+    ...DEFAULT_APPLE_DAILY_CASH_RULE,
+    ...(ruleObj && typeof ruleObj === "object" ? ruleObj : {}),
+  };
+}
+
+// The current runtime Apple Daily Cash rule as a plain object (for seeding/
+// persisting React state).
+function currentAppleDailyCashRuleConfig() {
+  return { ...APPLE_DAILY_CASH_RULE };
+}
+
+// True when the row's provider/account matches `providerPattern`
+// (case-insensitive) AND its description contains at least one of
+// `ruleConfig.keywords` (case-insensitive). Shared by `applyAppleDailyCashRule`
+// (import time) and `explainClassification` (audit trail) so both can never
+// drift out of sync. If `keywords` is empty, this never matches.
+function appleDailyCashRuleMatches(row, ruleConfig) {
+  const t = row || {};
+  const cfg = ruleConfig || DEFAULT_APPLE_DAILY_CASH_RULE;
+  const providerPattern = String(cfg.providerPattern || "").trim();
+  const keywords = Array.isArray(cfg.keywords) ? cfg.keywords.filter(Boolean) : [];
+  const destinationCategory = cfg.destinationCategory;
+  if (!providerPattern || !keywords.length || !destinationCategory) return false;
+
+  const providerHaystack = `${t.srcAccount || ""} ${t.account || ""}`.toLowerCase();
+  if (!providerHaystack.includes(providerPattern.toLowerCase())) return false;
+
+  const desc = String(t.description || "").toLowerCase();
+  return keywords.some((kw) => desc.includes(String(kw).toLowerCase()));
+}
+
+// Pure heuristic: when `appleDailyCashRuleMatches` fires, force the category
+// to `ruleConfig.destinationCategory`. Only reclassifies the category — the
+// amount/sign coming from the source is NEVER touched here. Unlike the
+// general rule, this heuristic IS allowed to move a row OUT of Transfer
+// (that's the real-world case: CK sometimes tags Apple Card cashback as
+// Transfer, and this promotes it to actual income). If it doesn't match, the
+// row's current category is returned unchanged.
+function applyAppleDailyCashRule(row, ruleConfig) {
+  const t = row || {};
+  const cfg = ruleConfig || DEFAULT_APPLE_DAILY_CASH_RULE;
+  if (!appleDailyCashRuleMatches(t, cfg)) return t.category;
+  return cfg.destinationCategory;
+}
+
 // ---------------------------------------------------------------------------
 // Bank import profiles
 // ---------------------------------------------------------------------------
@@ -719,6 +785,43 @@ export default function App() {
     }).catch(() => {});
   }, []);
 
+  // ---- Apple Daily Cash rule load / save ------------------------------------
+  const [appleDailyCashRule, setAppleDailyCashRule] = useState(() => currentAppleDailyCashRuleConfig());
+
+  const loadAppleDailyCashRule = useCallback(async () => {
+    try {
+      const res = await fetch("/api/apple-daily-cash-rule", {
+        method: "GET",
+        headers: buildAuthHeaders(),
+      });
+      if (!res.ok) return;
+      const data = await res.json();
+      if (data.rule && typeof data.rule === "object" && data.rule.providerPattern) {
+        applyAppleDailyCashRuleConfig(data.rule);
+        setAppleDailyCashRule(currentAppleDailyCashRuleConfig());
+      }
+    } catch {
+      // Silently ignore — defaults already seeded.
+    }
+  }, []);
+
+  useEffect(() => {
+    if (authed) loadAppleDailyCashRule();
+  }, [authed, loadAppleDailyCashRule]);
+
+  // Persist the Apple Daily Cash rule. Deliberately no cascade: only new
+  // imports (buildRow) are affected — existing transactions keep whatever
+  // category they were imported with.
+  const saveAppleDailyCashRule = useCallback((nextRule) => {
+    applyAppleDailyCashRuleConfig(nextRule);
+    setAppleDailyCashRule(currentAppleDailyCashRuleConfig());
+    return fetch("/api/apple-daily-cash-rule", {
+      method: "PUT",
+      headers: buildAuthHeaders(),
+      body: JSON.stringify({ rule: nextRule }),
+    }).catch(() => {});
+  }, []);
+
   // ---- Config (accounts + categories) load / save --------------------------
   const loadConfig = useCallback(async () => {
     try {
@@ -978,6 +1081,8 @@ export default function App() {
             onSaveAccountAliases={saveAccountAliasesAndApply}
             ckCategoryMap={ckCategoryMap}
             onSaveCkCategoryMap={saveCkCategoryMap}
+            appleDailyCashRule={appleDailyCashRule}
+            onSaveAppleDailyCashRule={saveAppleDailyCashRule}
             config={config}
           />
         ) : (
@@ -1175,7 +1280,7 @@ function Header({ hideValues, onToggleHide, onLogout, onOpenSettings, saving, sa
             <LayoutDashboard size={14} color="#fff" />
           </div>
           <span style={{ fontWeight: 700, fontSize: 15, letterSpacing: -0.5, color: "#e5e7eb" }}>Household</span>
-          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.11.0</span>
+          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.12.0</span>
         </div>
         <SaveIndicator saving={saving} dirty={dirty} savedAt={savedAt} saveError={saveError} />
       </div>
@@ -3828,7 +3933,12 @@ function ManagedList({ title, items, usage, onAdd, onRename, onDelete, onReorder
 // Audit tab
 // ===========================================================================
 
-function AuditTab({ transactions, accountMap, accountAliases, onSaveAccountAliases, ckCategoryMap, onSaveCkCategoryMap, config }) {
+function AuditTab({
+  transactions, accountMap, accountAliases, onSaveAccountAliases,
+  ckCategoryMap, onSaveCkCategoryMap,
+  appleDailyCashRule, onSaveAppleDailyCashRule,
+  config,
+}) {
   return (
     <div style={S.col}>
       <h3 style={S.sectionTitle}>Audit</h3>
@@ -3842,6 +3952,11 @@ function AuditTab({ transactions, accountMap, accountAliases, onSaveAccountAlias
         transactions={transactions}
         map={ckCategoryMap}
         onSave={onSaveCkCategoryMap}
+        config={config}
+      />
+      <AppleDailyCashRuleSection
+        rule={appleDailyCashRule}
+        onSave={onSaveAppleDailyCashRule}
         config={config}
       />
       <ClassificationHistorySection transactions={transactions} accountMap={accountMap} accountAliases={accountAliases} />
@@ -3928,6 +4043,107 @@ function CkCategoryMapSection({ transactions, map, onSave, config }) {
         style={{ ...S.primaryBtn, marginTop: 10, opacity: dirty ? 1 : 0.5, cursor: dirty ? "pointer" : "not-allowed" }}
       >
         Save mapping
+      </button>
+    </CollapsibleCard>
+  );
+}
+
+// Editable Apple Daily Cash heuristic: Apple Card cashback deposits that
+// arrive tagged with the wrong category (often Transfer) get reclassified to
+// a destination category when the provider pattern + a description keyword
+// both match. Same visual/save pattern as `CkCategoryMapSection` — plain PUT,
+// no impact preview, no retroactive cascade: only affects NEW imports.
+function AppleDailyCashRuleSection({ rule, onSave, config }) {
+  const base = rule || DEFAULT_APPLE_DAILY_CASH_RULE;
+  const [draft, setDraft] = useState({
+    providerPattern: base.providerPattern || "",
+    keywords: (base.keywords || []).join(", "),
+    destinationCategory: base.destinationCategory || "Other Income",
+  });
+
+  useEffect(() => {
+    const r = rule || DEFAULT_APPLE_DAILY_CASH_RULE;
+    setDraft({
+      providerPattern: r.providerPattern || "",
+      keywords: (r.keywords || []).join(", "),
+      destinationCategory: r.destinationCategory || "Other Income",
+    });
+  }, [rule]);
+
+  const destinationOptions = useMemo(() => {
+    const expense = config?.expenseCategories || EXPENSE_CATEGORIES;
+    const income = config?.incomeCategories || INCOME_CATEGORIES;
+    return [...expense, ...income, TRANSFER_CATEGORY];
+  }, [config]);
+
+  const draftAsRule = useMemo(() => ({
+    providerPattern: draft.providerPattern.trim(),
+    keywords: draft.keywords.split(",").map((k) => k.trim()).filter(Boolean),
+    destinationCategory: draft.destinationCategory,
+  }), [draft]);
+
+  const savedAsRule = useMemo(() => ({
+    providerPattern: (base.providerPattern || "").trim(),
+    keywords: base.keywords || [],
+    destinationCategory: base.destinationCategory || "Other Income",
+  }), [base]);
+
+  const dirty = useMemo(
+    () => JSON.stringify(draftAsRule) !== JSON.stringify(savedAsRule),
+    [draftAsRule, savedAsRule]
+  );
+
+  return (
+    <CollapsibleCard title="Apple Daily Cash rule">
+      <div style={{ fontSize: 12, color: "#8b94a3", margin: "0 0 10px", lineHeight: 1.5 }}>
+        Detects Apple Card cashback deposits by matching a provider/account
+        pattern together with a description keyword, then reclassifies them
+        into the destination category below. Runs last, after the Credit
+        Karma category mapping and the Transfer safety net — unlike those,
+        this rule IS allowed to move a row OUT of Transfer into the
+        destination category when it matches (that's its real-world purpose).
+        Only the category is ever changed; the imported amount and its sign
+        are never touched. Saving only affects future imports — existing
+        transactions keep their current category.
+      </div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+        <Field label="Provider/account pattern">
+          <input
+            type="text"
+            value={draft.providerPattern}
+            onChange={(e) => setDraft((p) => ({ ...p, providerPattern: e.target.value }))}
+            placeholder="Apple Card"
+            style={S.input}
+          />
+        </Field>
+        <Field label="Description keywords (comma-separated)">
+          <input
+            type="text"
+            value={draft.keywords}
+            onChange={(e) => setDraft((p) => ({ ...p, keywords: e.target.value }))}
+            placeholder="Deposit, Adjustment"
+            style={S.input}
+          />
+        </Field>
+        <Field label="Destination category">
+          <select
+            value={draft.destinationCategory}
+            onChange={(e) => setDraft((p) => ({ ...p, destinationCategory: e.target.value }))}
+            style={S.select}
+          >
+            {destinationOptions.map((c) => (
+              <option key={c} value={c}>{c}</option>
+            ))}
+          </select>
+        </Field>
+      </div>
+      <button
+        type="button"
+        onClick={() => onSave(draftAsRule)}
+        disabled={!dirty}
+        style={{ ...S.primaryBtn, marginTop: 10, opacity: dirty ? 1 : 0.5, cursor: dirty ? "pointer" : "not-allowed" }}
+      >
+        Save rule
       </button>
     </CollapsibleCard>
   );
@@ -4204,14 +4420,27 @@ function buildRow(raw, mapping, profile, accountMap) {
   const recomputedCategory = ckCategory
     ? mapCkCategory(ckCategory, ckType, CK_CATEGORY_MAP)
     : csvCategory;
-  const category = (recomputedCategory === TRANSFER_CATEGORY || csvCategory === TRANSFER_CATEGORY)
+  const safetyNetCategory = (recomputedCategory === TRANSFER_CATEGORY || csvCategory === TRANSFER_CATEGORY)
     ? TRANSFER_CATEGORY
     : matchOption(recomputedCategory, CATEGORIES, "Other");
+
+  const description = val("description");
+  // Apple Daily Cash heuristic runs LAST, after the CK->ledger map and the
+  // Transfer safety-net above. Unlike everything before it, this heuristic is
+  // explicitly allowed to move a row OUT of Transfer into its destination
+  // category (e.g. "Other Income") when the provider + description pattern
+  // matches — that's the real-world case it exists for. It's still purely
+  // additive: if the pattern doesn't match, `safetyNetCategory` passes through
+  // untouched. Never touches `amount`/its sign.
+  const category = applyAppleDailyCashRule(
+    { srcAccount: rawAccount, account, description, category: safetyNetCategory },
+    APPLE_DAILY_CASH_RULE
+  );
 
   const row = {
     id: uid(),
     date,
-    description: val("description"),
+    description,
     amount,
     category,
     account,
@@ -4692,10 +4921,12 @@ function explainClassification(txn, accountMap, aliasesArray) {
   }
 
   let categoryReason;
+  // Re-run the same pure heuristic/config used at import time in `buildRow`
+  // (not a hardcoded regex) so this explanation can never drift out of sync
+  // with the editable rule in Audit → "Apple Daily Cash rule".
   const appleDailyCash =
-    /apple card/i.test(`${t.srcAccount || ""} ${t.description || ""}`) &&
-    /(deposit|adjustment)/i.test(t.description || "") &&
-    t.category === "Other Income";
+    appleDailyCashRuleMatches(t, APPLE_DAILY_CASH_RULE) &&
+    t.category === APPLE_DAILY_CASH_RULE.destinationCategory;
   if (t.ckCategory && t.ckCategory !== t.category) {
     categoryReason = `Mapped from Credit Karma category: ${t.ckCategory}`;
   } else if (appleDailyCash) {
