@@ -1374,7 +1374,7 @@ function Header({ hideValues, onToggleHide, onLogout, onOpenSettings, saving, sa
             <LayoutDashboard size={14} color="#fff" />
           </div>
           <span style={{ fontWeight: 700, fontSize: 15, letterSpacing: -0.5, color: "#e5e7eb" }}>Household</span>
-          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.16.1</span>
+          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.16.2</span>
         </div>
         <SaveIndicator saving={saving} dirty={dirty} savedAt={savedAt} saveError={saveError} />
       </div>
@@ -2319,6 +2319,13 @@ const GRANULARITIES = [
   { v: "Q", l: "Q" },
   { v: "H", l: "H" },
   { v: "Y", l: "Y" },
+];
+
+// Duplicate-visibility filter options for the Import preview segmented control
+const DUP_FILTERS = [
+  { v: "all", l: "All" },
+  { v: "new", l: "New Only" },
+  { v: "dup", l: "Dup Only" },
 ];
 
 function Charts({ transactions, hideValues, config }) {
@@ -5189,19 +5196,19 @@ function ImportTransactions({ onImport, accountMap, config, transactions }) {
   // Per-row selection. Default: keep non-duplicates checked, duplicates
   // unchecked. Resets whenever the parsed/mapped batch changes.
   const [selected, setSelected] = useState(() => new Set());
-  const [onlyDups, setOnlyDups] = useState(false);
-  const [onlyNonDups, setOnlyNonDups] = useState(false);
+  // Duplicate-visibility filter for the preview list only ("all" | "new" |
+  // "dup"). Independent from `selected` (what actually gets imported).
+  const [dupFilter, setDupFilter] = useState("all");
   // Per-row category corrections made in the preview, before import. Keyed
   // by row id -> { category, categoryManual }. Same manual-correction
   // semantics as EditModal (see setCategoryOverride below), so these
   // corrections feed detectManualCategoryCorrections / "Suggested rules"
   // just like edits made after import. Reset whenever the parsed/mapped
-  // batch changes (same trigger as `selected`/`onlyDups`/`onlyNonDups`).
+  // batch changes (same trigger as `selected`/`dupFilter`).
   const [categoryOverrides, setCategoryOverrides] = useState(() => new Map());
   useEffect(() => {
     setSelected(new Set(dedupedRows.filter((r) => !r._dup).map((r) => r.id)));
-    setOnlyDups(false);
-    setOnlyNonDups(false);
+    setDupFilter("all");
     setCategoryOverrides(new Map());
   }, [dedupedRows]);
 
@@ -5227,16 +5234,6 @@ function ImportTransactions({ onImport, accountMap, config, transactions }) {
     });
   }, [dedupedRows, categoryOverrides]);
 
-  // Mutually exclusive: checking one clears the other.
-  const toggleOnlyDups = (checked) => {
-    setOnlyDups(checked);
-    if (checked) setOnlyNonDups(false);
-  };
-  const toggleOnlyNonDups = (checked) => {
-    setOnlyNonDups(checked);
-    if (checked) setOnlyDups(false);
-  };
-
   const toggleRow = (id) => setSelected((prev) => {
     const next = new Set(prev);
     next.has(id) ? next.delete(id) : next.add(id);
@@ -5260,16 +5257,6 @@ function ImportTransactions({ onImport, accountMap, config, transactions }) {
     resetAll();
   };
 
-  const methodCard = (active) => ({
-    flex: 1,
-    textAlign: "left",
-    cursor: "pointer",
-    background: active ? "#13233b" : "#161a20",
-    border: `1px solid ${active ? "#0A84FF" : "#2a313c"}`,
-    borderRadius: 14,
-    padding: "12px 14px",
-  });
-
   const methods = [
     { id: "ck", title: "Credit Karma", desc: "Daily export — auto-mapped, sign preserved." },
     { id: "csv", title: "CSV", desc: "Manual mapping — for backfilling old history." },
@@ -5279,14 +5266,25 @@ function ImportTransactions({ onImport, accountMap, config, transactions }) {
     <div style={S.col}>
       <h3 style={S.sectionTitle}>Import</h3>
 
-      {/* Method picker */}
-      <div style={{ display: "flex", gap: 10 }}>
-        {methods.map((m) => (
-          <button key={m.id} onClick={() => selectMethod(m.id)} style={methodCard(method === m.id)}>
-            <div style={{ fontWeight: 600, fontSize: 14, color: "#e5e7eb" }}>{m.title}</div>
-            <div style={{ fontSize: 11, color: "#8b94a3", marginTop: 4, lineHeight: 1.35 }}>{m.desc}</div>
-          </button>
-        ))}
+      {/* Method picker — segmented control (first decision of the flow,
+          so it gets a bigger touch target than the Analyze granularity
+          picker). Legend below shows the currently selected method's
+          description. */}
+      <div>
+        <div style={S.segmented}>
+          {methods.map((m) => (
+            <button
+              key={m.id}
+              onClick={() => selectMethod(m.id)}
+              style={{ ...S.segmentedBtn(method === m.id), flex: 1, padding: "8px 16px", minHeight: 36, fontSize: 13 }}
+            >
+              {m.title}
+            </button>
+          ))}
+        </div>
+        <div style={{ fontSize: 11, color: "#8b94a3", marginTop: 6, lineHeight: 1.35 }}>
+          {methods.find((m) => m.id === method)?.desc}
+        </div>
       </div>
 
       {/* File dropzone */}
@@ -5356,20 +5354,17 @@ function ImportTransactions({ onImport, accountMap, config, transactions }) {
             <button onClick={selectAll} style={S.linkBtn}>Select all</button>
             <button onClick={selectNone} style={S.linkBtn}>Deselect all</button>
             {dupCount ? (
-              <>
-                <label style={{ display: "flex", alignItems: "center", gap: 5, cursor: "pointer", color: "#cbd5e1" }}>
-                  <input type="checkbox" checked={onlyDups} onChange={(e) => toggleOnlyDups(e.target.checked)} style={S.checkbox} />
-                  Only duplicates
-                </label>
-                <label style={{ display: "flex", alignItems: "center", gap: 5, cursor: "pointer", color: "#cbd5e1" }}>
-                  <input type="checkbox" checked={onlyNonDups} onChange={(e) => toggleOnlyNonDups(e.target.checked)} style={S.checkbox} />
-                  Only non-duplicates
-                </label>
-              </>
+              <div style={S.segmented}>
+                {DUP_FILTERS.map(({ v, l }) => (
+                  <button key={v} onClick={() => setDupFilter(v)} style={S.segmentedBtn(dupFilter === v)}>
+                    {l}
+                  </button>
+                ))}
+              </div>
             ) : null}
           </div>
           <div style={{ ...S.list, maxHeight: 300, overflowY: "auto" }}>
-            {displayRows.filter((t) => (onlyDups ? t._dup : onlyNonDups ? !t._dup : true)).slice(0, 400).map((t) => {
+            {displayRows.filter((t) => (dupFilter === "dup" ? t._dup : dupFilter === "new" ? !t._dup : true)).slice(0, 400).map((t) => {
               const checked = selected.has(t.id);
               const autoCategory = t.autoCategory ?? t.category;
               const edited = t.category !== autoCategory;
@@ -6223,6 +6218,29 @@ const S = {
     padding: "4px 12px",
     fontSize: 12,
     fontWeight: active ? 600 : 400,
+    cursor: "pointer",
+    transition: "background 0.15s, color 0.15s",
+  }),
+  // Generic segmented control, same visual pattern as the Analyze
+  // granularity picker (GRANULARITIES). Container + per-button style;
+  // callers can spread extra overrides (e.g. bigger padding) on top of
+  // segmentedBtn's return value.
+  segmented: {
+    display: "flex",
+    gap: 2,
+    background: "#0f1216",
+    border: "1px solid #232a33",
+    borderRadius: 10,
+    padding: 3,
+  },
+  segmentedBtn: (active) => ({
+    background: active ? "#0A84FF" : "transparent",
+    border: "none",
+    color: active ? "#fff" : "#8b94a3",
+    borderRadius: 7,
+    padding: "3px 10px",
+    fontSize: 12,
+    fontWeight: active ? 700 : 400,
     cursor: "pointer",
     transition: "background 0.15s, color 0.15s",
   }),
