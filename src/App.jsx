@@ -1374,7 +1374,7 @@ function Header({ hideValues, onToggleHide, onLogout, onOpenSettings, saving, sa
             <LayoutDashboard size={14} color="#fff" />
           </div>
           <span style={{ fontWeight: 700, fontSize: 15, letterSpacing: -0.5, color: "#e5e7eb" }}>Household</span>
-          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.16.0</span>
+          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.16.1</span>
         </div>
         <SaveIndicator saving={saving} dirty={dirty} savedAt={savedAt} saveError={saveError} />
       </div>
@@ -4211,7 +4211,7 @@ function SuggestedRulesSection({ suggestedFragments, suggestedTokens, suggestedC
                     <div key={i}>
                       {ex.description}
                       {ex.autoCategory ? (
-                        <span style={{ color: "#636366" }}> — was {ex.autoCategory} → you: {c.destinationCategory}</span>
+                        <span style={{ color: "#636366" }}> — was {ex.autoCategory} → you: {ex.category || c.destinationCategory}</span>
                       ) : null}
                     </div>
                   ))}
@@ -5572,30 +5572,31 @@ function descFragment(desc) {
 }
 
 // Group C (manual category corrections): rows the user explicitly re-categorized
-// (categoryManual === true), excluding Transfer. Grouping key is the CK category
-// token when present, otherwise a normalized description fragment (covers
-// generic CSV imports without ckCategory). Each group carries up to 3 examples,
-// the most-frequent destination category (what the user keeps picking), and a
-// suggested description `pattern` for the "Create rule from this" action.
-// Threshold >= 2. Sorted by count desc. Pure — memoized by the caller.
+// (categoryManual === true), excluding Transfer. Grouping key is the normalized
+// description fragment (the merchant — the same thing the created description
+// rule will match on), falling back to the CK category token only when the
+// description yields no fragment. Grouping by ckCategory token here would lump
+// unrelated merchants that happen to share a source category (e.g. every
+// income row corrected in one import) into a single bogus suggestion. Each
+// group carries up to 3 examples (each with its own corrected category) and
+// the most-frequent destination category (what the user keeps picking) as the
+// rule target. Threshold >= 2. Sorted by count desc. Pure — memoized by caller.
 function detectManualCategoryCorrections(transactions) {
   const groups = new Map();
   for (const t of transactions || []) {
     if (t.categoryManual !== true) continue;
     if (isTransfer(t.category)) continue;
-    const key = t.ckCategory ? ckCategoryToken(t.ckCategory) : descFragment(t.description);
+    const key = descFragment(t.description) || (t.ckCategory ? ckCategoryToken(t.ckCategory) : "");
     if (!key) continue;
     let e = groups.get(key);
     if (!e) {
-      e = { key, count: 0, examples: [], destCounts: new Map(), patternCounts: new Map() };
+      e = { key, count: 0, examples: [], destCounts: new Map() };
       groups.set(key, e);
     }
     e.count++;
     e.destCounts.set(t.category, (e.destCounts.get(t.category) || 0) + 1);
-    const frag = descFragment(t.description);
-    if (frag) e.patternCounts.set(frag, (e.patternCounts.get(frag) || 0) + 1);
     if (e.examples.length < 3 && t.description) {
-      e.examples.push({ description: t.description, autoCategory: t.autoCategory || "" });
+      e.examples.push({ description: t.description, autoCategory: t.autoCategory || "", category: t.category });
     }
   }
   const pickTop = (m) => {
@@ -5610,7 +5611,7 @@ function detectManualCategoryCorrections(transactions) {
       count: g.count,
       examples: g.examples,
       destinationCategory: pickTop(g.destCounts),
-      pattern: pickTop(g.patternCounts) || g.key,
+      pattern: g.key,
     }))
     .sort((a, b) => b.count - a.count);
 }

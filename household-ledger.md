@@ -1,4 +1,4 @@
-# Household Ledger · v1.16.0
+# Household Ledger · v1.16.1
 
 Aplicativo mobile-first de controle financeiro doméstico. Registra
 transações da casa (despesas e receitas) por categoria e conta, com
@@ -24,7 +24,25 @@ A cada PR, atualize a versão em **dois lugares**:
 1. `src/App.jsx` — a string `v1.x.x` no span ao lado de "Household"
 2. `household-ledger.md` — o `· v1.x.x` no título `# Household Ledger`
 
-Versão atual: **v1.16.0** — **Edição de categoria na preview da tab Import**
+Versão atual: **v1.16.1** — **Fix: agrupamento errado no grupo "Manual
+category corrections" do painel Suggested rules** (patch, frontend puro).
+`detectManualCategoryCorrections` agrupava as correções pelo token da
+categoria CK de origem (`ckCategoryToken(t.ckCategory)`), o que juntava num
+grupo só comerciantes sem relação que compartilhavam a mesma categoria de
+origem (ex.: todas as linhas de income corrigidas num mesmo import — Tundra,
+Dell, YMCA e Venmo viravam "4 corrected → Entertainment", herdando o destino
+da primeira correção da lista). Agora o agrupamento é por comerciante — o
+fragmento normalizado da descrição (`descFragment`), exatamente o que a
+regra criada por "Create rule from this" vai casar —, com fallback para o
+token CK só quando a descrição não gera fragmento; `patternCounts` foi
+removido (o pattern é o próprio key). Cada exemplo passou a carregar a sua
+própria categoria corrigida, e a linha "was X → you: Y" mostra o que o
+usuário escolheu naquela transação, não mais o destino mais frequente do
+grupo. Threshold ≥2 inalterado — correções avulsas de comerciantes distintos
+não geram mais sugestão (antes geravam uma sugestão errada). — branch
+`claude/import-tab-ux-improvements-i1b7az`.
+
+Versão anterior: **v1.16.0** — **Edição de categoria na preview da tab Import**
 (feature nova, frontend puro). Cada linha da prévia do Import ganhou um
 `<select>` compacto com a lista completa `CATEGORIES` (incl. Transfer) no
 lugar do texto estático da categoria — clique no select não dispara o
@@ -367,9 +385,11 @@ mudança (mesmo padrão das demais seções de regra da tab Audit).
 "correções manuais" recorrentes ("double check"): nova função pura
 `detectManualCategoryCorrections` filtra transações com
 `categoryManual === true` e categoria final ≠ `Transfer` (ver
-`categoryManual`/`autoCategory` no Modelo de dados), agrupa por token CK
-(`ckCategoryToken`) com fallback para fragmento normalizado da descrição
-(cobre tanto imports Credit Karma quanto CSV genérico), threshold ≥2
+`categoryManual`/`autoCategory` no Modelo de dados), agrupa por comerciante —
+fragmento normalizado da descrição (`descFragment`), com fallback para o
+token CK (`ckCategoryToken`) quando a descrição não gera fragmento (desde a
+v1.16.1; antes o agrupamento era CK-token-first, o que juntava comerciantes
+sem relação com a mesma categoria de origem), threshold ≥2
 ocorrências no grupo. A UI é um terceiro grupo "Manual category
 corrections" dentro da seção existente **Suggested rules** (mesmo padrão
 dos grupos A/B: dismiss por sessão, sem persistência entre sessões). A ação
@@ -794,9 +814,12 @@ shell de altura cheia (`#root` em `100lvh` + shell `height:100%`): só o
      corrente (`api/ck-category-map.js`) resolve para "Other".
    - **Grupo C (correções manuais, PR #119, v1.15.0)** — "Manual category
      corrections": `detectManualCategoryCorrections` agrupa transações com
-     `categoryManual === true` e categoria final ≠ `Transfer` por token CK
-     (`ckCategoryToken`) com fallback para fragmento normalizado da
-     descrição (cobre CK e CSV genérico), threshold ≥2. Ação **"Create rule
+     `categoryManual === true` e categoria final ≠ `Transfer` por comerciante
+     — fragmento normalizado da descrição (`descFragment`), com fallback
+     para o token CK (`ckCategoryToken`) quando não há fragmento (v1.16.1;
+     antes era CK-token-first) —, threshold ≥2. Cada exemplo exibe a
+     categoria que o usuário escolheu naquela transação ("was X → you: Y").
+     Ação **"Create rule
      from this"** rola/expande a seção **Description rules** e pré-preenche
      um novo rascunho de regra com o pattern do fragmento comum e a
      categoria de destino = categoria manual mais frequente do grupo — o
