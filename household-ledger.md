@@ -1,4 +1,4 @@
-# Household Ledger · v1.10.0
+# Household Ledger · v1.11.0
 
 Aplicativo mobile-first de controle financeiro doméstico. Registra
 transações da casa (despesas e receitas) por categoria e conta, com
@@ -24,10 +24,11 @@ A cada PR, atualize a versão em **dois lugares**:
 1. `src/App.jsx` — a string `v1.x.x` no span ao lado de "Household"
 2. `household-ledger.md` — o `· v1.x.x` no título `# Household Ledger`
 
-Versão atual: **v1.10.0** (nova seção **Classification history** dentro da
-tab **Audit**: lista somente-leitura das transações com busca + paginação,
-mostrando a explicação de por que cada uma foi classificada com a conta/
-categoria atuais — PR #109.)
+Versão atual: **v1.11.0** (mapa CK→ledger editável: nova seção **Category
+mapping** na tab **Audit**, mapa `DEFAULT_CK_CATEGORY_MAP` editável via
+`api/ck-category-map.js`, `buildRow` recalcula a categoria do import Credit
+Karma através do mapa — com rede de segurança que nunca rebaixa `Transfer`
+para outra categoria — PR #111.)
 
 ---
 
@@ -165,6 +166,40 @@ o `Deposit` entra positivo (soma a receita) e o `Adjustment` entra negativo
 com "Apple Card" + descrição "Deposit" ou "Adjustment". Um depósito manual
 feito pelo usuário na Apple Savings também casaria com essa regra (trade-off
 aceito — são raros).
+
+### Mapa CK → ledger de categorias (editável, PR #111)
+
+O import via profile Credit Karma recalcula a categoria da transação a
+partir da categoria crua do CK (`ckCategory`) usando um mapa `{ [ckToken]:
+"categoria do ledger" }`, em vez de confiar apenas na categoria já traduzida
+que vinha no CSV. `DEFAULT_CK_CATEGORY_MAP` é o seed (paridade 1:1 com
+`CAT`/`CATEGORY_MAP` dos exportadores externos, que continuam intocados em
+`tools/credit-karma/`), sobrescrito em runtime por
+`applyCkCategoryMapConfig`/`currentCkCategoryMapConfig` (mesmo padrão de
+`applyAliasConfig`) a partir de `/api/ck-category-map` (GET/PUT), persistido
+em Redis `household:USERID:ckcategorymap` como
+`{ map: { [ckToken]: categoria }, savedAt }`. As funções puras
+`mapCkCategory`/`ckCategoryToken` fazem a tradução token → categoria.
+
+Em `buildRow`, quando `ckCategory` está presente: a categoria final é
+recalculada via `mapCkCategory` usando o mapa editável corrente. **Rede de
+segurança crítica**: se **ou** o recálculo **ou** a `category` que já vinha
+do CSV disser `Transfer`, o resultado final é sempre `Transfer` — o
+recálculo nunca pode rebaixar um Transfer legítimo para outra categoria
+(ex.: "Other"). Essa regra existe porque **o CSV do Credit Karma nunca
+exporta o `categoryType` bruto do CK** (só emite `type=income/expense`),
+então a categoria já vinda do exportador é a única fonte confiável de "isso
+é Transfer" quando o token da categoria por si só não é óbvio; sem essa
+rede de segurança, um Transfer legítimo poderia ser reclassificado e
+escapar da exclusão de totais (invariante de `Transfer` quebrada). Sem
+`ckCategory` presente (import CSV genérico), o comportamento é inalterado:
+usa a `category` que já vinha do arquivo.
+
+A seção **Category mapping**, na tab Audit, edita esse mapa por token
+(dropdown das categorias correntes + `Transfer` + `Other Income`) — sem
+preview de impacto e sem cascata retroativa: a mudança só afeta **novos
+imports** a partir de então (decisão confirmada com o usuário; ver UI e
+Roadmap Fase 5).
 
 ### Orçamentos
 
@@ -493,10 +528,23 @@ shell de altura cheia (`#root` em `100lvh` + shell `height:100%`): só o
    aceito, mesmo espírito de outras heurísticas client-side já documentadas
    neste arquivo).
 
+   Logo abaixo de "Classification history", desde o **PR #111 (v1.11.0)**,
+   uma nova seção **"Category mapping"**: lista os tokens de categoria do
+   Credit Karma conhecidos — os do seed `DEFAULT_CK_CATEGORY_MAP` mais
+   quaisquer outros descobertos nas transações já carregadas (via
+   `ckCategory`) — cada um editável por um dropdown com as categorias
+   correntes do ledger + `Transfer` + `Other Income` como destino. Persiste
+   via `api/ck-category-map.js` em `household:*:ckcategorymap`. **Sem
+   preview de impacto e sem cascata retroativa**: a edição só passa a valer
+   para **novos imports** feitos depois da mudança (decisão confirmada com o
+   usuário) — diferente do fluxo de aliases de conta, que tem preview +
+   apply em cascata. Ver "Mapa CK → ledger de categorias" no Modelo de dados
+   para a regra de segurança que nunca rebaixa `Transfer` no recálculo de
+   `buildRow`.
+
    É o novo lar planejado para as próximas funcionalidades de auditoria de
-   classificação da Fase 5 (mapa CK→ledger editável, heurísticas especiais
-   editáveis, motor de sugestão automática de regras) — ainda não
-   implementadas, ver Roadmap.
+   classificação da Fase 5 (heurísticas especiais editáveis, motor de
+   sugestão automática de regras) — ainda não implementadas, ver Roadmap.
 
 **Toggle do olho** no cabeçalho esconde/mostra todos os valores
 monetários globalmente (persistido em `localStorage`).
@@ -828,6 +876,32 @@ O app inicia com array vazio quando não há dados salvos (sem SEED).
   se a regra real dos exportadores mudar sem atualizar esta função também.
   Pendente nesta fatia: mapa CK→ledger editável, heurísticas especiais
   editáveis, sugestão automática de regras — ver item abaixo.
+- [x] **Mapa CK→ledger editável** (PR #111, SHA
+  ca4d38f74cfd10451788c4fa17e42589967a10d3, v1.11.0) — fatia do item
+  "Auditoria de classificação de categorias" abaixo. Nova seed
+  `DEFAULT_CK_CATEGORY_MAP` (paridade 1:1 confirmada pelo auditor contra
+  `CAT`/`CATEGORY_MAP` dos dois exportadores externos, que continuam
+  intocados), funções puras `mapCkCategory`/`ckCategoryToken` e
+  `applyCkCategoryMapConfig`/`currentCkCategoryMapConfig` (mesmo padrão de
+  `applyAliasConfig`). Novo endpoint `api/ck-category-map.js` (GET/PUT,
+  mesmo padrão de `account-aliases.js`), persiste `{ map: { [ckToken]:
+  categoria }, savedAt }` em `household:*:ckcategorymap`. `buildRow` (import
+  profile Credit Karma) recalcula a categoria via o mapa editável quando
+  `ckCategory` está presente, **com rede de segurança crítica adicionada na
+  correção pós-auditoria**: se o recálculo ou a categoria já vinda do CSV
+  disser `Transfer`, o resultado final é sempre `Transfer` (nunca
+  rebaixado) — necessário porque o CSV do CK nunca exporta o
+  `categoryType` bruto (só `type=income/expense`), então a categoria do CSV
+  é a única fonte confiável de "isso é Transfer" quando o token não é
+  óbvio; sem essa rede de segurança o recálculo podia rebaixar Transfers
+  legítimos e quebrar a exclusão de totais. Sem `ckCategory` (CSV genérico),
+  comportamento inalterado. Nova seção **Category mapping** na `AuditTab`:
+  tokens seed + descobertos nas transações carregadas, editáveis via
+  dropdown das categorias correntes + `Transfer` + `Other Income`. **Sem
+  preview de impacto e sem cascata retroativa** — só afeta novos imports a
+  partir de agora (decisão confirmada com o usuário). Pendente nesta fatia:
+  heurísticas especiais editáveis, sugestão automática de regras — ver item
+  abaixo.
 - [~] **Auditoria de classificação de categorias** — área no app onde o
   usuário pode ver e editar as regras de auto-classificação que o app usa. A
   decisão de layout (tab dedicada **Audit**, em vez de dentro do
@@ -835,8 +909,10 @@ O app inicia com array vazio quando não há dados salvos (sem SEED).
   acima. Regras a saber:
   - **Mapa CK → ledger** (`mapCat` / `CAT` nos exportadores): de qual categoria
     do Credit Karma cada ledger-category é mapeada (ex.: `GROCERIES` →
-    `Groceries`, `TRAVEL` → `Travel`). Poder renomear o destino ou criar
-    exceções por descrição/provider. *(pendente)*
+    `Groceries`, `TRAVEL` → `Travel`). **[x] Entregue no PR #111 (v1.11.0)**
+    — mapa editável por token via seção **Category mapping** na tab Audit,
+    sem preview/cascata (só afeta novos imports) — ver item acima. Ainda
+    *pendente*: exceções por descrição/provider dentro do mesmo token.
   - **Heurísticas especiais** (ex.: Apple Daily Cash): listar as regras
     embutidas, mostrar quais transações cada uma capturou, permitir ajuste
     da descrição ou do provider-pattern. *(pendente)*
