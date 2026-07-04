@@ -1,4 +1,4 @@
-# Household Ledger · v1.21.10
+# Household Ledger · v1.22.0
 
 Aplicativo mobile-first de controle financeiro doméstico. Registra
 transações da casa (despesas e receitas) por categoria e conta, com
@@ -24,7 +24,20 @@ A cada PR, atualize a versão em **dois lugares**:
 1. `src/App.jsx` — a string `v1.x.x` no span ao lado de "Household"
 2. `household-ledger.md` — o `· v1.x.x` no título `# Household Ledger`
 
-Versão atual: **v1.21.10** — **Fix: labels do `YearRangeSlider` sobrepostos
+Versão atual: **v1.22.0** — **Reorganização dos controles da tab Trends**:
+removido o header com o rótulo do range de anos (`h2` com `{rangeLabel}`,
+`rangeLabel` continua existindo só para a mensagem de estado vazio "No data
+for..."); no desktop (`isWide`), category chip, presets All/L3Y/YTD,
+`YearRangeSlider` e o switch de granularidade M/Q/H/Y agora ficam todos na
+mesma linha, economizando espaço vertical; no mobile, a linha 1 tem o
+category chip + switch M/Q/H/Y, e a linha 2 (abaixo) tem os presets +
+`YearRangeSlider`. Os 4 controles (`categoryChip`, `granularitySwitch`,
+`rangePresetsSwitch`, `yearRangeSlider`) foram extraídos como variáveis JSX
+locais dentro de `Charts` para serem reaproveitados nos dois layouts sem
+duplicar JSX. Só `src/App.jsx` alterado; sem mudança de API/Redis/modelo de
+transação.
+
+Versão anterior: **v1.21.10** — **Fix: labels do `YearRangeSlider` sobrepostos
 quando o range é 1 ano só**: quando `fromYear === toYear`, os dois handles
 ficam lado a lado (mesmo comportamento de antes) mas antes cada um
 renderizava seu próprio label com o mesmo ano, sobrepondo o texto tanto no
@@ -1770,6 +1783,12 @@ O app inicia com array vazio quando não há dados salvos (sem SEED).
 - [x] Fix: labels do `YearRangeSlider` sobrepostos quando o range é 1 ano só
   — o label do handle "from" agora é omitido quando `fromYear === toYear`,
   deixando só o label do handle "to" visível. Só `src/App.jsx` alterado; sem
+  mudança de API/Redis/modelo de transação
+- [x] Reorganização dos controles da tab Trends (v1.22.0): removido o header
+  com o rótulo do range de anos; no desktop, category chip + presets
+  All/L3Y/YTD + `YearRangeSlider` + switch M/Q/H/Y ficam todos na mesma
+  linha; no mobile, category chip + switch M/Q/H/Y numa linha e presets +
+  `YearRangeSlider` na linha seguinte. Só `src/App.jsx` alterado; sem
   mudança de API/Redis/modelo de transação
 - [ ] Multiusuário / household compartilhado
 - [ ] PWA offline-first
