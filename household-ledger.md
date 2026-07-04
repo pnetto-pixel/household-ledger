@@ -1,4 +1,4 @@
-# Household Ledger · v1.20.4
+# Household Ledger · v1.21.5
 
 Aplicativo mobile-first de controle financeiro doméstico. Registra
 transações da casa (despesas e receitas) por categoria e conta, com
@@ -24,7 +24,142 @@ A cada PR, atualize a versão em **dois lugares**:
 1. `src/App.jsx` — a string `v1.x.x` no span ao lado de "Household"
 2. `household-ledger.md` — o `· v1.x.x` no título `# Household Ledger`
 
-Versão atual: **v1.20.4** — **Restore de transactions a partir do backup local**
+Versão atual: **v1.21.5** — **Overhaul visual "Liquid Glass" (fases A–F),
+Fase F: Gráficos e Tooltips do Recharts** (feature de UI em fases, decidida
+com o usuário, `src/App.jsx` único arquivo alterado). Última fase do
+overhaul visual em múltiplas fases (A a F) inspirado no "Liquid Glass" da
+Apple, fechando a iniciativa iniciada na Fase A (header/tab bar, v1.21.1),
+seguida da Fase B (modais/popovers, v1.21.2), Fase C (cards de conteúdo,
+v1.21.3), Fase D (linhas de transação, sem código) e Fase E (inputs/botões/
+chips, v1.21.4). Escopo desta fase: gráficos e tooltips do Recharts. Os 5
+blocos `Tooltip.contentStyle` (nos componentes `MonthlyBarCard`,
+`DailyPaceCard`, `CategoryStackedBarCard`, `MonthlyAvgByCategoryCard`,
+`Charts`) tiveram a borda trocada para `rgba(255,255,255,0.12)`,
+`borderRadius` uniformizado para 14 (mesma escala consolidada nas fases
+anteriores) e ganharam `boxShadow: "0 8px 24px rgba(0,0,0,0.4)"` para efeito
+de profundidade "flutuando" sobre o gráfico. O fundo do tooltip permanece
+**opaco** — exceção deliberada, já que o tooltip precisa de legibilidade
+instantânea de dados financeiros mesmo com o card ao redor translúcido
+desde a Fase C. `CartesianGrid` já estava consistente em todos os gráficos,
+nenhuma mudança necessária. Nenhuma mudança em API, Redis, modelo de
+transação, ou dependências. **Com esta fase, o overhaul visual "Liquid
+Glass" (fases A–F) está completo** — ver Roadmap. — PR #148, branch
+`feature/liquid-glass-phase-f-charts-tooltips`, squash-merged em `main`.
+
+Versão anterior: **v1.21.4** — **Overhaul visual "Liquid Glass" (fases A–F),
+Fase E: Inputs, Botões e Chips/Pills** (feature de UI em fases, decidida com
+o usuário, `src/App.jsx` único arquivo alterado). Continuação do overhaul
+visual em múltiplas fases (A a F) inspirado no "Liquid Glass" da Apple,
+seguindo a Fase A (header/tab bar, v1.21.1), a Fase B (modais/popovers,
+v1.21.2) e a Fase C (cards de conteúdo, v1.21.3); a Fase D (linhas de
+transação) não gerou código, ver abaixo. Escopo desta fase: inputs, botões,
+chips/pills. (1) `S.input`, `S.select`, `S.searchWrap`, `S.cellSelect`,
+`S.importCatSelect`: fundo deixou de ser opaco e passou a
+`rgba(15,18,22,0.92)` + borda `rgba(255,255,255,0.08)` + `boxShadow` inset
+simulando campo "escavado" — **sem blur**, inputs continuam sem
+`backdropFilter` por serem pequenos e precisarem de máxima legibilidade
+(mesma lógica de exceção já aplicada às listas de transação na Fase A/D).
+(2) `S.primaryBtn`: gradiente duplo (sheen branco translúcido + azul
+`#0A84FF→#0055cc`, reaproveitando os mesmos stops do ícone do header) +
+`boxShadow` com realce de luz no topo. (3) `S.secondaryBtn`: borda mais
+visível (`rgba(255,255,255,0.14)`), fundo continua transparente. (4)
+`S.chipBtn`, `S.togglePill`, `S.segmentedBtn`, `S.segmented`: fundos sólidos
+por estado convertidos para `rgba` translúcido, mantendo bordas de acento
+como indicador de estado. Auditoria confirmou contraste de texto ≥5:1 nos
+novos fundos (na prática levemente melhor que as versões opacas anteriores).
+Nenhuma mudança em API, Redis, modelo de transação, ou dependências. Falta
+só a **Fase F** (gráficos/tooltips Recharts) para fechar o overhaul. — PR
+#147, branch `feature/liquid-glass-phase-e-inputs-buttons`, squash-merged em
+`main`.
+
+Versão anterior: **v1.21.3** — **Overhaul visual "Liquid Glass" (fases A–F),
+Fase C: Cards de Conteúdo** (feature de UI em fases, decidida com o usuário,
+`src/App.jsx` único arquivo alterado). Continuação do overhaul visual em
+múltiplas fases (A a F) inspirado no "Liquid Glass" da Apple, seguindo a
+Fase A (header/tab bar, v1.21.1) e a Fase B (modais/popovers, v1.21.2,
+abaixo). Escopo desta fase: cards de conteúdo. (1) `S.card` (base de
+`StatCard` e vários blocos): fundo deixou de ser opaco e passou a
+`rgba(22,26,32,0.7)` + `backdropFilter: blur(16px) saturate(160%)` + borda
+`rgba(255,255,255,0.08)`, `borderRadius` 16→14. (2) Hero card do Home:
+gradiente convertido para translúcido, com realce de luz diagonal +
+`boxShadow` inset simulando reflexo de vidro. (3) `CollapsibleCard`,
+`S.summaryBar`, `S.bulkBar`: mesmo tratamento de translucidez/blur,
+`borderRadius` uniformizado para 14px (hero card ficou em 20px, igual ao
+`modalCard` da Fase B). (4) `StatCard` herdou a translucidez
+automaticamente, sem edição direta, por herdar de `S.card` via spread.
+Nenhuma mudança em API, Redis, modelo de transação ou dependências. — PR
+#146, branch `feature/liquid-glass-phase-c-content-cards`, squash-merged em
+`main`.
+
+Versão anterior: **v1.21.2** — **Overhaul visual "Liquid Glass" (fases A–F),
+Fase B: Modais, Popovers e Overlay** (feature de UI em fases, decidida com o
+usuário, `src/App.jsx` único arquivo alterado). Continuação do overhaul
+visual em múltiplas fases (A a F) inspirado no "Liquid Glass" da Apple,
+seguindo a Fase A (header/tab bar, v1.21.1, abaixo). Escopo desta fase:
+modais, popovers e o overlay de fundo. (1) `S.modalOverlay`: adicionado
+`backdropFilter`/`WebkitBackdropFilter: blur(4px)` leve, mantendo o fundo
+`rgba(0,0,0,0.6)` já existente. (2) `S.modalCard`: fundo deixou de ser opaco
+e passou a `rgba(22,26,32,0.82)` + `backdropFilter: blur(20px)
+saturate(180%)` + borda `rgba(255,255,255,0.08)` + novo `boxShadow` de
+profundidade (esse objeto não tinha sombra antes). (3) `S.loginCard`: mesmo
+tratamento do `modalCard`. (4) `S.headerPop` (popover de filtro): fundo
+translúcido + blur igual aos demais, `boxShadow` já existente mantido.
+Nenhuma mudança em API, Redis, modelo de transação ou dependências. — PR
+#145, branch `feature/liquid-glass-phase-b-modals-popovers`, squash-merged
+em `main`.
+
+Versão anterior: **v1.21.1** — **Overhaul visual "Liquid Glass" (fases A–F),
+Fase A: Header e Tab Bar** (feature de UI em fases, decidida com o usuário,
+`src/App.jsx` único arquivo alterado). Início de um overhaul visual em
+múltiplas fases (A a F) inspirado no "Liquid Glass" da Apple, evoluindo o
+Redesign iOS 26 "Liquid Glass" original (PR #23, Fase 4 do Roadmap) para
+além de header/tab bar. Nesta **Fase A**: (1) ícone do header trocado de
+`LayoutDashboard` (genérico) para **`Wallet`** (`lucide-react`) — mais
+condizente com o tema de finanças domésticas do app; (2) tile do ícone do
+header: `borderRadius` 8→9, adicionado gradiente de realce translúcido
+neutro ("glass highlight") + `boxShadow` inset simulando reflexo de vidro;
+(3) `S.tabBar` deixou de ter fundo opaco sólido e passou a ser
+**translúcido** (`rgba(11,13,16,0.85)`) com `backdropFilter`/
+`WebkitBackdropFilter: blur(20px) saturate(180%)`, espelhando o padrão já
+existente em `S.header` — agora topo e rodapé do app compartilham o mesmo
+efeito "glass". Nenhuma mudança em API, Redis, modelo de transação, ou
+dependências. **Decisões de estilo fixadas para todo o overhaul** (valem
+para as fases seguintes): ícone do header = `Wallet`; realces de luz =
+branco neutro, sem tingimento de marca; listas de transação (tab
+Transactions) permanecem **opacas**, sem glass, por
+legibilidade/performance. **Fases seguintes planejadas, ainda não
+implementadas**, como PRs subsequentes: **B** (modais/popovers/overlay),
+**C** (cards de conteúdo — StatCard, hero card, CollapsibleCard), **D**
+(linhas de transação — decisão já tomada: permanecem opacas, sem glass),
+**E** (inputs/botões/chips), **F** (gráficos/tooltips Recharts). — PR #144,
+branch `feature/liquid-glass-phase-a-header-tabbar`, squash-merged em
+`main`.
+
+Versão anterior: **v1.21.0** — **Rename "Analyze" → "Trends" + novo card "Monthly
+Avg by Category"** (feature de UI, item avulso pedido pelo usuário fora do
+roadmap formal, `src/App.jsx` único arquivo alterado). (1) A tab de gráficos
+deixou de se chamar **"Analyze"** e passou a se chamar **"Trends"** na tab
+bar — apenas o **label** mudou; o ícone (`TrendingUp`) e o `id` interno da
+tab (`"analyze"`) foram **mantidos** intactos (usado internamente para
+comparação de render, deep-links, etc). (2) Novo card **"Monthly Avg by
+Category"** adicionado logo abaixo do card existente **"By Category"** na
+tab Trends: visualmente idêntico a ele (mesmo `BarChart` empilhado, mesmas
+cores por categoria via `getCategoryColor`, mesma legenda, mesmo toggle
+Expense/Income), com três diferenças de comportamento — granularidade
+**travada em anual** (sem seletor de período, ao contrário do card "By
+Category"); **sempre mostra todos os anos disponíveis** nos dados, ignorando
+deliberadamente o filtro de range de anos (From/To) do topo da tab Trends
+(respeita só o filtro de categoria); e cada barra de ano representa a
+**média mensal de gastos** daquele ano — anos passados/completos dividem o
+total do ano por 12, o ano corrente divide pelo mês atual (ex.: em julho de
+2026, o ano 2026 divide por 7) — permitindo comparar de forma justa a média
+mensal de um ano completo com a de um ano ainda em andamento. `Transfer`
+continua excluído de todos os totais (regra fixa preservada, sem exceção
+nova). Mudança 100% front-end — nenhuma alteração em `api/`, formato Redis
+ou modelo de transação. — PR #143, commit
+29f7e3de9e2390cf6f6c318cf6c2824fb99e4b7b, merged em `main`.
+
+Versão anterior: **v1.20.4** — **Restore de transactions a partir do backup local**
 (patch/manutenção, mesmo item avulso do backup, `src/App.jsx` único arquivo
 alterado). Adicionado botão **"Restore from backup"** ao lado do "Backup
 transactions" no card **"Data & Backup"**: abre um seletor de arquivo, lê o
@@ -937,15 +1072,18 @@ Mobile-first, tema escuro iOS. Tab bar inferior fixa com 5 abas. A entrada de tr
 - **Cantos arredondados**: cards 16 px, modais 20 px, inputs/botões 12 px, linhas de transação 14 px.
 - **Paleta dark mode iOS**: superfícies `#161a20`, borders `#1e2530`, system blue `#0A84FF` em botões primários e links, cinza `#636366` no botão de exclusão. (Background anterior `#0b0d10` substituído.)
 - **Densidade mobile (PR #40)**: Header e TabBar compactados para maximizar a área de lista na tab Transactions. Header: padding vertical `8px/8px` (antes `14px/12px`), ícones 16 px (antes 18 px), IconButton padding 6 px (antes 8 px), SaveIndicator 10 px (antes 11 px). TabBar: padding `4px / max(4px, inset-bottom)` (antes `8px / max(8px, ...)`), ícones 18 px (antes 22 px), labels 9 px com `marginTop: 1px` (antes 10 px / 2 px), tabBtn padding 2 px (antes 4 px). O header ocupa bem abaixo de 25 % da altura da tela. Um design spec developer-ready com dimensões, cores hex, font weights, spacing, hover states e responsividade mobile+desktop está embutido em `src/App.jsx` (bloco de comentário acima do objeto de estilos `S`).
-- **Modernização Copilot-inspired**: Home com **hero card** de saldo líquido (gradiente, glow, 40 px, split receita/despesa), StatCards com borda de acento à esquerda + label uppercase, `TxnRow` com **avatar colorido** da categoria (inicial + paleta estável via `catDotColor`/`CATEGORY_COLORS`), logo tile azul no header, e linhas de orçamento com dot da categoria + glow na barra estourada. As **legendas dos ícones** da tab bar (Home/Analyze/Txns/Import) seguem visíveis.
+- **Modernização Copilot-inspired**: Home com **hero card** de saldo líquido (gradiente, glow, 40 px, split receita/despesa), StatCards com borda de acento à esquerda + label uppercase, `TxnRow` com **avatar colorido** da categoria (inicial + paleta estável via `catDotColor`/`CATEGORY_COLORS`), logo tile azul no header, e linhas de orçamento com dot da categoria + glow na barra estourada. As **legendas dos ícones** da tab bar (Home/Trends/Txns/Import) seguem visíveis.
 - **Rename Dashboard → Home (PR #138, v1.20.2)**: a tab antes chamada "Dashboard" (label, ícone `LayoutDashboard`→`Home` de `lucide-react`, id interno `"dashboard"`→`"home"`) passou a se chamar **"Home"** — puramente cosmético, mesma tela/comportamento descritos no item 1 da lista de tabs abaixo. O ícone `LayoutDashboard` do logo/header do app foi mantido (elemento separado).
-- **Cores de categoria unificadas (PR #138, v1.20.2)**: nova função central `getCategoryColor(cat)` (= `CATEGORY_COLOR_MAP[cat] || catDotColor(cat)`) usada tanto pelos avatares de categoria da tab Home quanto pelo card "By Category" da tab Analyze (`CategoryStackedBarCard`), eliminando a divergência de cor que existia antes entre as duas telas para a mesma categoria.
+- **Rename Analyze → Trends (PR #143, v1.21.0)**: a tab de gráficos antes chamada "Analyze" passou a se chamar **"Trends"** — apenas o label mudou; ícone (`TrendingUp`) e id interno (`"analyze"`) foram mantidos intactos.
+- **Cores de categoria unificadas (PR #138, v1.20.2)**: nova função central `getCategoryColor(cat)` (= `CATEGORY_COLOR_MAP[cat] || catDotColor(cat)`) usada tanto pelos avatares de categoria da tab Home quanto pelo card "By Category" da tab Trends (`CategoryStackedBarCard`), eliminando a divergência de cor que existia antes entre as duas telas para a mesma categoria.
+- **Overhaul visual "Liquid Glass" (fases A–F), CONCLUÍDO — todas as 6 fases entregues (PR #144/#145/#146/#147/#148, v1.21.0 → v1.21.5)**: overhaul visual em fases, inspirado no "Liquid Glass" da Apple, decidido com o usuário como evolução do Redesign iOS 26 "Liquid Glass" original (PR #23, acima). Único arquivo alterado em todas as fases: `src/App.jsx`. **Fase A** (header/tab bar): ícone do header trocado de `LayoutDashboard` para **`Wallet`** (mais condizente com o tema financeiro do app); tile do ícone do header com `borderRadius` 9 + gradiente de realce translúcido neutro + `boxShadow` inset (reflexo de vidro); `S.tabBar` deixou de ter fundo opaco e passou a ser translúcido (`rgba(11,13,16,0.85)`) com `backdropFilter: blur(20px) saturate(180%)`, igual ao já existente em `S.header` — header e tab bar compartilham o mesmo efeito glass. **Fase B** (modais/popovers/overlay): `S.modalOverlay` ganhou blur leve; `S.modalCard` e `S.loginCard` deixaram de ter fundo opaco (`rgba(22,26,32,0.82)` + `blur(20px) saturate(180%)` + borda translúcida + `boxShadow` de profundidade); `S.headerPop` (popover de filtro) ganhou o mesmo tratamento. **Fase C** (cards de conteúdo): `S.card` (base de `StatCard` e vários blocos) deixou de ter fundo opaco (`rgba(22,26,32,0.7)` + `blur(16px) saturate(160%)` + borda translúcida, `borderRadius` 16→14); hero card do Home com gradiente translúcido + realce de luz diagonal + `boxShadow` inset; `CollapsibleCard`, `S.summaryBar` e `S.bulkBar` receberam o mesmo tratamento, `borderRadius` uniformizado para 14px (hero card em 20px, igual ao `modalCard`); `StatCard` herdou a translucidez automaticamente via `S.card`. **Fase D** (linhas de transação) foi só uma verificação de consistência, sem código: decisão fixada reafirmada — linhas de transação (`S.txnRow`, `TxnAuditCard`, avatar de categoria) permanecem **opacas**, sem glass, por serem lista potencialmente longa (risco de performance no scroll); app permaneceu em v1.21.3 nesta fase. **Fase E** (inputs, botões e chips/pills): `S.input`, `S.select`, `S.searchWrap`, `S.cellSelect`, `S.importCatSelect` deixaram de ter fundo opaco e passaram a `rgba(15,18,22,0.92)` + borda translúcida + `boxShadow` inset simulando campo "escavado" (sem blur — inputs continuam sem `backdropFilter`, por serem pequenos e precisarem de máxima legibilidade); `S.primaryBtn` ganhou gradiente duplo (sheen branco translúcido + azul `#0A84FF→#0055cc`) + `boxShadow` com realce de luz no topo; `S.secondaryBtn` ganhou borda mais visível, fundo continua transparente; `S.chipBtn`, `S.togglePill`, `S.segmentedBtn`, `S.segmented` tiveram fundos sólidos por estado convertidos para `rgba` translúcido, mantendo bordas de acento como indicador de estado. **Fase F** (gráficos/tooltips Recharts, PR #148, v1.21.5 — última fase, fecha a iniciativa): os 5 blocos `Tooltip.contentStyle` (`MonthlyBarCard`, `DailyPaceCard`, `CategoryStackedBarCard`, `MonthlyAvgByCategoryCard`, `Charts`) tiveram a borda trocada para `rgba(255,255,255,0.12)`, `borderRadius` uniformizado para 14 e ganharam `boxShadow: "0 8px 24px rgba(0,0,0,0.4)"` (efeito de profundidade sobre o gráfico); o fundo do tooltip permanece **opaco** — exceção deliberada, por legibilidade instantânea de dados financeiros; `CartesianGrid` já estava consistente em todos os gráficos. Decisões de estilo fixadas para todo o overhaul: ícone do header = `Wallet`; realces de luz = branco neutro, sem tingimento de marca.
 - **Tela cheia iOS PWA (full-bleed)**: o `viewport-fit=cover` só passa a valer com o meta limpo (sem `maximum-scale`) **e** uma reinstalação na tela inicial (o iOS faz snapshot do viewport no add-to-home-screen). A medição no device foi decisiva: `100dvh`/`100svh` = a *layout viewport* (812 pt no iPhone 16 Pro, que **exclui** a área do home indicator), enquanto `100vh`/`100lvh` = a tela física completa (874 pt). Por isso `html`/`body`/`#root` usam **`height: 100lvh`** com `overflow: hidden` (sem rubber-band) e o shell `height: 100%`. Resultado: a tab bar encosta na borda física real (medido `belowNav = 0`), sem faixa preta. `env(safe-area-inset-bottom)` no padding da barra mantém os ícones acima do home indicator; `env(safe-area-inset-top)` no header limpa a Dynamic Island.
 
 São **5 tabs**: Home (antiga **Dashboard**, renomeada na v1.20.2, PR #138 —
-ver "Identidade visual" acima), Analyze, Transactions, Import, Settings
-(antiga **Audit**, renomeada e consolidada com o antigo `SettingsModal` na
-v1.17.0, PR #128 — ver item 5 abaixo). O app usa
+ver "Identidade visual" acima), Trends (antiga **Analyze**, renomeada na
+v1.21.0, PR #143 — ver "Identidade visual" acima), Transactions, Import,
+Settings (antiga **Audit**, renomeada e consolidada com o antigo
+`SettingsModal` na v1.17.0, PR #128 — ver item 5 abaixo). O app usa
 shell de altura cheia (`#root` em `100lvh` + shell `height:100%`): só o
 `<main>` faz scroll, então header e tab bar ficam fixos.
 
@@ -963,7 +1101,7 @@ shell de altura cheia (`#root` em `100lvh` + shell `height:100%`): só o
    maior para o menor (só categorias com gasto > 0; Transfer e categorias de
    receita excluídas). Cada categoria exibe avatar colorido (cor via
    `getCategoryColor`, PR #138, v1.20.2 — mesma função usada pelo card "By
-   Category" da tab Analyze, item 2 abaixo, garantindo cor consistente entre
+   Category" da tab Trends, item 2 abaixo, garantindo cor consistente entre
    as duas telas), valor e dois
    badges de variação percentual — **M/M** (vs. mês anterior) e **Y/Y**
    (vs. mesmo mês do ano anterior). Comparações usam cutoff do mesmo dia
@@ -975,7 +1113,8 @@ shell de altura cheia (`#root` em `100lvh` + shell `height:100%`): só o
    linha em telas estreitas).
    O bloco **"Recent" (transações recentes) foi removido** da Home
    (componente `TxnRow` permanece na aba Transactions).
-2. **Analyze** — a tab renderiza **somente `Charts`** (PR #104, v1.7.0): as
+2. **Trends** (antiga Analyze, renomeada na v1.21.0/PR #143 — só o label
+   mudou, ícone `TrendingUp` e id interno `"analyze"` mantidos) — a tab renderiza **somente `Charts`** (PR #104, v1.7.0): as
    sub-seções Trends ("Tendências mês a mês"), Budgets ("Orçamentos por
    categoria") e Recurrents ("Recorrentes / assinaturas") que antes vinham
    abaixo dos 3 cards foram removidas do frontend (componentes deletados, não
@@ -1039,7 +1178,21 @@ shell de altura cheia (`#root` em `100lvh` + shell `height:100%`): só o
    as categorias presentes no período. Card wrapper com `overflow: visible` para
    que o tooltip não seja truncado. Altura do container: 260 px. Respeita
    `hideValues`. Retorna `null` quando não há dados no período para o modo
-   selecionado. É o **último card** da tab Analyze.
+   selecionado.
+   Quarto card (novo, PR #143, v1.21.0): **"Monthly Avg by Category"**,
+   logo abaixo de "By Category" — visualmente idêntico a ele (mesmo
+   `BarChart` stacked, mesma paleta via `getCategoryColor`/
+   `CATEGORY_COLOR_MAP`, mesma legenda abaixo do gráfico, mesmo toggle
+   Expense/Income), mas com granularidade **travada em anual** (sem
+   segmented control de período) e **ignorando deliberadamente** o filtro
+   de range de anos (From/To) do topo da tab — sempre mostra **todos os
+   anos disponíveis** nos dados, respeitando apenas o filtro de categoria
+   (`categoryFilter`). Cada barra representa a **média mensal de gastos**
+   daquele ano: anos passados/completos dividem o total anual por 12; o ano
+   corrente divide pelo total acumulado até o mês atual (ex.: em julho de
+   2026, o ano 2026 divide por 7) — permite comparar de forma justa a média
+   mensal de um ano completo com a de um ano ainda em andamento. `Transfer`
+   continua excluído de todos os totais. É o **último card** da tab Trends.
 3. **Transactions** — busca textual livre + **chips de filtro** (Type /
    Account / Category / Date) que abrem dropdowns via **portal** (`Popover`
    em `position: fixed` no `document.body`, ancorado por `getBoundingClientRect`
@@ -1677,6 +1830,102 @@ O app inicia com array vazio quando não há dados salvos (sem SEED).
   Home e o card "By Category" da tab Analyze, eliminando a divergência de
   cor que existia antes para a mesma categoria. Frontend puro, sem mudança
   de contrato de API/Redis/modelo de transação.
+- [x] **Overhaul visual "Liquid Glass" (fases A–F), Fase A — Header e Tab
+  Bar** (PR #144, branch `feature/liquid-glass-phase-a-header-tabbar`,
+  v1.21.0 → v1.21.1, squash-merged em `main`) — início de um overhaul
+  visual em múltiplas fases inspirado no "Liquid Glass" da Apple, decidido
+  com o usuário, evoluindo o Redesign iOS 26 "Liquid Glass" original (PR
+  #23, acima) para além de header/tab bar. Único arquivo alterado:
+  `src/App.jsx`. Nesta Fase A: (1) ícone do header trocado de
+  `LayoutDashboard` (genérico) para **`Wallet`** (`lucide-react`) — mais
+  condizente com o tema de finanças domésticas do app; (2) tile do ícone
+  do header: `borderRadius` 8→9, adicionado gradiente de realce translúcido
+  neutro ("glass highlight") + `boxShadow` inset simulando reflexo de
+  vidro; (3) `S.tabBar` deixou de ter fundo opaco sólido e passou a ser
+  **translúcido** (`rgba(11,13,16,0.85)`) com `backdropFilter`/
+  `WebkitBackdropFilter: blur(20px) saturate(180%)`, espelhando o padrão
+  já existente em `S.header` — agora topo e rodapé do app compartilham o
+  mesmo efeito "glass". Nenhuma mudança em API, Redis, modelo de transação
+  ou dependências. **Decisões de estilo fixadas para todo o overhaul**
+  (valem para as fases seguintes): ícone do header = `Wallet`; realces de
+  luz = branco neutro, sem tingimento de marca; listas de transação
+  permanecem **opacas**, sem glass, por legibilidade/performance.
+  **Fases seguintes:**
+  - [x] **Fase B** — modais, popovers e overlay de fundo (PR #145, branch
+    `feature/liquid-glass-phase-b-modals-popovers`, v1.21.1 → v1.21.2,
+    squash-merged em `main`). Único arquivo alterado: `src/App.jsx`.
+    `S.modalOverlay` ganhou `backdropFilter`/`WebkitBackdropFilter:
+    blur(4px)` leve (mantendo `rgba(0,0,0,0.6)`); `S.modalCard` deixou de
+    ter fundo opaco e passou a `rgba(22,26,32,0.82)` +
+    `backdropFilter: blur(20px) saturate(180%)` + borda
+    `rgba(255,255,255,0.08)` + novo `boxShadow` de profundidade (não tinha
+    sombra antes); `S.loginCard` recebeu o mesmo tratamento do
+    `modalCard`; `S.headerPop` (popover de filtro) ganhou o mesmo fundo
+    translúcido + blur, com o `boxShadow` já existente mantido. Nenhuma
+    mudança em API, Redis, modelo de transação ou dependências.
+  - [x] **Fase C** — cards de conteúdo (StatCard, hero card,
+    CollapsibleCard) (PR #146, branch
+    `feature/liquid-glass-phase-c-content-cards`, v1.21.2 → v1.21.3,
+    squash-merged em `main`). Único arquivo alterado: `src/App.jsx`.
+    `S.card` (base de `StatCard` e vários blocos) deixou de ter fundo opaco
+    e passou a `rgba(22,26,32,0.7)` + `backdropFilter: blur(16px)
+    saturate(160%)` + borda `rgba(255,255,255,0.08)`, `borderRadius` 16→14;
+    o hero card do Home teve o gradiente convertido para translúcido, com
+    realce de luz diagonal + `boxShadow` inset simulando reflexo de vidro;
+    `CollapsibleCard`, `S.summaryBar` e `S.bulkBar` receberam o mesmo
+    tratamento de translucidez/blur, `borderRadius` uniformizado para 14px
+    (hero card ficou em 20px, igual ao `modalCard` da Fase B); `StatCard`
+    herdou a translucidez automaticamente por herdar de `S.card` via
+    spread, sem edição direta. Nenhuma mudança em API, Redis, modelo de
+    transação ou dependências.
+  - [x] **Fase D** — linhas de transação (`S.txnRow`, `TxnAuditCard`, avatar
+    de categoria) — **verificação/auditoria de consistência, sem nenhuma
+    alteração de código**. Diferente das fases A–C, esta fase não gerou
+    diff nem PR nem bump de versão (app permanece em **v1.21.3**, da Fase
+    C). Decisão do usuário reafirmada: linhas de transação continuam
+    **opacas**, sem glass/blur, por serem uma lista potencialmente longa
+    (risco de custo de performance no scroll). O feature-coder investigou
+    `S.txnRow` (`borderRadius` 14, opaco), `TxnAuditCard` (`borderRadius`
+    14, herda de `S.txnRow`) e o avatar de categoria (`borderRadius` 10,
+    circular, com alpha próprio) e confirmou que os três já estavam
+    consistentes com a escala de 14px estabelecida nas Fases A–C e sem
+    translucidez indevida — nada precisou ser mudado. Fase encerrada como
+    "nenhuma ação necessária".
+  - [x] **Fase E** — inputs, botões e chips/pills (PR #147, branch
+    `feature/liquid-glass-phase-e-inputs-buttons`, v1.21.3 → v1.21.4,
+    squash-merged em `main`). Único arquivo alterado: `src/App.jsx`.
+    `S.input`, `S.select`, `S.searchWrap`, `S.cellSelect`,
+    `S.importCatSelect`: fundo deixou de ser opaco e passou a
+    `rgba(15,18,22,0.92)` + borda `rgba(255,255,255,0.08)` + `boxShadow`
+    inset simulando campo "escavado" — sem blur, inputs continuam sem
+    `backdropFilter` por serem pequenos e precisarem de máxima
+    legibilidade; `S.primaryBtn` ganhou gradiente duplo (sheen branco
+    translúcido + azul `#0A84FF→#0055cc`, reaproveitando os stops do ícone
+    do header) + `boxShadow` com realce de luz no topo; `S.secondaryBtn`
+    ganhou borda mais visível (`rgba(255,255,255,0.14)`), fundo continua
+    transparente; `S.chipBtn`, `S.togglePill`, `S.segmentedBtn`,
+    `S.segmented` tiveram os fundos sólidos por estado convertidos para
+    `rgba` translúcido, mantendo bordas de acento como indicador de estado.
+    Auditoria confirmou contraste de texto ≥5:1 nos novos fundos. Nenhuma
+    mudança em API, Redis, modelo de transação ou dependências.
+  - [x] **Fase F** — gráficos/tooltips Recharts (PR #148, branch
+    `feature/liquid-glass-phase-f-charts-tooltips`, v1.21.4 → v1.21.5,
+    squash-merged em `main`). Único arquivo alterado: `src/App.jsx`. Os 5
+    blocos `Tooltip.contentStyle` (`MonthlyBarCard`, `DailyPaceCard`,
+    `CategoryStackedBarCard`, `MonthlyAvgByCategoryCard`, `Charts`) tiveram
+    a borda trocada para `rgba(255,255,255,0.12)`, `borderRadius`
+    uniformizado para 14 (escala consolidada nas fases anteriores) e
+    ganharam `boxShadow: "0 8px 24px rgba(0,0,0,0.4)"` para efeito de
+    profundidade "flutuando" sobre o gráfico; fundo do tooltip permanece
+    **opaco** — exceção deliberada, tooltip precisa de legibilidade
+    instantânea de dados financeiros mesmo com o card ao redor translúcido
+    desde a Fase C. `CartesianGrid` já estava consistente em todos os
+    gráficos, nenhuma mudança necessária. Nenhuma mudança em API, Redis,
+    modelo de transação ou dependências.
+
+  **Com a Fase F, o overhaul visual "Liquid Glass" (fases A–F) está
+  concluído** — todas as 6 fases (A, B, C, D, E, F) entregues (PRs
+  #144–#148, v1.21.0 → v1.21.5).
 
 ### Fase 5 — Inteligência e Auditoria
 
@@ -2099,6 +2348,18 @@ O app inicia com array vazio quando não há dados salvos (sem SEED).
   outros namespaces Redis (account-map, config, budgets, aliases,
   description-rules) ficaram fora de escopo e **não** foram adicionados
   como pendência formal (avaliar sob demanda, se o usuário pedir).
+- [x] **Rename "Analyze" → "Trends" + card "Monthly Avg by Category"** (PR
+  #143, commit 29f7e3de9e2390cf6f6c318cf6c2824fb99e4b7b, v1.21.0) — item
+  **avulso** pedido diretamente pelo usuário fora do roadmap de fases. A
+  tab Analyze passou a se chamar **Trends** (só o label; ícone `TrendingUp`
+  e id interno `"analyze"` mantidos). Novo card "Monthly Avg by Category"
+  adicionado abaixo de "By Category": visualmente idêntico a ele, mas com
+  granularidade travada em anual, sempre exibindo todos os anos disponíveis
+  (ignora o filtro de range de anos From/To, respeita só o filtro de
+  categoria), e cada barra mostrando a média mensal de gastos do ano (total
+  ÷ 12 para anos completos, total ÷ mês corrente para o ano em andamento).
+  `Transfer` continua excluído. 100% front-end (`src/App.jsx`), sem mudança
+  de API/Redis/modelo de transação.
 - [ ] **Recurrents (recorrentes / assinaturas) — reavaliar formato**
   *(removido do Analyze no PR #104)*: antes vivia como detecção client-side
   de transações com a mesma descrição em ≥2 meses e valor dentro de ±10% da
