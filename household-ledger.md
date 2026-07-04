@@ -1,4 +1,4 @@
-# Household Ledger · v1.19.0
+# Household Ledger · v1.20.0
 
 Aplicativo mobile-first de controle financeiro doméstico. Registra
 transações da casa (despesas e receitas) por categoria e conta, com
@@ -24,7 +24,72 @@ A cada PR, atualize a versão em **dois lugares**:
 1. `src/App.jsx` — a string `v1.x.x` no span ao lado de "Household"
 2. `household-ledger.md` — o `· v1.x.x` no título `# Household Ledger`
 
-Versão atual: **v1.19.0** — **Aviso de conflito pré-save em Description
+Versão atual: **v1.20.0** — **Unificação da Apple Daily Cash rule dentro do
+sistema de Description rules** (feature de core de classificação,
+`src/App.jsx` único arquivo alterado; auditada com rigor extra por mexer no
+pipeline central de `buildRow`). A heurística Apple Daily Cash deixou de
+existir como mecanismo dedicado (seed `DEFAULT_APPLE_DAILY_CASH_RULE`,
+module state `APPLE_DAILY_CASH_RULE`, `applyAppleDailyCashRuleConfig`/
+`currentAppleDailyCashRuleConfig`, `appleDailyCashRuleMatches`/
+`applyAppleDailyCashRule`, componente `AppleDailyCashRuleSection` e sua
+seção na tab Settings — todos **removidos**) e foi absorvida pelo sistema
+geral de **Description rules**, que ganhou um mecanismo genérico opt-in de
+"permissão de de-transferir": cada regra em `categoryDescriptionRules` pode
+agora ter dois campos novos, opcionais e aditivos — `providerPattern`
+(string, condição AND extra contra `srcAccount || account`, independente do
+`matchField` da regra) e `allowTransferOverride` (boolean, default
+ausente/`false`). Novo helper `findMatchingDescriptionRule(row, rules)`
+retorna a regra inteira (não só a categoria) — `matchDescriptionCategoryRule`
+virou um wrapper fino sobre ele, contrato/comportamento inalterado para quem
+já o usava (`detectManualCategoryCorrections`, fix v1.16.3).
+**Nova ordem no pipeline `buildRow`**: CK map → passada única que encontra a
+**primeira** Description rule que casa (`findMatchingDescriptionRule`) → se
+essa regra vencedora tiver `allowTransferOverride: true`, ela aplica direto
+sua `destinationCategory`, **pulando** a rede de segurança de Transfer; caso
+contrário (regra sem o flag, ou nenhuma regra casou), a rede de segurança do
+PR #111 continua valendo como sempre (nunca de-transfere). A garantia "nenhuma
+regra tira uma transação de `Transfer`" **continua existindo por padrão** —
+agora é **opt-in por regra**, não mais uma exceção hard-coded exclusiva do
+Apple Daily Cash. Como a ordem do array de regras continua semântica
+("primeira que casa vence", já era assim antes), uma regra com
+`allowTransferOverride` só ganha se nenhuma regra anterior no array já tiver
+casado primeiro — relevante para a migração automática abaixo e para
+qualquer regra nova que o usuário crie com o flag.
+**Migração automática (one-shot, idempotente).** Ao carregar
+`categoryDescriptionRules`, se a config legacy do endpoint
+`api/apple-daily-cash-rule.js` (que **continua existindo no código**, mas
+sem UI dedicada — hoje só serve de fonte para esta migração) ainda estiver
+ativa (campos não vazios), o app cria automaticamente uma Description rule
+por keyword (ex.: uma para "Deposit", outra para "Adjustment", ambas com o
+mesmo `providerPattern: "Apple Card"` e `allowTransferOverride: true`, mesma
+`destinationCategory`), insere essas regras no **início** do array (prepend
+— crítico para preservar a precedência absoluta que a regra Apple tinha no
+pipeline antigo), salva via `PUT /api/category-description-rules` e esvazia
+a config legacy (marcador de "já migrado" — rodar de novo não duplica).
+**UI em Description rules.** Cada regra ganhou um checkbox **"Allow removing
+from Transfer"** (default desmarcado); quando marcado, revela um campo
+condicional **"Provider/account pattern"** — a UI **bloqueia salvar**
+(client-side) se o checkbox estiver marcado com esse campo vazio, para evitar
+uma regra "de-transfer" baseada só num pattern de descrição livre amplo
+demais. O card da regra fica com borda âmbar + nota explicativa enquanto o
+flag estiver ligado. O aviso de conflito pré-save
+(`computeDescriptionRuleConflicts`, PR #133) ganhou uma mensagem mais séria
+especificamente para regras com o flag ligado, já que para elas o aviso
+deixa de ser "só informativo" — a regra realmente pode de-transferir.
+**Endpoint** `api/category-description-rules.js`: `sanitize()` estendido
+para preservar os 2 campos novos (`providerPattern` string trim,
+`allowTransferOverride` boolean coerce), mantendo intacto o bloqueio de
+`destinationCategory === "Transfer"`.
+**Débito técnico conhecido (identificado na auditoria, não bloqueou o
+merge)**: `sanitize()` no servidor não impede salvar `allowTransferOverride:
+true` com `providerPattern` vazio via chamada direta à API — só o client
+bloqueia isso hoje (mesma postura que a regra Apple antiga tinha, sem
+enforcement server-side). Registrado como possível follow-up de segurança em
+profundidade — ver Roadmap. — PR #135, branch
+`claude/settings-tab-consolidation-ec2ds1`, squash merge, SHA
+dd7c95ccf04f481181638eb096956308eee88f27.
+
+Versão anterior: **v1.19.0** — **Aviso de conflito pré-save em Description
 rules** (feature de UX, `src/App.jsx` único arquivo alterado). Dentro da
 seção **Description rules** (tab **Settings**, `DescriptionRulesSection`),
 clicar "Save rules" deixou de salvar direto quando alguma regra do draft
@@ -435,28 +500,28 @@ com "Apple Card" + descrição "Deposit" ou "Adjustment". Um depósito manual
 feito pelo usuário na Apple Savings também casaria com essa regra (trade-off
 aceito — são raros).
 
-**Heurística Apple Daily Cash editável (PR #113, v1.12.0).** Essa heurística
-deixou de existir apenas nos exportadores externos (`tools/credit-karma/`) —
-agora também é aplicada e editável dentro do próprio app. Novo endpoint
-`api/apple-daily-cash-rule.js` (GET/PUT, mesmo padrão de
-`api/ck-category-map.js`) persiste `{ providerPattern, keywords,
-destinationCategory, savedAt }` em Redis
-`household:*:appledailycashrule`. Sem campo `enabled` — esvaziar `keywords`
-já desliga a regra na prática. Seed `DEFAULT_APPLE_DAILY_CASH_RULE` =
-`{ providerPattern: "Apple Card", keywords: ["Deposit", "Adjustment"],
-destinationCategory: "Other Income" }`. As funções puras
-`appleDailyCashRuleMatches`/`applyAppleDailyCashRule` casam o provider
-pattern contra `srcAccount`/`account` e a keyword contra `description`; se
-casar, forçam a categoria de destino — **nunca tocam `amount`/sinal**. Em
-`buildRow`, a regra roda **estritamente depois** da rede de segurança de
-Transfer do mapa CK→ledger (PR #111) e é a **única etapa do pipeline de
-classificação com permissão de promover de `Transfer` para a categoria de
-destino** — só o faz quando o padrão realmente casa (comportamento aditivo;
-para a esmagadora maioria das transações, idêntico a antes). O
-`explainClassification` (Classification history) foi atualizado para usar o
-mesmo helper `appleDailyCashRuleMatches`/config editável, eliminando a
-divergência anterior entre a explicação exibida (regex hardcoded) e a lógica
-real aplicada no import.
+**Heurística Apple Daily Cash — histórico e estado atual (PR #113/v1.12.0 →
+unificada no PR #135/v1.20.0).** Entre o PR #113 e o PR #135, essa
+heurística viveu como mecanismo dedicado e editável (endpoint
+`api/apple-daily-cash-rule.js`, seed `DEFAULT_APPLE_DAILY_CASH_RULE`, module
+state próprio, funções `appleDailyCashRuleMatches`/`applyAppleDailyCashRule`
+e seção dedicada na tab Settings) e era **a única etapa do pipeline com
+permissão de promover uma transação de `Transfer`** para outra categoria.
+**Desde o PR #135 (v1.20.0), esse mecanismo dedicado foi removido por
+completo** (seed, module state, funções puras, componente
+`AppleDailyCashRuleSection` e sua seção na tab Settings) e a heurística
+passou a ser expressa como **Description rules normais** com
+`allowTransferOverride: true` + `providerPattern: "Apple Card"` (uma regra
+por keyword — "Deposit" e "Adjustment") — ver "Regras de categoria por
+descrição/provider" logo abaixo para o novo shape de regra, a nova ordem do
+pipeline em `buildRow` e o mecanismo de migração automática. O endpoint
+`api/apple-daily-cash-rule.js` **continua existindo no código**, mas hoje só
+serve como fonte de leitura para a migração one-shot que converte a config
+legada (se ainda ativa) nas Description rules equivalentes — não tem mais UI
+dedicada. A garantia "nenhuma regra promove de `Transfer`" deixou de ser uma
+exceção hard-coded só para o Apple Daily Cash e virou um mecanismo genérico
+opt-in por regra (`allowTransferOverride`), disponível para qualquer
+Description rule que o usuário criar.
 
 ### Mapa CK → ledger de categorias (editável, PR #111)
 
@@ -493,61 +558,111 @@ Income`) — sem preview de impacto e sem cascata retroativa: a mudança só
 afeta **novos imports** a partir de então (decisão confirmada com o
 usuário; ver UI e Roadmap Fase 5).
 
-### Regras de categoria por descrição/provider (PR #117, v1.14.0)
+### Regras de categoria por descrição/provider (PR #117, v1.14.0 — unificada
+### com a Apple Daily Cash rule no PR #135, v1.20.0)
 
 Painel de regras de categoria, **Fatia 1**. Novo tipo de regra editável:
 "descrição/provider contém X → categoria Y", com **precedência de override**
-sobre o mapa CK→ledger para categorias não-`Transfer`. Novo endpoint
+sobre o mapa CK→ledger para categorias não-`Transfer`. Endpoint
 `api/category-description-rules.js` (GET/PUT, mesmo padrão de
-`api/ck-category-map.js`), persiste `{ rules: [{ id, matchField:
-"description"|"provider"|"both", pattern, destinationCategory }], savedAt }`
-em Redis `household:*:categorydescriptionrules`. A **ordem do array é
-semântica**: a primeira regra da lista que casar vence (não há resolução por
+`api/ck-category-map.js`), persiste `{ rules: [...], savedAt }` em Redis
+`household:*:categorydescriptionrules`. A **ordem do array é semântica**: a
+primeira regra da lista que casar vence (não há resolução por
 especificidade). `destinationCategory` **nunca pode ser `Transfer`** —
-bloqueado tanto no sanitize do endpoint quanto no client. Funções puras
-`descriptionRuleMatches`/`matchDescriptionCategoryRule`; `matchField:
-"provider"` casa contra `srcAccount || account` (mesmo campo usado pela
-classificação de conta); `"description"` casa contra `description`;
-`"both"` exige match nos dois.
+bloqueado tanto no `sanitize()` do endpoint quanto no client.
 
-**Precedência exata em `buildRow`** (import profile Credit Karma, quando
-`ckCategory` está presente): (1) `mapCkCategory` recalcula a categoria a
-partir do token CK; (2) a regra por descrição roda em seguida —
-`overridden = descOverride ?? recomputedCategory` — ou seja, se alguma regra
-casar, ela **sobrepõe** o resultado do mapa CK; (3) o **safety-net de
-Transfer** do PR #111 roda depois e tem a palavra final:
+**Shape de cada regra (desde o PR #135, v1.20.0):**
+
+```js
+{
+  id, matchField: "description"|"provider"|"both", pattern, destinationCategory, // como já era (PR #117)
+  providerPattern?: string,        // opcional — condição AND extra contra srcAccount || account
+  allowTransferOverride?: boolean, // opcional, default ausente/false
+}
+```
+
+Regras existentes sem `providerPattern`/`allowTransferOverride` continuam
+com comportamento idêntico ao de antes do PR #135 (campos aditivos e
+opcionais). Funções puras `descriptionRuleMatches`/
+`matchDescriptionCategoryRule`; `matchField: "provider"` casa contra
+`srcAccount || account` (mesmo campo usado pela classificação de conta);
+`"description"` casa contra `description`; `"both"` exige match nos dois.
+`descriptionRuleMatches` ganhou a condição AND extra opcional
+`providerPattern` (independente do `matchField` da regra). Novo helper
+`findMatchingDescriptionRule(row, rules)` retorna a regra inteira que casou
+(não só a categoria); `matchDescriptionCategoryRule` é hoje um wrapper fino
+sobre ele — contrato/comportamento inalterado para os callers já existentes
+(`detectManualCategoryCorrections`, fix v1.16.3).
+
+**Precedência exata em `buildRow` — mudança central do PR #135 (v1.20.0):**
+(import profile Credit Karma, quando `ckCategory` está presente): (1)
+`mapCkCategory` recalcula a categoria a partir do token CK; (2) passada
+**única** que encontra a **primeira** Description rule que casa
+(`findMatchingDescriptionRule`); (3) se essa regra vencedora tiver
+`allowTransferOverride: true`, ela aplica direto sua `destinationCategory`,
+**pulando** a rede de segurança de Transfer do PR #111; caso contrário
+(regra sem o flag, ou nenhuma regra casou), a rede de segurança de sempre
+continua se aplicando —
 `(overridden === Transfer || csvCategory === Transfer) ? Transfer :
-overridden` — a regra por descrição **nunca de-transfere** uma transação que
-o CK ou o CSV já marcou como `Transfer` (invariante preservada); (4) a
-heurística **Apple Daily Cash** roda por último, e continua sendo a única
-etapa com permissão de **promover** de `Transfer` para outra categoria. Em
-suma: a regra por descrição serve para o caso "o mapa CK errou, minha regra
-corrige" — vale para não-Transfer, nunca sobrepõe uma exclusão de Transfer.
-O sinal do `amount` nunca é tocado por essa regra.
+overridden` — e **nunca de-transfere**. Ou seja: a garantia "nenhuma
+Description rule tira uma transação de `Transfer`" continua valendo **por
+padrão**; agora é **opt-in por regra** via `allowTransferOverride`, e não
+mais uma exceção hard-coded exclusiva da antiga heurística Apple Daily Cash
+(removida — ver "Heurística Apple Daily Cash" no Modelo de dados, acima).
+**Precedência entre regras**: como é "primeira que casa vence" (array order
+já era semântico antes do PR #135), uma regra com `allowTransferOverride` só
+ganha se nenhuma regra anterior no array já tiver casado primeiro — isso é
+relevante tanto para a migração automática (abaixo) quanto para qualquer
+regra nova que o usuário crie com o flag. O sinal do `amount` nunca é tocado
+por essa regra.
 
-A seção **Description rules**, na tab **Settings** (antiga Audit), permite
-add / edição inline / delete com confirmação em 2 cliques / reordenar (↑/↓,
-já que a ordem é semântica); o select de categoria de destino não lista
-`Transfer`; um aviso explica a precedência sobre o mapa CK (exceto
-Transfer). **Sem preview de impacto e sem cascata retroativa** — só afeta
-novos imports a partir da mudança (mesmo padrão das demais seções de regra
-da tab).
+**Migração automática do Apple Daily Cash (one-shot, idempotente, PR #135).**
+Ao carregar `categoryDescriptionRules`, se a config legada do endpoint
+`api/apple-daily-cash-rule.js` ainda estiver ativa (campos não vazios), o
+app cria automaticamente **uma Description rule por keyword** (hoje: uma
+para "Deposit", outra para "Adjustment", ambas com `providerPattern: "Apple
+Card"` e `allowTransferOverride: true`, mesma `destinationCategory`),
+insere essas regras no **início** do array (`prepend` — crítico para
+preservar a precedência absoluta que a regra Apple tinha no pipeline
+antigo, onde rodava por último com prioridade máxima), salva via `PUT
+/api/category-description-rules` e esvazia a config legada (marcador de "já
+migrado" — rodar de novo não duplica).
 
-**Aviso de conflito pré-save (PR #133, v1.19.0).** Ao clicar "Save rules",
-se alguma regra do draft (`pattern` não vazio) bateria em transações **já
-existentes** que são `category === "Transfer"` ou têm `categoryManual ===
-true`, um aviso âmbar inline (mesmo padrão de "Account aliases" > Preview
-impact) lista por regra individual as contagens de cada tipo + até 5
-exemplos (descrição truncada a 40 caracteres + data); o botão vira "Save
-anyway", exigindo um segundo clique. Nova função pura
-`computeDescriptionRuleConflicts(transactions, rule)`, reaproveitando
-`descriptionRuleMatches` sem duplicar a lógica de match. Regras sem
-conflito continuam salvando no primeiro clique; qualquer edição no draft
-reseta o aviso. **Puramente educativo/client-side** — não altera `onSave`,
-o endpoint, o formato persistido, `matchDescriptionCategoryRule` nem
-`buildRow`; a rede de segurança real contra de-transferir em novos imports
-continua sendo exclusivamente o safety-net do PR #111 descrito acima, que
-não foi tocado.
+A seção **Description rules**, na tab **Settings**, permite add / edição
+inline / delete com confirmação em 2 cliques / reordenar (↑/↓, já que a
+ordem é semântica); o select de categoria de destino não lista `Transfer`;
+um aviso explica a precedência sobre o mapa CK (exceto Transfer). **Desde o
+PR #135**, cada regra tem também um checkbox **"Allow removing from
+Transfer"** (`allowTransferOverride`, default desmarcado) que, quando
+marcado, revela um campo condicional **"Provider/account pattern"**
+(`providerPattern`) — a UI **bloqueia salvar** (client-side) se o checkbox
+estiver marcado com esse campo vazio; o card da regra fica com borda âmbar +
+nota explicativa enquanto o flag estiver ligado. **Sem preview de impacto e
+sem cascata retroativa** — só afeta novos imports a partir da mudança (mesmo
+padrão das demais seções de regra da tab).
+
+**Aviso de conflito pré-save (PR #133, v1.19.0; mensagem reforçada no PR
+#135, v1.20.0).** Ao clicar "Save rules", se alguma regra do draft (`pattern`
+não vazio) bateria em transações **já existentes** que são `category ===
+"Transfer"` ou têm `categoryManual === true`, um aviso âmbar inline (mesmo
+padrão de "Account aliases" > Preview impact) lista por regra individual as
+contagens de cada tipo + até 5 exemplos (descrição truncada a 40 caracteres
++ data); o botão vira "Save anyway", exigindo um segundo clique. Nova
+função pura `computeDescriptionRuleConflicts(transactions, rule)`,
+reaproveitando `descriptionRuleMatches` sem duplicar a lógica de match.
+Regras sem conflito continuam salvando no primeiro clique; qualquer edição
+no draft reseta o aviso. **Desde o PR #135**, regras com
+`allowTransferOverride` ligado recebem uma mensagem de aviso mais séria
+(deixa de ser "só informativo" — para elas, o aviso descreve uma
+de-transferência real que vai acontecer, não hipotética). Continua
+**puramente client-side** — não altera `onSave` nem o formato persistido.
+
+**Débito técnico conhecido (identificado na auditoria do PR #135, não
+bloqueou o merge).** `sanitize()` no endpoint `api/category-description-rules.js`
+não impede salvar `allowTransferOverride: true` com `providerPattern` vazio
+via chamada direta à API (só o client bloqueia isso hoje) — mesma postura
+que a regra Apple antiga tinha (sem enforcement server-side). Possível
+follow-up de segurança em profundidade — ver Roadmap.
 
 **Fatia 2 (PR #119, v1.15.0) — concluída.** Detecção automática de
 "correções manuais" recorrentes ("double check"): nova função pura
@@ -963,9 +1078,10 @@ shell de altura cheia (`#root` em `100lvh` + shell `height:100%`): só o
       um "Accounts" e um "Categories" com Expense+Income, este último criado
       no PR #131/v1.17.1; e antes disso, três `ManagedList` cards colapsáveis
       separados, migrados do antigo `SettingsModal`)
-   5. **Apple Daily Cash rule**
-   6. **Description rules**
-   7. **Category mapping** — **movida para o final da tab** (antes vinha logo
+   5. **Description rules** — desde o PR #135 (v1.20.0), absorveu a antiga
+      seção dedicada **"Apple Daily Cash rule"** (removida por completo — ver
+      abaixo)
+   6. **Category mapping** — **movida para o final da tab** (antes vinha logo
       após "Account aliases"), com menos destaque/prioridade visual; continua
       colapsável e **fechada por padrão**.
 
@@ -989,8 +1105,9 @@ shell de altura cheia (`#root` em `100lvh` + shell `height:100%`): só o
    > função `explainClassification`/`CLASSIFICATION_PAGE_SIZE`) foi
    > **removida** a pedido do usuário. Não existe mais nesta tab; a única
    > forma de auditar uma decisão de categoria hoje é através das seções de
-   > regra abaixo (Category mapping / Apple Daily Cash rule / Description
-   > rules).
+   > regra abaixo (Category mapping / Description rules — a antiga "Apple
+   > Daily Cash rule" foi absorvida por Description rules no PR #135,
+   > v1.20.0, ver abaixo).
 
    **Category mapping** (desde o PR #111, v1.11.0; **posição movida ao final
    da tab na v1.17.0/PR #128**): lista os tokens de categoria do Credit Karma
@@ -1006,46 +1123,62 @@ shell de altura cheia (`#root` em `100lvh` + shell `height:100%`): só o
    regra de segurança que nunca rebaixa `Transfer` no recálculo de
    `buildRow`.
 
-   Antes de "Category mapping" (agora ao final), vem a seção **"Apple Daily
-   Cash rule"** (desde o PR #113, v1.12.0): edita a heurística que reclassifica o
-   cashback do Apple Card (`Deposit`/`Adjustment`, marcado como `Transfer`
-   pelo CK) para `Other Income` — inputs de texto para o **provider
-   pattern** e as **keywords** (separadas por vírgula), e um select da
-   **categoria de destino**. Mesmo padrão visual `CollapsibleCard`/draft/
-   dirty/save das seções vizinhas. Exibe um aviso explícito de que essa
-   regra pode promover uma transação de `Transfer` para a categoria de
-   destino — a única exceção documentada à regra geral de nunca rebaixar/
-   alterar Transfer no pipeline de classificação. **Sem preview de
-   impacto e sem cascata retroativa** — só afeta novos imports a partir da
-   mudança.
-
-   Logo abaixo de "Apple Daily Cash rule", desde o **PR #117 (v1.14.0)**,
-   uma nova seção **"Description rules"** (Painel de regras de categoria,
-   Fatia 1): lista as regras "descrição/provider contém X → categoria Y"
+   Antes de "Category mapping" (agora ao final), vem a seção **"Description
+   rules"** (Painel de regras de categoria, Fatia 1, desde o PR #117,
+   v1.14.0): lista as regras "descrição/provider contém X → categoria Y"
    (`categoryDescriptionRules`), com add / edição inline / delete (chip
    vermelho, confirmação em 2 cliques) / reordenar via setas ↑/↓ — a ordem é
    **semântica** (primeira regra que casa vence). Cada regra tem um select
    de `matchField` (description / provider / both), um input de padrão e um
    select de categoria de destino que **nunca lista `Transfer`** (bloqueado
    também no endpoint). Um aviso explica que essas regras têm precedência
-   sobre o mapa CK (Category mapping) para categorias não-Transfer, mas
-   nunca sobrepõem o safety-net de Transfer. **Sem preview de impacto e sem
-   cascata retroativa** — só novos imports a partir da mudança (mesmo
-   padrão das seções vizinhas). Ver "Regras de categoria por
+   sobre o mapa CK (Category mapping) para categorias não-Transfer.
+
+   > **Nota (PR #135, v1.20.0) — Apple Daily Cash rule removida como seção
+   > dedicada.** Até a v1.19.0, existia aqui uma seção separada **"Apple
+   > Daily Cash rule"** que editava a heurística de cashback do Apple Card
+   > (`Deposit`/`Adjustment` → `Other Income`) via inputs de provider
+   > pattern/keywords/categoria de destino, e era a **única** exceção
+   > documentada que podia promover uma transação de `Transfer`. Essa seção
+   > **foi removida por completo** no PR #135 (componente
+   > `AppleDailyCashRuleSection`, seed/config/funções puras dedicadas — tudo
+   > eliminado). Em vez disso, **Description rules** ganhou um mecanismo
+   > genérico opt-in por regra: um checkbox **"Allow removing from
+   > Transfer"** (`allowTransferOverride`, default desmarcado) que, marcado,
+   > revela um campo condicional **"Provider/account pattern"**
+   > (`providerPattern`) — a UI bloqueia salvar se o checkbox estiver
+   > marcado com esse campo vazio. O card da regra fica com borda âmbar +
+   > nota explicativa enquanto o flag estiver ligado. Uma migração
+   > automática **one-shot e idempotente** converte a config legada do Apple
+   > Daily Cash (se ainda ativa) em Description rules equivalentes
+   > (`allowTransferOverride: true` + `providerPattern: "Apple Card"`,
+   > inseridas no início do array para preservar a precedência que a regra
+   > antiga tinha) na primeira carga após o deploy — nenhuma ação manual
+   > necessária. Ver "Regras de categoria por descrição/provider" no Modelo
+   > de dados para o shape completo, a nova ordem do pipeline em `buildRow` e
+   > os detalhes da migração.
+
+   Nunca sobrepõe o safety-net de Transfer, exceto quando a regra vencedora
+   tem `allowTransferOverride: true` (ver Modelo de dados). **Sem preview de
+   impacto e sem cascata retroativa** — só novos imports a partir da mudança
+   (mesmo padrão das seções vizinhas). Ver "Regras de categoria por
    descrição/provider" no Modelo de dados para a precedência exata em
    `buildRow`. A **Fatia 2** (detecção automática de correções manuais
    recorrentes como candidatas a regra, PR #119, v1.15.0) está **concluída**
    — ver o Grupo C ("Manual category corrections") na seção **Suggested
    rules** abaixo.
 
-   **Aviso de conflito pré-save (PR #133, v1.19.0).** Antes de salvar, se
-   alguma regra do draft bateria em transações já existentes marcadas
-   `Transfer` ou `categoryManual === true`, um aviso âmbar (mesmo estilo do
-   Preview impact de Account aliases) aparece **antes** do save, listando por
-   regra as contagens + até 5 exemplos, e o botão vira "Save anyway"
-   (segundo clique confirma). Puramente client-side/educativo — não muda
-   `onSave`, o endpoint, nem o pipeline de import; ver "Regras de categoria
-   por descrição/provider" no Modelo de dados para os detalhes técnicos.
+   **Aviso de conflito pré-save (PR #133, v1.19.0; mensagem reforçada no PR
+   #135, v1.20.0).** Antes de salvar, se alguma regra do draft bateria em
+   transações já existentes marcadas `Transfer` ou `categoryManual === true`,
+   um aviso âmbar (mesmo estilo do Preview impact de Account aliases)
+   aparece **antes** do save, listando por regra as contagens + até 5
+   exemplos, e o botão vira "Save anyway" (segundo clique confirma). Desde o
+   PR #135, regras com `allowTransferOverride` ligado recebem uma mensagem
+   mais séria (para elas, o aviso descreve uma de-transferência real, não
+   hipotética). Puramente client-side/educativo — não muda `onSave`, o
+   endpoint, nem o pipeline de import; ver "Regras de categoria por
+   descrição/provider" no Modelo de dados para os detalhes técnicos.
 
    No **topo** da tab (`SettingsTab`, antes `AuditTab`), acima de "Account
    aliases", desde o **PR #115 (v1.13.0)**, a seção **"Suggested rules"**.
@@ -1709,6 +1842,51 @@ O app inicia com array vazio quando não há dados salvos (sem SEED).
   de-transferir em novos imports continua sendo exclusivamente o
   safety-net de Transfer do PR #111, intocado. Único arquivo alterado:
   `src/App.jsx`.
+- [x] **Unificação da Apple Daily Cash rule dentro de Description rules**
+  (PR #135, squash merge, SHA dd7c95ccf04f481181638eb096956308eee88f27,
+  branch `claude/settings-tab-consolidation-ec2ds1`, v1.20.0) — auditada com
+  rigor extra por mexer no pipeline central de `buildRow`. A heurística
+  Apple Daily Cash deixou de ser um mecanismo dedicado (seed
+  `DEFAULT_APPLE_DAILY_CASH_RULE`, module state, `applyAppleDailyCashRuleConfig`/
+  `currentAppleDailyCashRuleConfig`, `appleDailyCashRuleMatches`/
+  `applyAppleDailyCashRule`, componente `AppleDailyCashRuleSection` e sua
+  seção na tab Settings — **todos removidos**) e foi absorvida por
+  **Description rules**, que ganhou um mecanismo genérico opt-in de
+  "permissão de de-transferir": campos novos e opcionais na regra,
+  `providerPattern` (condição AND extra contra `srcAccount || account`) e
+  `allowTransferOverride` (boolean, default ausente/false). Novo helper
+  `findMatchingDescriptionRule(row, rules)` retorna a regra inteira que
+  casou; `matchDescriptionCategoryRule` virou wrapper fino sobre ele (mesmo
+  contrato). Nova ordem em `buildRow`: CK map → primeira Description rule
+  que casa → se tiver `allowTransferOverride: true`, aplica direto,
+  **pulando** a rede de segurança de Transfer; senão, a rede de segurança do
+  PR #111 continua valendo como sempre. A garantia "nenhuma regra tira uma
+  transação de `Transfer`" continua existindo por padrão — agora é opt-in
+  por regra, não mais uma exceção hard-coded exclusiva do Apple Daily Cash.
+  **Migração automática one-shot e idempotente**: ao carregar
+  `categoryDescriptionRules`, se a config legada de
+  `api/apple-daily-cash-rule.js` ainda estiver ativa, o app cria uma
+  Description rule por keyword (`providerPattern: "Apple Card"`,
+  `allowTransferOverride: true`), insere no início do array (prepend,
+  preservando a precedência absoluta que a regra antiga tinha) e esvazia a
+  config legada. O endpoint `api/apple-daily-cash-rule.js` continua existindo
+  no código, só sem UI dedicada (serve só de fonte para essa migração). Nova
+  UI em Description rules: checkbox "Allow removing from Transfer" + campo
+  condicional "Provider/account pattern" (bloqueio de salvar client-side se
+  vazio com o checkbox marcado); card com borda âmbar enquanto o flag estiver
+  ligado; aviso de conflito pré-save (PR #133) ganhou mensagem mais séria
+  para regras com o flag ligado. `sanitize()` do endpoint estendido para os 2
+  campos novos, mantendo o bloqueio de `destinationCategory === "Transfer"`.
+  **Débito técnico conhecido (não bloqueou o merge)**: o `sanitize()` do
+  endpoint não impede salvar `allowTransferOverride: true` com
+  `providerPattern` vazio via chamada direta à API — só o client bloqueia
+  isso hoje (mesma postura da regra Apple antiga, sem enforcement
+  server-side). Ver "Regras de categoria por descrição/provider" no Modelo
+  de dados e a seção UI/Settings para os detalhes completos.
+  - [ ] **Follow-up de hardening (débito técnico, não bloqueante)**: adicionar
+    enforcement server-side em `api/category-description-rules.js` para
+    rejeitar `allowTransferOverride: true` com `providerPattern` vazio,
+    fechando a lacuna que hoje só o client bloqueia.
 - [x] **Auditoria de classificação de categorias** — área no app onde o
   usuário pode ver e editar as regras de auto-classificação que o app usa. A
   decisão de layout (tab dedicada **Audit**, em vez de dentro do
@@ -1726,9 +1904,13 @@ O app inicia com array vazio quando não há dados salvos (sem SEED).
   - **Heurísticas especiais** (ex.: Apple Daily Cash): listar as regras
     embutidas, mostrar quais transações cada uma capturou, permitir ajuste
     da descrição ou do provider-pattern. **[x] Entregue no PR #113
-    (v1.12.0)** — seção **Apple Daily Cash rule** na tab Audit, editando
-    provider pattern, keywords e categoria de destino; sem preview de
-    impacto por transação — ver item acima.
+    (v1.12.0)** — seção dedicada **Apple Daily Cash rule** na tab Audit,
+    editando provider pattern, keywords e categoria de destino; sem preview
+    de impacto por transação. **Atualização (PR #135, v1.20.0)**: essa seção
+    dedicada foi removida e a heurística foi unificada dentro de
+    **Description rules** via o mecanismo genérico `allowTransferOverride`/
+    `providerPattern` — ver item "Unificação da Apple Daily Cash rule dentro
+    de Description rules" acima.
   - **Aliases de conta**: ver quais fragmentos de marca casam com qual conta
     do ledger; adicionar/remover aliases; ver transações afetadas antes de
     salvar. **[x] Entregue no PR #105**, agora hospedado na tab **Audit**
