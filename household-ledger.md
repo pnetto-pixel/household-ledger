@@ -1,4 +1,4 @@
-# Household Ledger · v1.21.8
+# Household Ledger · v1.21.9
 
 Aplicativo mobile-first de controle financeiro doméstico. Registra
 transações da casa (despesas e receitas) por categoria e conta, com
@@ -24,7 +24,15 @@ A cada PR, atualize a versão em **dois lugares**:
 1. `src/App.jsx` — a string `v1.x.x` no span ao lado de "Household"
 2. `household-ledger.md` — o `· v1.x.x` no título `# Household Ledger`
 
-Versão atual: **v1.21.8** — **Ajustes finos no `YearRangeSlider` da tab
+Versão atual: **v1.21.9** — **Filtro de categoria da tab Trends movido para
+o lado esquerdo do switch All/L3Y/YTD no desktop** (`isWide`): antes ficava
+sempre numa linha própria abaixo do range de anos; agora, no desktop, o chip
+`HeaderFilter` de Category entra na mesma row do segmented All/L3Y/YTD +
+`YearRangeSlider`, posicionado antes deles (mais à esquerda). No mobile o
+comportamento não muda — o chip continua numa linha própria abaixo. Só
+`src/App.jsx` alterado; sem mudança de API/Redis/modelo de transação.
+
+Versão anterior: **v1.21.8** — **Ajustes finos no `YearRangeSlider` da tab
 Trends** (PR #154, mergeado em `main`): no mobile, a trilha do slider ganhou
 um wrapper com padding lateral de 12px para os handles não ficarem
 colados/quase saindo da borda direita da tela; no desktop, o slider deixou
@@ -1744,6 +1752,12 @@ O app inicia com array vazio quando não há dados salvos (sem SEED).
   poluída em períodos multi-ano ao alternar de volta para 1 ano. Só
   `src/App.jsx` alterado (`YearRangeSlider`, `Charts`, `applyYearRange`); sem
   mudança de API/Redis/modelo de transação
+- [x] Filtro de categoria da tab Trends movido para o lado esquerdo do
+  switch All/L3Y/YTD no desktop (`isWide`): no desktop o chip `HeaderFilter`
+  de Category entra na mesma row do segmented All/L3Y/YTD +
+  `YearRangeSlider` (posicionado antes deles); no mobile continua numa
+  linha própria abaixo. Só `src/App.jsx` alterado; sem mudança de
+  API/Redis/modelo de transação
 - [ ] Multiusuário / household compartilhado
 - [ ] PWA offline-first
 - [~] Integrações de import (bancos, cartões) — exportador Credit Karma para
