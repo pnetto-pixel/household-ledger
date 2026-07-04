@@ -1162,7 +1162,33 @@ shell de altura cheia (`#root` em `100lvh` + shell `height:100%`): só o
    arrastáveis via pointer events (mouse + touch), snap discreto por ano e
    preenchimento visual do range selecionado; reaproveita os handlers
    `handleFromYear`/`handleToYear` e o clamp já existentes, sem mudar a
-   lógica de negócio do filtro. Logo abaixo do range de anos, um **filtro
+   lógica de negócio do filtro. **Desde o PR #153** (branch
+   `claude/household-yearrange-refine`), o `YearRangeSlider` foi refinado:
+   a trilha (`S.yearRangeTrack`) deixou de ir edge-to-edge do card
+   (`maxWidth: 260`); os thumbs (bolas azuis) ganharam estilo "liquid glass"
+   (gradiente translúcido + `backdrop-filter` + inset highlight),
+   consistente com o hero card da Home; ao selecionar manualmente um range
+   de mais de 1 ano, a granularidade (segmented M/Quarter/Half/Year) muda
+   automaticamente e de forma sugestiva para **"Anos" (Y)** — não trava a
+   escolha, o usuário ainda pode voltar para Mês/Trimestre/Semestre mesmo
+   com range > 1 ano. **Desde o PR #154**, o inverso também acontece: ao
+   voltar o range para cobrir só 1 ano (`fromYear === toYear`), a
+   granularidade volta automaticamente para **"M" (meses)**, evitando visão
+   mensal poluída (herdada de um range multi-ano anterior) ao estreitar de
+   volta para 1 ano só. À esquerda do slider há também um novo **switch de 3
+   opções (All / L3Y / YTD)** reaproveitando o padrão visual
+   `S.segmented`/`S.segmentedBtn`: All seleciona todo o histórico
+   disponível, L3Y os últimos 3 anos (clampado ao ano mais antigo se o
+   histórico tiver menos de 3 anos) e YTD apenas o ano corrente; o botão do
+   preset ativo é destacado quando o range atual bate com ele, e nenhum
+   fica marcado se o usuário arrastar manualmente para um range que não
+   corresponde a nenhum preset. **Desde o PR #154**: no mobile a trilha tem
+   um wrapper com 12px de padding lateral para os handles não ficarem quase
+   saindo da borda da tela; no desktop (`useMediaWide(900)`, prop `isWide`
+   passada de `App` para `Charts`) o slider fica alinhado à esquerda, colado
+   ao switch All/L3Y/YTD, em vez de centralizado na row. Puramente
+   visual/UX, sem mudança de contrato de API/Redis/modelo de transação.
+   Logo abaixo do range de anos, um **filtro
    de categoria (multi-select, PR #102, v1.6.0)** reutiliza o componente
    `HeaderFilter` (dropdown com checkboxes via Popover/portal, modo `chip`);
    a lista de opções é `EXPENSE_CATEGORIES + INCOME_CATEGORIES` combinadas
@@ -1684,6 +1710,29 @@ O app inicia com array vazio quando não há dados salvos (sem SEED).
   dois handles arrastáveis via pointer events, snap por ano). Puramente
   visual, sem mudança de contrato de `from`/`to` (continuam string
   `YYYY-MM-DD`) nem de API/Redis/modelo de transação
+- [x] Refinamento do `YearRangeSlider` na tab Trends (PR #153, branch
+  `claude/household-yearrange-refine`): trilha mais curta (`maxWidth: 260`,
+  antes edge-to-edge do card); thumbs em estilo "liquid glass"
+  (gradiente translúcido + `backdrop-filter` + inset highlight); ao
+  selecionar range > 1 ano, a granularidade sugere automaticamente "Anos"
+  (Y) sem travar a escolha manual; novo switch **All / L3Y / YTD** à
+  esquerda do slider (reaproveita `S.segmented`/`S.segmentedBtn`) com
+  destaque do preset ativo quando o range bate com ele. Só `src/App.jsx`
+  alterado; sem mudança de API/Redis/modelo de transação
+- [x] Ajustes finos no `YearRangeSlider` da tab Trends (PR #154, branch
+  `claude/household-yearrange-refine`, mergeado em `main`): no mobile, a
+  trilha do slider ganhou um wrapper com padding lateral de 12px para os
+  handles não ficarem colados/quase saindo da borda direita da tela; no
+  desktop, o slider deixou de ficar centralizado na row e passou a ficar
+  alinhado à esquerda, colado ao segmented All/L3Y/YTD, via novo prop
+  `isWide` passado de `App` para `Charts` (reaproveita o hook
+  `useMediaWide(900)` já existente); e quando o range volta a cobrir só 1
+  ano (`fromYear === toYear`), a granularidade dos gráficos agora volta
+  automaticamente para "M" (meses), espelhando a lógica inversa já existente
+  que troca para "Y" ao expandir para múltiplos anos — evita visão mensal
+  poluída em períodos multi-ano ao alternar de volta para 1 ano. Só
+  `src/App.jsx` alterado (`YearRangeSlider`, `Charts`, `applyYearRange`); sem
+  mudança de API/Redis/modelo de transação
 - [ ] Multiusuário / household compartilhado
 - [ ] PWA offline-first
 - [~] Integrações de import (bancos, cartões) — exportador Credit Karma para
