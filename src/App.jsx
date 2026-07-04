@@ -997,6 +997,17 @@ export default function App() {
   }, [authed, loadConfig]);
 
   // ---- Mutations -----------------------------------------------------------
+  // Restores the entire ledger from a local backup file, replacing whatever
+  // is currently loaded. Saves immediately (not debounced) since this is an
+  // explicit, already-confirmed destructive action.
+  const restoreTransactions = useCallback(
+    (next) => {
+      setTransactions(next);
+      save(next);
+    },
+    [save]
+  );
+
   const addTransactions = useCallback(
     (rows) => {
       setTransactions((prev) => {
@@ -1232,6 +1243,7 @@ export default function App() {
             onDeleteCategory={deleteCategory}
             onReorderAccounts={reorderAccounts}
             onReorderCategories={reorderCategories}
+            onRestoreTransactions={restoreTransactions}
           />
         ) : (
           <Charts transactions={transactions} hideValues={hideValues} config={config} />
@@ -1410,7 +1422,7 @@ function Header({ hideValues, onToggleHide, onLogout, saving, savedAt, dirty, sa
             <LayoutDashboard size={14} color="#fff" />
           </div>
           <span style={{ fontWeight: 700, fontSize: 15, letterSpacing: -0.5, color: "#e5e7eb" }}>Household</span>
-          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.20.3</span>
+          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.20.4</span>
         </div>
         <SaveIndicator saving={saving} dirty={dirty} savedAt={savedAt} saveError={saveError} />
       </div>
@@ -4381,6 +4393,7 @@ function SettingsTab({
   onAddAccount, onRenameAccount, onDeleteAccount,
   onAddCategory, onRenameCategory, onDeleteCategory,
   onReorderAccounts, onReorderCategories,
+  onRestoreTransactions,
 }) {
   const usage = useMemo(() => {
     const acc = {}, cat = {};
@@ -4505,23 +4518,32 @@ function SettingsTab({
         config={config}
         highlightToken={categoryHighlight}
       />
-      <DataBackupSection transactions={transactions} />
+      <DataBackupSection transactions={transactions} onRestore={onRestoreTransactions} />
     </div>
   );
 }
 
 // Local, client-side backup of the transaction ledger — downloads a JSON
 // snapshot of everything currently in memory (the same array that feeds
-// GET/PUT /api/transactions). Purely a convenience export: no import/restore
-// path, no server round-trip, no effect on the Redis-persisted data.
-function DataBackupSection({ transactions }) {
+// GET/PUT /api/transactions), and can restore that same snapshot back,
+// replacing whatever is currently loaded. Purely client-side: no new
+// endpoint, no change to the Redis-persisted shape.
+function DataBackupSection({ transactions, onRestore }) {
   const [justDownloaded, setJustDownloaded] = useState(null);
+  const [importStatus, setImportStatus] = useState(null); // { kind: "ok" | "error", text }
+  const fileInputRef = useRef(null);
 
   useEffect(() => {
     if (!justDownloaded) return;
     const t = setTimeout(() => setJustDownloaded(null), 2000);
     return () => clearTimeout(t);
   }, [justDownloaded]);
+
+  useEffect(() => {
+    if (!importStatus) return;
+    const t = setTimeout(() => setImportStatus(null), 4000);
+    return () => clearTimeout(t);
+  }, [importStatus]);
 
   const handleBackup = () => {
     const payload = { transactions, exportedAt: new Date().toISOString() };
@@ -4530,15 +4552,52 @@ function DataBackupSection({ transactions }) {
     setJustDownloaded(transactions.length);
   };
 
+  const handleImportClick = () => fileInputRef.current?.click();
+
+  const handleFileChange = async (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = ""; // allow re-selecting the same file later
+    if (!file) return;
+    try {
+      const text = await file.text();
+      const parsed = JSON.parse(text);
+      const rows = Array.isArray(parsed) ? parsed : parsed?.transactions;
+      if (!Array.isArray(rows)) throw new Error("File does not contain a transactions array.");
+      const confirmed = window.confirm(
+        `Restore ${rows.length} transaction${rows.length === 1 ? "" : "s"} from this backup? ` +
+        `This replaces all ${transactions.length} transaction${transactions.length === 1 ? "" : "s"} currently loaded.`
+      );
+      if (!confirmed) return;
+      onRestore(rows);
+      setImportStatus({ kind: "ok", text: `Restored ${rows.length} transaction${rows.length === 1 ? "" : "s"}.` });
+    } catch (err) {
+      setImportStatus({ kind: "error", text: err.message || "Could not read this file." });
+    }
+  };
+
   return (
     <CollapsibleCard title="Data & Backup">
-      <button type="button" style={S.primaryBtn} onClick={handleBackup}>
-        Backup transactions
-      </button>
-      <div style={{ fontSize: 12, color: "#8b94a3", marginTop: 8 }}>
-        {justDownloaded !== null
+      <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+        <button type="button" style={S.primaryBtn} onClick={handleBackup}>
+          Backup transactions
+        </button>
+        <button type="button" style={S.secondaryBtn} onClick={handleImportClick}>
+          Restore from backup
+        </button>
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="application/json"
+          style={{ display: "none" }}
+          onChange={handleFileChange}
+        />
+      </div>
+      <div style={{ fontSize: 12, color: importStatus?.kind === "error" ? "#e5484d" : "#8b94a3", marginTop: 8 }}>
+        {importStatus
+          ? importStatus.text
+          : justDownloaded !== null
           ? `Downloaded ${justDownloaded} transaction${justDownloaded === 1 ? "" : "s"}.`
-          : "Downloads a local JSON copy of all your transactions."}
+          : "Backup downloads a local JSON copy of all your transactions. Restore replaces all currently loaded transactions with the contents of a backup file."}
       </div>
     </CollapsibleCard>
   );

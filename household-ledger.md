@@ -1,4 +1,4 @@
-# Household Ledger · v1.20.3
+# Household Ledger · v1.20.4
 
 Aplicativo mobile-first de controle financeiro doméstico. Registra
 transações da casa (despesas e receitas) por categoria e conta, com
@@ -24,7 +24,25 @@ A cada PR, atualize a versão em **dois lugares**:
 1. `src/App.jsx` — a string `v1.x.x` no span ao lado de "Household"
 2. `household-ledger.md` — o `· v1.x.x` no título `# Household Ledger`
 
-Versão atual: **v1.20.3** — **Backup local de transactions na tab Settings**
+Versão atual: **v1.20.4** — **Restore de transactions a partir do backup local**
+(patch/manutenção, mesmo item avulso do backup, `src/App.jsx` único arquivo
+alterado). Adicionado botão **"Restore from backup"** ao lado do "Backup
+transactions" no card **"Data & Backup"**: abre um seletor de arquivo, lê o
+JSON (aceita tanto o envelope `{ transactions, exportedAt }` do backup
+quanto um array puro de transactions), pede confirmação (`window.confirm`)
+informando quantas transactions serão restauradas e quantas serão
+substituídas, e então **substitui integralmente** o array de transactions em
+memória e salva imediatamente via `PUT /api/transactions` (sem debounce,
+por ser ação explícita já confirmada). Novo callback `restoreTransactions`
+no componente raiz `App`, passado como prop `onRestoreTransactions` até
+`DataBackupSection`. Nenhuma mudança de contrato de API, formato Redis ou
+modelo de transação — é o mesmo endpoint/shape já usados pelo save normal.
+**Fora de escopo (ainda não implementado)**: backup/restore de outros
+namespaces Redis (account-map, config, budgets, aliases,
+description-rules), merge/dedup entre o backup e os dados atuais (a
+restauração é substituição total, não soma).
+
+Versão anterior: **v1.20.3** — **Backup local de transactions na tab Settings**
 (patch/manutenção, item avulso pedido pelo usuário fora do roadmap de fases,
 `src/App.jsx` único arquivo alterado). Novo botão **"Backup transactions"**
 dentro de um novo `CollapsibleCard` **"Data & Backup"** na tab **Settings**
@@ -1160,13 +1178,17 @@ shell de altura cheia (`#root` em `100lvh` + shell `height:100%`): só o
    6. **Category mapping** — **movida para o final da tab** (antes vinha logo
       após "Account aliases"), com menos destaque/prioridade visual; continua
       colapsável e **fechada por padrão**.
-   7. **Data & Backup** (desde a v1.20.3, PR #140) — novo card no final da
-      tab, com o botão **"Backup transactions"**: baixa localmente um JSON
-      `household-transactions-backup-YYYY-MM-DD.json` com
-      `{ transactions: [...], exportedAt }`, export puro do array de
+   7. **Data & Backup** (desde a v1.20.3, PR #140; restore desde a v1.20.4) —
+      novo card no final da tab, com dois botões: **"Backup transactions"**
+      baixa localmente um JSON `household-transactions-backup-YYYY-MM-DD.json`
+      com `{ transactions: [...], exportedAt }`, export puro do array de
       transactions já em memória (mesmo dado de `GET /api/transactions`),
-      100% client-side. Feedback "Downloaded N transactions." por ~2s. Só
-      cobre `transactions` — sem import/restore, sem agendamento, sem outros
+      100% client-side, feedback "Downloaded N transactions." por ~2s;
+      **"Restore from backup"** abre um seletor de arquivo, lê o JSON
+      (aceita o envelope do backup ou um array puro), confirma com o usuário
+      e então **substitui integralmente** as transactions em memória,
+      salvando de imediato via `PUT /api/transactions`. Só cobre
+      `transactions` — sem agendamento, sem merge/dedup, sem outros
       namespaces Redis (fora de escopo desta entrega).
 
    Renderiza `AccountAliasesSection` (mesmas props de antes:
@@ -2062,18 +2084,21 @@ O app inicia com array vazio quando não há dados salvos (sem SEED).
   (endpoint e dado no Redis continuam existindo, só a UI foi retirada).
   Discutir: reintroduzir como seção própria, mover para dentro da Home,
   ou repensar a interação.
-- [x] **Backup local de transactions na tab Settings** (PR #140, draft,
-  branch `claude/transaction-backup-settings-d5e86h`, v1.20.3) — item
-  **avulso de manutenção/segurança**, pedido diretamente pelo usuário fora
-  do roadmap de fases, para mitigar risco de perda de dados antes de
-  mudanças estruturais futuras. Novo card **"Data & Backup"** na tab
-  Settings com o botão "Backup transactions": baixa localmente um JSON com
-  `{ transactions: [...], exportedAt }`, 100% client-side, sem mudança de
-  API/Redis/modelo de transação. Cobre só `transactions` — import/restore
-  do JSON, backup agendado e backup de outros namespaces Redis (account-map,
-  config, budgets, aliases, description-rules) ficaram fora de escopo e
-  **não** foram adicionados como pendência formal (avaliar sob demanda, se
-  o usuário pedir).
+- [x] **Backup + restore local de transactions na tab Settings** (PR #140,
+  v1.20.3; restore adicionado depois, v1.20.4, branch
+  `claude/transaction-backup-import-d5e86h`) — item **avulso de
+  manutenção/segurança**, pedido diretamente pelo usuário fora do roadmap
+  de fases, para mitigar risco de perda de dados antes de mudanças
+  estruturais futuras. Card **"Data & Backup"** na tab Settings com dois
+  botões: "Backup transactions" baixa localmente um JSON com
+  `{ transactions: [...], exportedAt }`; "Restore from backup" lê esse
+  mesmo JSON (ou um array puro), confirma com o usuário e **substitui
+  integralmente** as transactions carregadas, salvando de imediato. 100%
+  client-side, sem mudança de API/Redis/modelo de transação. Cobre só
+  `transactions` — backup agendado, merge/dedup no restore, e backup de
+  outros namespaces Redis (account-map, config, budgets, aliases,
+  description-rules) ficaram fora de escopo e **não** foram adicionados
+  como pendência formal (avaliar sob demanda, se o usuário pedir).
 - [ ] **Recurrents (recorrentes / assinaturas) — reavaliar formato**
   *(removido do Analyze no PR #104)*: antes vivia como detecção client-side
   de transações com a mesma descrição em ≥2 meses e valor dentro de ±10% da
