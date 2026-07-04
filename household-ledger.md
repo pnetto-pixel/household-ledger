@@ -1,4 +1,4 @@
-# Household Ledger · v1.16.3
+# Household Ledger · v1.17.0
 
 Aplicativo mobile-first de controle financeiro doméstico. Registra
 transações da casa (despesas e receitas) por categoria e conta, com
@@ -24,7 +24,28 @@ A cada PR, atualize a versão em **dois lugares**:
 1. `src/App.jsx` — a string `v1.x.x` no span ao lado de "Household"
 2. `household-ledger.md` — o `· v1.x.x` no título `# Household Ledger`
 
-Versão atual: **v1.16.3** — **Fix: sugestão do Grupo C ("Manual category
+Versão atual: **v1.17.0** — **Consolidação da tab Audit + modal Settings numa
+única tab "Settings"** (feature de UI, `src/App.jsx` único arquivo alterado).
+A tab bar deixou de ter 5 abas `dashboard, analyze, transactions, import,
+audit` (ícone `ShieldCheck`) e passou a ter `dashboard, analyze,
+transactions, import, settings` (ícone `Settings`, cog) — última posição. A
+antiga `AuditTab` foi renomeada para `SettingsTab` e passou a incluir também
+todo o conteúdo que antes vivia no `SettingsModal` (aberto pela engrenagem no
+header): **Card mapping** (Credit Karma) e as três `ManagedList` (Accounts /
+Expense categories / Income categories). A **engrenagem no header e o
+`SettingsModal` foram removidos por completo** — não há mais atalho
+separado; tudo vive na tab **Settings**. Nova ordem das seções dentro da tab:
+(1) Suggested rules, (2) Account aliases, (3) Card mapping, (4) Managed list
+Accounts, (5) Managed list Expense categories, (6) Managed list Income
+categories, (7) Apple Daily Cash rule, (8) Description rules, (9) Category
+mapping — esta última **movida para o final da tab**, com menos destaque
+(continua colapsável, fechada por padrão; antes vinha logo após Account
+aliases). Nenhuma mudança de contrato de `/api/*`, formato Redis ou modelo de
+transação — puramente reorganização de composição de UI React. — PR #128,
+branch `claude/settings-tab-consolidation-ec2ds1`, squash merge, SHA
+86ddbc1d3bd081d065f3edac43ca5ea9be829ff4.
+
+Versão anterior: **v1.16.3** — **Fix: sugestão do Grupo C ("Manual category
 corrections") continuava reaparecendo mesmo depois de o usuário criar a
 Description rule sugerida e clicar "Dismiss"** (patch, frontend puro).
 Causa raiz: ao contrário do Grupo A (`detectSuggestedAliasFragments`, pula
@@ -490,8 +511,9 @@ Endpoint `api/budgets.js`:
 Mapa `{ [accountURN]: "Conta amigável" }` persistido no Redis em
 `household:USERID:accountmap` via `api/account-map.js` (GET/PUT, mesmo
 padrão dos orçamentos). Alimenta `classifyAccount` no import e é editável
-pela seção **Card mapping** dentro de Settings (`AccountMapSection`, dentro
-do `SettingsModal`).
+pela seção **Card mapping** (`AccountMapSection`) dentro da tab **Settings**
+— até o PR #128 (v1.17.0) essa seção vivia dentro do `SettingsModal`
+(engrenagem no header, removido); agora é renderizada diretamente na tab.
 
 ### Listas gerenciáveis (contas + categorias)
 
@@ -501,12 +523,14 @@ ser fixas no código: são variáveis de módulo (mutáveis) semeadas pelos
 `api/config.js` (GET/PUT em `household:USERID:config`, sanitiza strings
 não-vazias e deduplicadas). As funções puras (`matchAccount`, `isIncome`,
 `buildRow`) leem os valores correntes; os componentes React re-renderizam
-via o `config` state no App (`Transfer` continua fixo). A UI é o
-`SettingsModal` (engrenagem no header), que reúne **Card mapping** +
-adiciona/renomeia/exclui nas três listas (cards colapsáveis via
-`CollapsibleCard`). Desde o PR #107 (v1.9.0), o `SettingsModal` **não contém
-mais** a seção "Account aliases" — ela foi movida para a tab dedicada
-**Audit** (ver UI). **Renomear faz cascata** — conta atualiza transações +
+via o `config` state no App (`Transfer` continua fixo). A UI é a tab
+**Settings** (ver UI), que reúne **Card mapping** + adiciona/renomeia/exclui
+nas três listas (cards colapsáveis via `CollapsibleCard`). Até o PR #107
+(v1.9.0) isso vivia num modal (`SettingsModal`, atrás da engrenagem no
+header), que já não continha a seção "Account aliases" (movida para a tab
+dedicada Audit naquele PR); desde o PR #128 (v1.17.0) o próprio modal foi
+removido e todo esse conteúdo passou a viver dentro da tab **Settings**
+(antiga Audit, renomeada). **Renomear faz cascata** — conta atualiza transações +
 valores do mapa de contas; categoria atualiza transações + chaves de
 orçamento. Itens em uso por transações não podem ser excluídos (renomear,
 sim).
@@ -521,8 +545,10 @@ de delete é vermelho (`#f87171`) e requer **confirmação em 2 cliques**; sem
 segundo clique, reseta em 2,5 s. A **edição é inline**: campo de nome de
 largura total com botões pequenos **Save** (✓) / **Cancel** logo abaixo. A
 caixa de **adicionar** tem o input ocupando a largura toda + botão quadrado
-compacto `+`. O `SettingsModal` tem botão "Close" no footer fixo
-(`flexShrink:0`) para fechar sem rolar até o fim.
+compacto `+`. Até o PR #128 (v1.17.0), o `SettingsModal` tinha um botão
+"Close" no footer fixo (`flexShrink:0`) para fechar sem rolar até o fim;
+esse botão não existe mais (não há modal — é uma tab, sem necessidade de
+"Close").
 
 **AccountMapSection** exibe um status dot por card: verde se o URN já tem conta
 mapeada, âmbar se não mapeado.
@@ -589,7 +615,7 @@ imports futuros.
 
 ## UI
 
-Mobile-first, tema escuro iOS. Tab bar inferior fixa com 5 abas. A entrada de transações é exclusivamente via Import — não há formulário manual de adição. Configuração (match de cartões CK + listas de contas/categorias) fica atrás da **engrenagem** no header (`SettingsModal`); o antigo botão Refresh foi removido. A auditoria de classificação de conta (aliases) vive na tab dedicada **Audit** (ver abaixo).
+Mobile-first, tema escuro iOS. Tab bar inferior fixa com 5 abas. A entrada de transações é exclusivamente via Import — não há formulário manual de adição. **Desde a v1.17.0 (PR #128)**, não há mais engrenagem no header nem modal separado de configuração — a antiga tab **Audit** e o antigo `SettingsModal` (match de cartões CK + listas de contas/categorias) foram consolidados numa única tab dedicada **Settings** (ver abaixo), última posição na tab bar. O antigo botão Refresh já tinha sido removido antes.
 
 **Identidade visual (PR #23 — iOS 26 "Liquid Glass")**
 
@@ -602,7 +628,9 @@ Mobile-first, tema escuro iOS. Tab bar inferior fixa com 5 abas. A entrada de tr
 - **Modernização Copilot-inspired**: Dashboard com **hero card** de saldo líquido (gradiente, glow, 40 px, split receita/despesa), StatCards com borda de acento à esquerda + label uppercase, `TxnRow` com **avatar colorido** da categoria (inicial + paleta estável via `catDotColor`/`CATEGORY_COLORS`), logo tile azul no header, e linhas de orçamento com dot da categoria + glow na barra estourada. As **legendas dos ícones** da tab bar (Dashboard/Analyze/Txns/Import) seguem visíveis.
 - **Tela cheia iOS PWA (full-bleed)**: o `viewport-fit=cover` só passa a valer com o meta limpo (sem `maximum-scale`) **e** uma reinstalação na tela inicial (o iOS faz snapshot do viewport no add-to-home-screen). A medição no device foi decisiva: `100dvh`/`100svh` = a *layout viewport* (812 pt no iPhone 16 Pro, que **exclui** a área do home indicator), enquanto `100vh`/`100lvh` = a tela física completa (874 pt). Por isso `html`/`body`/`#root` usam **`height: 100lvh`** com `overflow: hidden` (sem rubber-band) e o shell `height: 100%`. Resultado: a tab bar encosta na borda física real (medido `belowNav = 0`), sem faixa preta. `env(safe-area-inset-bottom)` no padding da barra mantém os ícones acima do home indicator; `env(safe-area-inset-top)` no header limpa a Dynamic Island.
 
-São **5 tabs**: Dashboard, Analyze, Transactions, Import, Audit. O app usa
+São **5 tabs**: Dashboard, Analyze, Transactions, Import, Settings (antiga
+**Audit**, renomeada e consolidada com o antigo `SettingsModal` na v1.17.0,
+PR #128 — ver item 5 abaixo). O app usa
 shell de altura cheia (`#root` em `100lvh` + shell `height:100%`): só o
 `<main>` faz scroll, então header e tab bar ficam fixos.
 
@@ -802,41 +830,68 @@ shell de altura cheia (`#root` em `100lvh` + shell `height:100%`): só o
    `autoCategory` corretos, alimentando o mecanismo existente de detecção
    de correções manuais (`detectManualCategoryCorrections`) e o grupo
    "Manual category corrections" do painel **Suggested rules** na tab
-   Audit, sem nenhuma escrita/endpoint novo.
-5. **Audit** (PR #107, v1.9.0) — 5ª tab, ícone `ShieldCheck`, última posição
-   na tab bar. Renderiza `AccountAliasesSection` (mesmas props de antes:
+   Settings, sem nenhuma escrita/endpoint novo.
+5. **Settings** (PR #128, v1.17.0) — 5ª tab, ícone `Settings` (cog), última
+   posição na tab bar. Consolidação da antiga tab **Audit** (`AuditTab`, PR
+   #107, v1.9.0) com o antigo modal **`SettingsModal`** (aberto pela
+   engrenagem no header) numa única tab: `AuditTab` foi renomeado para
+   `SettingsTab`, e a engrenagem no header + o `SettingsModal` **foram
+   removidos por completo** — não há mais atalho separado de configuração,
+   tudo vive nesta tab. Nenhuma mudança de contrato de API, formato Redis ou
+   modelo de transação — reorganização de composição de UI React.
+   `src/App.jsx` foi o único arquivo alterado.
+
+   **Ordem das seções dentro de Settings** (de cima para baixo):
+   1. **Suggested rules** (topo)
+   2. **Account aliases**
+   3. **Card mapping** (Credit Karma) — migrado do antigo `SettingsModal`
+   4. **Accounts** (managed list) — migrado do antigo `SettingsModal`
+   5. **Expense categories** (managed list) — migrado do antigo `SettingsModal`
+   6. **Income categories** (managed list) — migrado do antigo `SettingsModal`
+   7. **Apple Daily Cash rule**
+   8. **Description rules**
+   9. **Category mapping** — **movida para o final da tab** (antes vinha logo
+      após "Account aliases"), com menos destaque/prioridade visual; continua
+      colapsável e **fechada por padrão**.
+
+   Renderiza `AccountAliasesSection` (mesmas props de antes:
    `transactions`, `accountMap`, `aliases={accountAliases}`,
-   `onSave={onSaveAccountAliases}`), a seção **Account aliases** que antes
-   vivia dentro do `SettingsModal` — chips de fragmento por conta (add/remove)
-   + fluxo **Preview impact** → **Confirm & apply** (ver "Aliases de conta
-   editáveis" no Modelo de dados). Nenhuma lógica de negócio mudou
-   (`saveAccountAliasesAndApply`, `computeAliasImpact`, `buildAliasArray`,
-   `applyAliasConfig`, `matchAccount`, `classifyAccount`,
+   `onSave={onSaveAccountAliases}`), a seção **Account aliases** — chips de
+   fragmento por conta (add/remove) + fluxo **Preview impact** → **Confirm &
+   apply** (ver "Aliases de conta editáveis" no Modelo de dados). Nenhuma
+   lógica de negócio mudou (`saveAccountAliasesAndApply`, `computeAliasImpact`,
+   `buildAliasArray`, `applyAliasConfig`, `matchAccount`, `classifyAccount`,
    `api/account-aliases.js` — tudo igual, só mudou onde é renderizado).
+
+   Logo abaixo, **Card mapping** (`AccountMapSection`, ver "Classificação de
+   conta no import" no Modelo de dados) e as três `ManagedList` — **Accounts**,
+   **Expense categories**, **Income categories** (ver "Listas gerenciáveis"
+   no Modelo de dados) — que antes só existiam dentro do `SettingsModal` (por
+   trás da engrenagem no header) e agora vivem diretamente na tab, sem modal.
 
    > **Nota (PR #117, v1.14.0)**: a seção **"Classification history"** (e a
    > função `explainClassification`/`CLASSIFICATION_PAGE_SIZE`) foi
-   > **removida** a pedido do usuário. Não existe mais na tab Audit; a
-   > única forma de auditar uma decisão de categoria hoje é através das
-   > seções de regra abaixo (Category mapping / Apple Daily Cash rule /
-   > Description rules).
+   > **removida** a pedido do usuário. Não existe mais nesta tab; a única
+   > forma de auditar uma decisão de categoria hoje é através das seções de
+   > regra abaixo (Category mapping / Apple Daily Cash rule / Description
+   > rules).
 
-   Logo abaixo de "Account aliases", desde o **PR #111 (v1.11.0)**,
-   uma nova seção **"Category mapping"**: lista os tokens de categoria do
-   Credit Karma conhecidos — os do seed `DEFAULT_CK_CATEGORY_MAP` mais
-   quaisquer outros descobertos nas transações já carregadas (via
-   `ckCategory`) — cada um editável por um dropdown com as categorias
-   correntes do ledger + `Transfer` + `Other Income` como destino. Persiste
-   via `api/ck-category-map.js` em `household:*:ckcategorymap`. **Sem
-   preview de impacto e sem cascata retroativa**: a edição só passa a valer
-   para **novos imports** feitos depois da mudança (decisão confirmada com o
-   usuário) — diferente do fluxo de aliases de conta, que tem preview +
-   apply em cascata. Ver "Mapa CK → ledger de categorias" no Modelo de dados
-   para a regra de segurança que nunca rebaixa `Transfer` no recálculo de
+   **Category mapping** (desde o PR #111, v1.11.0; **posição movida ao final
+   da tab na v1.17.0/PR #128**): lista os tokens de categoria do Credit Karma
+   conhecidos — os do seed `DEFAULT_CK_CATEGORY_MAP` mais quaisquer outros
+   descobertos nas transações já carregadas (via `ckCategory`) — cada um
+   editável por um dropdown com as categorias correntes do ledger +
+   `Transfer` + `Other Income` como destino. Persiste via
+   `api/ck-category-map.js` em `household:*:ckcategorymap`. **Sem preview de
+   impacto e sem cascata retroativa**: a edição só passa a valer para **novos
+   imports** feitos depois da mudança (decisão confirmada com o usuário) —
+   diferente do fluxo de aliases de conta, que tem preview + apply em
+   cascata. Ver "Mapa CK → ledger de categorias" no Modelo de dados para a
+   regra de segurança que nunca rebaixa `Transfer` no recálculo de
    `buildRow`.
 
-   Logo abaixo de "Category mapping", desde o **PR #113 (v1.12.0)**, uma nova
-   seção **"Apple Daily Cash rule"**: edita a heurística que reclassifica o
+   Antes de "Category mapping" (agora ao final), vem a seção **"Apple Daily
+   Cash rule"** (desde o PR #113, v1.12.0): edita a heurística que reclassifica o
    cashback do Apple Card (`Deposit`/`Adjustment`, marcado como `Transfer`
    pelo CK) para `Other Income` — inputs de texto para o **provider
    pattern** e as **keywords** (separadas por vírgula), e um select da
@@ -867,8 +922,9 @@ shell de altura cheia (`#root` em `100lvh` + shell `height:100%`): só o
    — ver o Grupo C ("Manual category corrections") na seção **Suggested
    rules** abaixo.
 
-   No **topo** da `AuditTab`, acima de "Account aliases", desde o **PR #115
-   (v1.13.0)**, a seção **"Suggested rules"**. **Desde o PR #121 (v1.15.1) o
+   No **topo** da tab (`SettingsTab`, antes `AuditTab`), acima de "Account
+   aliases", desde o **PR #115 (v1.13.0)**, a seção **"Suggested rules"**.
+   **Desde o PR #121 (v1.15.1) o
    painel é sempre visível** — antes havia um `return null` quando os 3
    grupos (A/B/C) estavam vazios, o que o tornava indescobrível; agora, com
    os 3 grupos vazios, exibe um **estado vazio explicativo** (explica que o
