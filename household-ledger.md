@@ -1,4 +1,4 @@
-# Household Ledger · v1.17.0
+# Household Ledger · v1.17.1
 
 Aplicativo mobile-first de controle financeiro doméstico. Registra
 transações da casa (despesas e receitas) por categoria e conta, com
@@ -24,7 +24,21 @@ A cada PR, atualize a versão em **dois lugares**:
 1. `src/App.jsx` — a string `v1.x.x` no span ao lado de "Household"
 2. `household-ledger.md` — o `· v1.x.x` no título `# Household Ledger`
 
-Versão atual: **v1.17.0** — **Consolidação da tab Audit + modal Settings numa
+Versão atual: **v1.17.1** — **Unificar Expense/Income categories num único
+card** (patch, `src/App.jsx` único arquivo alterado). Na tab **Settings**,
+`Expense categories` e `Income categories` deixaram de ser dois
+`CollapsibleCard` separados e passaram a viver dentro de um único card
+**"Categories"**, um logo abaixo do outro, separados por um divisor
+horizontal (`borderTop`). `ManagedList` ganhou um prop `bare` (default
+`false`) que, quando `true`, pula o chrome do `CollapsibleCard` e renderiza
+só um subtítulo (nome + contagem) + a lista + a caixa de adicionar — usado
+para nidificar as duas listas dentro do card compartilhado. `Accounts`
+continua com seu próprio card, sem alteração. Nenhuma mudança de lógica
+(add/rename/delete/reorder, `api/config.js`, `Transfer`) — puramente
+reorganização visual. — PR #131, branch
+`claude/settings-tab-consolidation-ec2ds1`.
+
+Versão anterior: **v1.17.0** — **Consolidação da tab Audit + modal Settings numa
 única tab "Settings"** (feature de UI, `src/App.jsx` único arquivo alterado).
 A tab bar deixou de ter 5 abas `dashboard, analyze, transactions, import,
 audit` (ícone `ShieldCheck`) e passou a ter `dashboard, analyze,
@@ -527,7 +541,13 @@ não-vazias e deduplicadas). As funções puras (`matchAccount`, `isIncome`,
 `buildRow`) leem os valores correntes; os componentes React re-renderizam
 via o `config` state no App (`Transfer` continua fixo). A UI é a tab
 **Settings** (ver UI), que reúne **Card mapping** + adiciona/renomeia/exclui
-nas três listas (cards colapsáveis via `CollapsibleCard`). Até o PR #107
+nas três listas. `Accounts` é seu próprio `CollapsibleCard`; desde a v1.17.1
+(PR #131), `Expense categories` e `Income categories` foram unificadas num
+único card **"Categories"**, com as duas listas renderizadas lado a lado
+dentro dele (função `ManagedList` ganhou um modo `bare` sem o chrome do
+`CollapsibleCard`, usado para nidificar as duas dentro do card
+compartilhado), separadas por um divisor horizontal — antes eram dois cards
+colapsáveis distintos. Até o PR #107
 (v1.9.0) isso vivia num modal (`SettingsModal`, atrás da engrenagem no
 header), que já não continha a seção "Account aliases" (movida para a tab
 dedicada Audit naquele PR); desde o PR #128 (v1.17.0) o próprio modal foi
@@ -851,11 +871,13 @@ shell de altura cheia (`#root` em `100lvh` + shell `height:100%`): só o
    2. **Account aliases**
    3. **Card mapping** (Credit Karma) — migrado do antigo `SettingsModal`
    4. **Accounts** (managed list) — migrado do antigo `SettingsModal`
-   5. **Expense categories** (managed list) — migrado do antigo `SettingsModal`
-   6. **Income categories** (managed list) — migrado do antigo `SettingsModal`
-   7. **Apple Daily Cash rule**
-   8. **Description rules**
-   9. **Category mapping** — **movida para o final da tab** (antes vinha logo
+   5. **Categories** — card único com **Expense categories** e **Income
+      categories** lado a lado, separadas por um divisor (desde a v1.17.1,
+      PR #131; antes eram dois `ManagedList` cards colapsáveis distintos —
+      migrados do antigo `SettingsModal`)
+   6. **Apple Daily Cash rule**
+   7. **Description rules**
+   8. **Category mapping** — **movida para o final da tab** (antes vinha logo
       após "Account aliases"), com menos destaque/prioridade visual; continua
       colapsável e **fechada por padrão**.
 
@@ -869,10 +891,11 @@ shell de altura cheia (`#root` em `100lvh` + shell `height:100%`): só o
    `api/account-aliases.js` — tudo igual, só mudou onde é renderizado).
 
    Logo abaixo, **Card mapping** (`AccountMapSection`, ver "Classificação de
-   conta no import" no Modelo de dados) e as três `ManagedList` — **Accounts**,
-   **Expense categories**, **Income categories** (ver "Listas gerenciáveis"
-   no Modelo de dados) — que antes só existiam dentro do `SettingsModal` (por
-   trás da engrenagem no header) e agora vivem diretamente na tab, sem modal.
+   conta no import" no Modelo de dados), o `ManagedList` de **Accounts** (seu
+   próprio card) e o card **Categories** com **Expense categories** e
+   **Income categories** lado a lado (ver "Listas gerenciáveis" no Modelo de
+   dados) — que antes só existiam dentro do `SettingsModal` (por trás da
+   engrenagem no header) e agora vivem diretamente na tab, sem modal.
 
    > **Nota (PR #117, v1.14.0)**: a seção **"Classification history"** (e a
    > função `explainClassification`/`CLASSIFICATION_PAGE_SIZE`) foi
@@ -1503,6 +1526,15 @@ O app inicia com array vazio quando não há dados salvos (sem SEED).
   por padrão). Único arquivo alterado: `src/App.jsx`. Nenhuma mudança de
   contrato de API, formato Redis ou modelo de transação — puramente
   reorganização de composição de UI React.
+- [x] **Unificar Expense/Income categories num único card** (PR #131,
+  v1.17.1) — na tab **Settings**, `Expense categories` e `Income categories`
+  deixaram de ser dois `CollapsibleCard` separados e passaram a viver dentro
+  de um único card **"Categories"**, um logo abaixo do outro, separados por
+  um divisor horizontal. `ManagedList` ganhou um modo `bare` (sem o chrome do
+  `CollapsibleCard`, só a lista + caixa de adicionar) para permitir essa
+  nidificação. Menos relevância dada ao card de `Accounts`, que segue
+  separado. Nenhuma mudança de lógica (add/rename/delete/reorder,
+  `api/config.js`) — puramente reorganização visual.
 - [x] **Auditoria de classificação de categorias** — área no app onde o
   usuário pode ver e editar as regras de auto-classificação que o app usa. A
   decisão de layout (tab dedicada **Audit**, em vez de dentro do
