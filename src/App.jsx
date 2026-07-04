@@ -1441,7 +1441,7 @@ function Header({ hideValues, onToggleHide, onLogout, saving, savedAt, dirty, sa
             <Wallet size={14} color="#fff" />
           </div>
           <span style={{ fontWeight: 700, fontSize: 15, letterSpacing: -0.5, color: "#e5e7eb" }}>Household</span>
-          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.21.8</span>
+          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.21.9</span>
         </div>
         <SaveIndicator saving={saving} dirty={dirty} savedAt={savedAt} saveError={saveError} />
       </div>
@@ -2805,8 +2805,18 @@ function Charts({ transactions, hideValues, config, isWide }) {
         </div>
       </div>
 
-      {/* Range presets (left) + year-range drag slider (right) */}
+      {/* Range presets (left) + year-range drag slider (right); on desktop
+          the category filter chip joins this row, to the left of the presets */}
       <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+        {isWide ? (
+          <HeaderFilter
+            label="Category"
+            value={categoryFilter}
+            options={categoryOptions}
+            onChange={setCategoryFilter}
+            chip
+          />
+        ) : null}
         <div style={S.segmented}>
           {rangePresets.map(({ v, l, from, to }) => (
             <button
@@ -2830,16 +2840,19 @@ function Charts({ transactions, hideValues, config, isWide }) {
 
       {/* Category filter: multi-select chip, applies to all 3 charts below.
           Empty selection = all categories (no filter). Transfer is excluded
-          from `categoryOptions`, so it can never be selected here. */}
-      <div style={{ display: "flex" }}>
-        <HeaderFilter
-          label="Category"
-          value={categoryFilter}
-          options={categoryOptions}
-          onChange={setCategoryFilter}
-          chip
-        />
-      </div>
+          from `categoryOptions`, so it can never be selected here.
+          On desktop it's shown inline above (left of the range presets) instead. */}
+      {!isWide ? (
+        <div style={{ display: "flex" }}>
+          <HeaderFilter
+            label="Category"
+            value={categoryFilter}
+            options={categoryOptions}
+            onChange={setCategoryFilter}
+            chip
+          />
+        </div>
+      ) : null}
 
       {scoped.length === 0 ? <Empty>No data for {rangeLabel}.</Empty> : null}
 
