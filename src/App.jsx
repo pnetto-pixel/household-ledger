@@ -3945,7 +3945,12 @@ function ManagedRow({ name, used, editing, editVal, setEditVal, onStartEdit, onC
 
   return (
     <div style={{ position: "relative", borderRadius: 10, overflow: dragActive ? "visible" : "hidden" }}>
-      {/* Swipe action rail */}
+      {/* Swipe action rail — only the foreground row is translated during a
+          drag (this row's own drag, or another row's shift to make room),
+          so this sibling rail would sit exposed at its untransformed spot
+          once the foreground slides away from covering it. Hide it
+          entirely while any drag is active in the list. */}
+      {!dragActive && (
       <div style={{ position: "absolute", inset: 0, display: "flex", justifyContent: "flex-end" }}>
         <button
           onClick={() => { close(); onStartEdit(); }}
@@ -3966,6 +3971,7 @@ function ManagedRow({ name, used, editing, editVal, setEditVal, onStartEdit, onC
           <Trash2 size={16} /><span style={{ fontSize: 10, marginTop: 3 }}>{confirming ? "Confirm?" : "Delete"}</span>
         </button>
       </div>
+      )}
 
       {/* Foreground row */}
       <div

@@ -46,12 +46,13 @@ drag), com `touchAction: "pan-y"` e `stopPropagation` na alça para não
 conflitar; (2) o card **Accounts** foi unificado ao card de categorias —
 agora um único card **"Accounts & Categories"** com as três listas
 (Accounts, Expense categories, Income categories) empilhadas e separadas
-por divisor; (3) se qualquer linha da lista já estivesse com swipe aberto,
-ela mantinha o Edit/Delete visível enquanto era deslocada por um drag em
-outra linha — corrigido com um `useLayoutEffect` em `ManagedRow` que fecha
-o próprio swipe sempre que há qualquer drag ativo na lista (`dragActive`),
-não só quando é a própria linha arrastada. — PR #132, branch
-`claude/settings-tab-consolidation-ec2ds1`.
+por divisor; (3) causa raiz real do "Edit/Delete aparecendo durante o
+drag": o rail de Edit/Delete é irmão do foreground da linha (não filho) e
+nunca recebia o `translateY` do drag — só o foreground se movia, expondo o
+rail parado por baixo em **qualquer** linha deslocada (não só a
+arrastada). Fix definitivo: o rail simplesmente não é renderizado enquanto
+`dragActive` for true, em vez de tentar sincronizar seu transform com o do
+foreground. — PR #132, branch `claude/settings-tab-consolidation-ec2ds1`.
 
 Versão anterior: **v1.17.1** — **Unificar Expense/Income categories num único
 card** (patch, `src/App.jsx` único arquivo alterado). Na tab **Settings**,
@@ -1617,18 +1618,25 @@ O app inicia com array vazio quando não há dados salvos (sem SEED).
      cada uma separada por um divisor — antes `Accounts` tinha seu próprio
      card e só `Expense`+`Income` estavam unificados (PR #131). Badge do
      card passou a somar as três listas.
-  3. **Fix: Edit/Delete aparecia junto durante o drag** — se **qualquer**
-     linha da lista já estivesse com o swipe aberto (Edit/Delete revelado)
-     de uma interação anterior, ela continuava mostrando esse estado
-     (`open`/`dx`) enquanto era deslocada verticalmente para abrir espaço
-     durante o drag de outra linha (fechar só a linha efetivamente
-     arrastada não bastava — o bug aparecia nas linhas vizinhas que apenas
-     se deslocam). Fix: `ManagedRow` ganhou um `useLayoutEffect` que fecha o
-     próprio swipe (`open`/`dx`) sempre que **qualquer drag da lista** está
-     ativo (`dragActive`, prop já existente usada para o `overflow:
-     visible`) — não só quando a própria linha é a que está sendo
-     arrastada. `useLayoutEffect` (não `useEffect`) para resolver antes do
-     paint, sem flash visual do rail aberto.
+  3. **Fix (tentativa 1, insuficiente): fechar `open`/`dx` de toda linha
+     quando qualquer drag está ativo** — `ManagedRow` ganhou um
+     `useLayoutEffect` que fecha o próprio swipe sempre que `dragActive` é
+     true, não só a linha efetivamente arrastada. Reduziu mas não eliminou
+     o bug.
+  4. **Causa raiz real + fix definitivo: o rail de Edit/Delete é irmão do
+     "foreground" da linha, não filho dele** — só o **foreground** recebe
+     `transform: translateY(yShift)` durante o drag (seja a própria linha
+     arrastada, seja uma linha vizinha só "abrindo espaço"); o **rail**
+     (`position: absolute; inset: 0`) nunca se move, pois nenhum yShift era
+     aplicado a ele. Resultado: assim que o foreground desliza para
+     cima/baixo, ele deixa de cobrir o rail, que fica exposto exatamente na
+     posição original da linha — reproduzindo o "Edit/Delete abaixo do
+     tile" em **qualquer** linha deslocada (não só a arrastada), consistente
+     com o relato do usuário ("aparece de todos os tiles"). Como as ações
+     de Edit/Delete não fazem sentido durante um drag de reordenar de
+     qualquer forma, o fix é **não renderizar o rail enquanto `dragActive`
+     for true** (`{!dragActive && (<div>...rail...</div>)}`) em vez de
+     tentar sincronizar seu transform com o do foreground.
 - [x] **Auditoria de classificação de categorias** — área no app onde o
   usuário pode ver e editar as regras de auto-classificação que o app usa. A
   decisão de layout (tab dedicada **Audit**, em vez de dentro do
