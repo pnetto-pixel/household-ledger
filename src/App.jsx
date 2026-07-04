@@ -1441,7 +1441,7 @@ function Header({ hideValues, onToggleHide, onLogout, saving, savedAt, dirty, sa
             <Wallet size={14} color="#fff" />
           </div>
           <span style={{ fontWeight: 700, fontSize: 15, letterSpacing: -0.5, color: "#e5e7eb" }}>Household</span>
-          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.21.9</span>
+          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.21.10</span>
         </div>
         <SaveIndicator saving={saving} dirty={dirty} savedAt={savedAt} saveError={saveError} />
       </div>
@@ -2618,7 +2618,7 @@ function YearRangeSlider({ years, fromYear, toYear, onFromYear, onToYear, trackS
             zIndex: dragging === "from" ? 3 : 1,
           }}
         >
-          <span style={S.yearRangeLabel}>{fromYear}</span>
+          {fromIdx === toIdx ? null : <span style={S.yearRangeLabel}>{fromYear}</span>}
         </div>
         <div
           role="slider"
