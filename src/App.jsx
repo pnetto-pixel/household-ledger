@@ -2,6 +2,7 @@ import React, { useState, useEffect, useLayoutEffect, useMemo, useCallback, useR
 import { createPortal } from "react-dom";
 import {
   LayoutDashboard,
+  Home,
   List,
   Upload,
   Eye,
@@ -574,7 +575,7 @@ export default function App() {
     () => !!localStorage.getItem("household_pwd") || !!window.__householdGoogleToken
   );
   const [transactions, setTransactions] = useState([]);
-  const [tab, setTab] = useState("dashboard");
+  const [tab, setTab] = useState("home");
   const [hideValues, setHideValues] = useState(
     () => localStorage.getItem("household_hide") === "1"
   );
@@ -1196,7 +1197,7 @@ export default function App() {
       <main style={S.main}>
         {loading ? (
           <div style={S.center}>Loading…</div>
-        ) : tab === "dashboard" ? (
+        ) : tab === "home" ? (
           <Dashboard transactions={transactions} money={money} hideValues={hideValues} />
         ) : tab === "transactions" ? (
           <Transactions
@@ -1446,7 +1447,7 @@ function IconButton({ children, ...props }) {
 }
 
 const TABS = [
-  { id: "dashboard", label: "Dashboard", Icon: LayoutDashboard },
+  { id: "home", label: "Home", Icon: Home },
   { id: "analyze", label: "Analyze", Icon: TrendingUp },
   { id: "transactions", label: "Txns", Icon: List },
   { id: "import", label: "Import", Icon: Upload },
@@ -1873,7 +1874,7 @@ function Dashboard({ transactions, money, hideValues }) {
           ) : (
             <div style={{ ...S.card, padding: "8px 0" }}>
               {catExpenses.map(([cat, total], idx) => {
-                const dotColor = catDotColor(cat);
+                const dotColor = getCategoryColor(cat);
                 const changes = catChanges[cat] || { mm: null, yy: null };
                 return (
                   <div key={cat} style={{
@@ -2300,7 +2301,7 @@ function CategoryStackedBarCard({ scoped, granularity, hideValues, fmtK, fmtKFul
                 dataKey={cat}
                 name={cat}
                 stackId="cat"
-                fill={CATEGORY_COLOR_MAP[cat] || catDotColor(cat)}
+                fill={getCategoryColor(cat)}
                 radius={i === cats.length - 1 ? [4, 4, 0, 0] : [0, 0, 0, 0]}
                 activeBar={{ opacity: 0.8 }}
               >
@@ -2332,7 +2333,7 @@ function CategoryStackedBarCard({ scoped, granularity, hideValues, fmtK, fmtKFul
       <div style={{ display: "flex", flexWrap: "wrap", gap: "6px 12px", padding: "8px 16px 14px", justifyContent: "center" }}>
         {cats.map(cat => (
           <span key={cat} style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 10, color: "#6b7280" }}>
-            <span style={{ display: "inline-block", width: 10, height: 10, borderRadius: 2, background: CATEGORY_COLOR_MAP[cat] || catDotColor(cat) }} />
+            <span style={{ display: "inline-block", width: 10, height: 10, borderRadius: 2, background: getCategoryColor(cat) }} />
             {cat}
           </span>
         ))}
@@ -2603,6 +2604,11 @@ function catDotColor(cat) {
   let h = 0;
   for (let i = 0; i < cat.length; i++) h = (h * 31 + cat.charCodeAt(i)) & 0xffff;
   return CATEGORY_COLORS[h % CATEGORY_COLORS.length];
+}
+
+// Resolves a category's color: prefer the curated map, fallback to the hash-based color
+function getCategoryColor(cat) {
+  return CATEGORY_COLOR_MAP[cat] || catDotColor(cat);
 }
 
 // ===========================================================================
