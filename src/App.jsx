@@ -3888,18 +3888,21 @@ function ManagedRow({ name, used, editing, editVal, setEditVal, onStartEdit, onC
     return () => clearTimeout(t);
   }, [confirming]);
 
-  const onTouchStart = (e) => {
-    start.current = { x: e.touches[0].clientX, y: e.touches[0].clientY, base: open ? -SWIPE_ACTION_WIDTH : 0, horiz: null };
+  // Pointer Events (not touch-only) so the swipe-to-reveal gesture works
+  // with mouse drags on desktop too, not just touch.
+  const onRowPointerDown = (e) => {
+    start.current = { x: e.clientX, y: e.clientY, base: open ? -SWIPE_ACTION_WIDTH : 0, horiz: null };
+    try { e.currentTarget.setPointerCapture(e.pointerId); } catch {}
   };
-  const onTouchMove = (e) => {
+  const onRowPointerMove = (e) => {
     if (!start.current) return;
-    const ddx = e.touches[0].clientX - start.current.x;
-    const ddy = e.touches[0].clientY - start.current.y;
+    const ddx = e.clientX - start.current.x;
+    const ddy = e.clientY - start.current.y;
     if (start.current.horiz === null && (Math.abs(ddx) > 6 || Math.abs(ddy) > 6)) start.current.horiz = Math.abs(ddx) > Math.abs(ddy);
     if (!start.current.horiz) return;
     setDx(Math.max(-SWIPE_ACTION_WIDTH, Math.min(0, start.current.base + ddx)));
   };
-  const onTouchEnd = () => {
+  const onRowPointerEnd = () => {
     if (!start.current) return;
     const shouldOpen = dx < -SWIPE_ACTION_WIDTH / 2;
     setOpen(shouldOpen);
@@ -3958,13 +3961,15 @@ function ManagedRow({ name, used, editing, editVal, setEditVal, onStartEdit, onC
       {/* Foreground row */}
       <div
         ref={rowRef}
-        onTouchStart={onTouchStart}
-        onTouchMove={onTouchMove}
-        onTouchEnd={onTouchEnd}
+        onPointerDown={onRowPointerDown}
+        onPointerMove={onRowPointerMove}
+        onPointerUp={onRowPointerEnd}
+        onPointerCancel={onRowPointerEnd}
         style={{
           display: "flex", alignItems: "center", gap: 8,
           background: "#161a20", border: "1px solid #1e2530", borderRadius: 10,
           padding: "8px 10px", position: "relative",
+          touchAction: "pan-y",
           transform: `translateX(${translate}px) translateY(${yShift || 0}px)`,
           transition: start.current || dragging ? "none" : "transform 0.15s ease",
           zIndex: dragging ? 10 : "auto",
@@ -3972,10 +3977,10 @@ function ManagedRow({ name, used, editing, editVal, setEditVal, onStartEdit, onC
         }}
       >
         <button
-          onPointerDown={onGripPointerDown}
-          onPointerMove={onGripPointerMove}
-          onPointerUp={onGripPointerEnd}
-          onPointerCancel={onGripPointerEnd}
+          onPointerDown={(e) => { e.stopPropagation(); onGripPointerDown(e); }}
+          onPointerMove={(e) => { e.stopPropagation(); onGripPointerMove(e); }}
+          onPointerUp={(e) => { e.stopPropagation(); onGripPointerEnd(e); }}
+          onPointerCancel={(e) => { e.stopPropagation(); onGripPointerEnd(e); }}
           title="Drag to reorder"
           style={{ ...S.reorderBtn, flexShrink: 0, cursor: dragging ? "grabbing" : "grab", touchAction: "none" }}
         >
@@ -4378,19 +4383,21 @@ function SettingsTab({
         accountMap={accountMap}
         onSave={onSaveAccountMap}
       />
-      <ManagedList
-        title="Accounts"
-        items={config.accounts}
-        usage={usage.acc}
-        onAdd={onAddAccount}
-        onRename={onRenameAccount}
-        onDelete={onDeleteAccount}
-        onReorder={onReorderAccounts}
-      />
       <CollapsibleCard
-        title="Categories"
-        badge={config.expenseCategories.length + config.incomeCategories.length}
+        title="Accounts & Categories"
+        badge={config.accounts.length + config.expenseCategories.length + config.incomeCategories.length}
       >
+        <ManagedList
+          bare
+          title="Accounts"
+          items={config.accounts}
+          usage={usage.acc}
+          onAdd={onAddAccount}
+          onRename={onRenameAccount}
+          onDelete={onDeleteAccount}
+          onReorder={onReorderAccounts}
+        />
+        <div style={{ borderTop: "1px solid #2a313c", margin: "14px 0" }} />
         <ManagedList
           bare
           title="Expense categories"
