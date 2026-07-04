@@ -1422,7 +1422,7 @@ function Header({ hideValues, onToggleHide, onLogout, saving, savedAt, dirty, sa
             <Wallet size={14} color="#fff" />
           </div>
           <span style={{ fontWeight: 700, fontSize: 15, letterSpacing: -0.5, color: "#e5e7eb" }}>Household</span>
-          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.21.3</span>
+          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.21.4</span>
         </div>
         <SaveIndicator saving={saving} dirty={dirty} savedAt={savedAt} saveError={saveError} />
       </div>
@@ -6320,22 +6320,24 @@ const S = {
   input: {
     width: "100%",
     boxSizing: "border-box",
-    background: "#0f1216",
-    border: "1px solid #232a33",
+    background: "rgba(15,18,22,0.92)",
+    border: "1px solid rgba(255,255,255,0.08)",
     borderRadius: 12,
     padding: "12px 14px",
     color: "#e5e7eb",
     fontSize: 15,
     outline: "none",
+    boxShadow: "inset 0 1px 2px rgba(0,0,0,0.2)",
   },
   select: {
     flex: 1,
-    background: "#0f1216",
-    border: "1px solid #232a33",
+    background: "rgba(15,18,22,0.92)",
+    border: "1px solid rgba(255,255,255,0.08)",
     borderRadius: 12,
     padding: "10px 12px",
     color: "#e5e7eb",
     fontSize: 14,
+    boxShadow: "inset 0 1px 2px rgba(0,0,0,0.2)",
   },
   // Description rule card (Settings → Description rules). Default state uses the
   // muted surface/border; `overrideRuleCard` swaps to an amber accent while the
@@ -6365,17 +6367,18 @@ const S = {
     flex: "0 1 auto",
     minWidth: 0,
     maxWidth: 130,
-    background: "#0f1216",
-    border: "1px solid #232a33",
+    background: "rgba(15,18,22,0.92)",
+    border: "1px solid rgba(255,255,255,0.08)",
     borderRadius: 8,
     padding: "2px 4px",
     color: "#8b94a3",
     fontSize: 11,
     lineHeight: 1.4,
+    boxShadow: "inset 0 1px 2px rgba(0,0,0,0.2)",
   },
   primaryBtn: {
     width: "100%",
-    background: "#0A84FF",
+    background: "linear-gradient(135deg, rgba(255,255,255,0.25), rgba(255,255,255,0) 60%), linear-gradient(135deg, #0A84FF 0%, #0055cc 100%)",
     border: "none",
     borderRadius: 12,
     padding: "13px 16px",
@@ -6383,11 +6386,12 @@ const S = {
     fontSize: 15,
     fontWeight: 600,
     cursor: "pointer",
+    boxShadow: "0 2px 8px rgba(10,132,255,0.3), inset 0 1px 1px rgba(255,255,255,0.2)",
   },
   secondaryBtn: {
     width: "100%",
     background: "transparent",
-    border: "1px solid #232a33",
+    border: "1px solid rgba(255,255,255,0.14)",
     borderRadius: 12,
     padding: "13px 16px",
     color: "#cbd5e1",
@@ -6418,10 +6422,11 @@ const S = {
     display: "flex",
     alignItems: "center",
     gap: 8,
-    background: "#0f1216",
-    border: "1px solid #232a33",
+    background: "rgba(15,18,22,0.92)",
+    border: "1px solid rgba(255,255,255,0.08)",
     borderRadius: 10,
     padding: "0 10px",
+    boxShadow: "inset 0 1px 2px rgba(0,0,0,0.2)",
   },
   searchInput: {
     flex: 1,
@@ -6609,13 +6614,14 @@ const S = {
     WebkitBackdropFilter: "blur(16px) saturate(160%)",
   },
   cellSelect: {
-    background: "#0f1216",
-    border: "1px solid #232a33",
+    background: "rgba(15,18,22,0.92)",
+    border: "1px solid rgba(255,255,255,0.08)",
     borderRadius: 8,
     padding: "5px 8px",
     color: "#e5e7eb",
     fontSize: 12,
     maxWidth: 170,
+    boxShadow: "inset 0 1px 2px rgba(0,0,0,0.2)",
   },
   badge: {
     display: "inline-block",
@@ -6686,7 +6692,7 @@ const S = {
     display: "inline-flex",
     alignItems: "center",
     gap: 5,
-    background: active ? "#1e3a5f" : "#1e2328",
+    background: active ? "rgba(30,58,95,0.75)" : "rgba(30,35,40,0.7)",
     border: active ? "1px solid #3b82f6" : "1px solid #3a3f4a",
     color: active ? "#93c5fd" : "#cbd5e1",
     borderRadius: 999,
@@ -6697,7 +6703,7 @@ const S = {
   }),
   // Toggle pill used in MonthlyBarCard (Income / Expense selector)
   togglePill: (active) => ({
-    background: active ? "#0A84FF" : "transparent",
+    background: active ? "rgba(10,132,255,0.75)" : "transparent",
     border: active ? "1px solid #0A84FF" : "1px solid #3a3f4a",
     color: active ? "#fff" : "#8b94a3",
     borderRadius: 999,
@@ -6714,13 +6720,14 @@ const S = {
   segmented: {
     display: "flex",
     gap: 2,
-    background: "#0f1216",
-    border: "1px solid #232a33",
+    background: "rgba(15,18,22,0.92)",
+    border: "1px solid rgba(255,255,255,0.08)",
     borderRadius: 10,
     padding: 3,
+    boxShadow: "inset 0 1px 2px rgba(0,0,0,0.2)",
   },
   segmentedBtn: (active) => ({
-    background: active ? "#0A84FF" : "transparent",
+    background: active ? "rgba(10,132,255,0.75)" : "transparent",
     border: "none",
     color: active ? "#fff" : "#8b94a3",
     borderRadius: 7,
