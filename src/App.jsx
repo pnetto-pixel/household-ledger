@@ -1422,7 +1422,7 @@ function Header({ hideValues, onToggleHide, onLogout, saving, savedAt, dirty, sa
             <Wallet size={14} color="#fff" />
           </div>
           <span style={{ fontWeight: 700, fontSize: 15, letterSpacing: -0.5, color: "#e5e7eb" }}>Household</span>
-          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.21.5</span>
+          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.21.6</span>
         </div>
         <SaveIndicator saving={saving} dirty={dirty} savedAt={savedAt} saveError={saveError} />
       </div>
@@ -1901,10 +1901,10 @@ function Dashboard({ transactions, money, hideValues }) {
                     {/* Category avatar */}
                     <div style={{
                       width: 34, height: 34, borderRadius: 10, flexShrink: 0,
-                      background: `${dotColor}1a`,
-                      border: `1px solid ${dotColor}35`,
+                      background: `linear-gradient(135deg, rgba(255,255,255,0.25), rgba(255,255,255,0) 60%), linear-gradient(135deg, ${dotColor} 0%, ${dotColor}99 100%)`,
                       display: "grid", placeItems: "center",
-                      fontSize: 18, lineHeight: 1,
+                      fontSize: 16, lineHeight: 1,
+                      boxShadow: `0 2px 8px ${dotColor}59, inset 0 1px 1px rgba(255,255,255,0.3)`,
                     }}>
                       {catEmoji(cat)}
                     </div>
