@@ -1362,7 +1362,7 @@ function Header({ hideValues, onToggleHide, onLogout, saving, savedAt, dirty, sa
             <LayoutDashboard size={14} color="#fff" />
           </div>
           <span style={{ fontWeight: 700, fontSize: 15, letterSpacing: -0.5, color: "#e5e7eb" }}>Household</span>
-          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.17.0</span>
+          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.17.1</span>
         </div>
         <SaveIndicator saving={saving} dirty={dirty} savedAt={savedAt} saveError={saveError} />
       </div>
@@ -3983,7 +3983,10 @@ function ManagedRow({ name, used, isFirst, isLast, editing, editVal, setEditVal,
   );
 }
 
-function ManagedList({ title, items, usage, onAdd, onRename, onDelete, onReorder }) {
+// `bare`: renders just the subheading + list + add box, without the outer
+// CollapsibleCard chrome — used to nest two lists (Expense/Income) inside
+// one shared card.
+function ManagedList({ title, items, usage, onAdd, onRename, onDelete, onReorder, bare = false }) {
   const [adding, setAdding] = useState("");
   const [editName, setEditName] = useState(null);
   const [editVal, setEditVal] = useState("");
@@ -4008,8 +4011,8 @@ function ManagedList({ title, items, usage, onAdd, onRename, onDelete, onReorder
     onReorder(next);
   };
 
-  return (
-    <CollapsibleCard title={title} badge={items.length}>
+  const content = (
+    <>
       <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
         {items.map((name, idx) => (
           <ManagedRow
@@ -4048,6 +4051,24 @@ function ManagedList({ title, items, usage, onAdd, onRename, onDelete, onReorder
           <Plus size={18} />
         </button>
       </div>
+    </>
+  );
+
+  if (bare) {
+    return (
+      <div>
+        <div style={{ display: "flex", alignItems: "center", marginBottom: 8 }}>
+          <span style={{ fontSize: 13, fontWeight: 600, color: "#e5e7eb" }}>{title}</span>
+          <span style={{ marginLeft: "auto", fontSize: 11, color: "#8b94a3" }}>{items.length}</span>
+        </div>
+        {content}
+      </div>
+    );
+  }
+
+  return (
+    <CollapsibleCard title={title} badge={items.length}>
+      {content}
     </CollapsibleCard>
   );
 }
@@ -4326,24 +4347,32 @@ function SettingsTab({
         onDelete={onDeleteAccount}
         onReorder={onReorderAccounts}
       />
-      <ManagedList
-        title="Expense categories"
-        items={config.expenseCategories}
-        usage={usage.cat}
-        onAdd={(n) => onAddCategory("expense", n)}
-        onRename={onRenameCategory}
-        onDelete={onDeleteCategory}
-        onReorder={(names) => onReorderCategories("expense", names)}
-      />
-      <ManagedList
-        title="Income categories"
-        items={config.incomeCategories}
-        usage={usage.cat}
-        onAdd={(n) => onAddCategory("income", n)}
-        onRename={onRenameCategory}
-        onDelete={onDeleteCategory}
-        onReorder={(names) => onReorderCategories("income", names)}
-      />
+      <CollapsibleCard
+        title="Categories"
+        badge={config.expenseCategories.length + config.incomeCategories.length}
+      >
+        <ManagedList
+          bare
+          title="Expense categories"
+          items={config.expenseCategories}
+          usage={usage.cat}
+          onAdd={(n) => onAddCategory("expense", n)}
+          onRename={onRenameCategory}
+          onDelete={onDeleteCategory}
+          onReorder={(names) => onReorderCategories("expense", names)}
+        />
+        <div style={{ borderTop: "1px solid #2a313c", margin: "14px 0" }} />
+        <ManagedList
+          bare
+          title="Income categories"
+          items={config.incomeCategories}
+          usage={usage.cat}
+          onAdd={(n) => onAddCategory("income", n)}
+          onRename={onRenameCategory}
+          onDelete={onDeleteCategory}
+          onReorder={(names) => onReorderCategories("income", names)}
+        />
+      </CollapsibleCard>
       <AppleDailyCashRuleSection
         rule={appleDailyCashRule}
         onSave={onSaveAppleDailyCashRule}
