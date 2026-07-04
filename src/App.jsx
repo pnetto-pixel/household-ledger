@@ -1441,7 +1441,7 @@ function Header({ hideValues, onToggleHide, onLogout, saving, savedAt, dirty, sa
             <Wallet size={14} color="#fff" />
           </div>
           <span style={{ fontWeight: 700, fontSize: 15, letterSpacing: -0.5, color: "#e5e7eb" }}>Household</span>
-          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.21.10</span>
+          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.22.0</span>
         </div>
         <SaveIndicator saving={saving} dirty={dirty} savedAt={savedAt} saveError={saveError} />
       </div>
@@ -2774,85 +2774,91 @@ function Charts({ transactions, hideValues, config, isWide }) {
   // Year options for the range selectors (oldest first for the from/to order).
   const yearOptsAsc = [...years].sort((a, b) => (a < b ? -1 : 1));
 
+  const categoryChip = (
+    <HeaderFilter
+      label="Category"
+      value={categoryFilter}
+      options={categoryOptions}
+      onChange={setCategoryFilter}
+      chip
+    />
+  );
+
+  const granularitySwitch = (
+    <div style={{ display: "flex", gap: 2, background: "#0f1216", border: "1px solid #232a33", borderRadius: 10, padding: 3 }}>
+      {GRANULARITIES.map(({ v, l }) => (
+        <button
+          key={v}
+          onClick={() => setGranularity(v)}
+          style={{
+            background: granularity === v ? "#0A84FF" : "transparent",
+            border: "none",
+            color: granularity === v ? "#fff" : "#8b94a3",
+            borderRadius: 7,
+            padding: "3px 10px",
+            fontSize: 12,
+            fontWeight: granularity === v ? 700 : 400,
+            cursor: "pointer",
+            transition: "background 0.15s, color 0.15s",
+          }}
+        >
+          {l}
+        </button>
+      ))}
+    </div>
+  );
+
+  const rangePresetsSwitch = (
+    <div style={S.segmented}>
+      {rangePresets.map(({ v, l, from, to }) => (
+        <button
+          key={v}
+          onClick={() => applyYearRange(from, to)}
+          style={S.segmentedBtn(activePreset === v)}
+        >
+          {l}
+        </button>
+      ))}
+    </div>
+  );
+
+  const yearRangeSlider = (
+    <YearRangeSlider
+      years={yearOptsAsc}
+      fromYear={fromYearEff}
+      toYear={toYearEff}
+      onFromYear={handleFromYear}
+      onToYear={handleToYear}
+      trackStyle={isWide ? { margin: "18px 0 8px", flexGrow: 0, flex: "0 1 260px" } : undefined}
+    />
+  );
+
   return (
     <div style={S.col}>
-      {/* Header: range label + controls */}
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
-        <h2 style={{ margin: "4px 0 0", fontSize: 17, color: "#e5e7eb", fontWeight: 700, letterSpacing: -0.3 }}>
-          {rangeLabel}
-        </h2>
-        {/* Granularity segmented control */}
-        <div style={{ display: "flex", gap: 2, background: "#0f1216", border: "1px solid #232a33", borderRadius: 10, padding: 3 }}>
-          {GRANULARITIES.map(({ v, l }) => (
-            <button
-              key={v}
-              onClick={() => setGranularity(v)}
-              style={{
-                background: granularity === v ? "#0A84FF" : "transparent",
-                border: "none",
-                color: granularity === v ? "#fff" : "#8b94a3",
-                borderRadius: 7,
-                padding: "3px 10px",
-                fontSize: 12,
-                fontWeight: granularity === v ? 700 : 400,
-                cursor: "pointer",
-                transition: "background 0.15s, color 0.15s",
-              }}
-            >
-              {l}
-            </button>
-          ))}
+      {/* Trends controls: category filter, range presets, year-range slider,
+          and the M/Q/H/Y granularity switch. Desktop packs everything into a
+          single row to save vertical space; mobile splits it into two rows
+          (category + granularity on top, presets + slider below) since it's
+          too tight for one line there. */}
+      {isWide ? (
+        <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+          {categoryChip}
+          {rangePresetsSwitch}
+          {yearRangeSlider}
+          {granularitySwitch}
         </div>
-      </div>
-
-      {/* Range presets (left) + year-range drag slider (right); on desktop
-          the category filter chip joins this row, to the left of the presets */}
-      <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-        {isWide ? (
-          <HeaderFilter
-            label="Category"
-            value={categoryFilter}
-            options={categoryOptions}
-            onChange={setCategoryFilter}
-            chip
-          />
-        ) : null}
-        <div style={S.segmented}>
-          {rangePresets.map(({ v, l, from, to }) => (
-            <button
-              key={v}
-              onClick={() => applyYearRange(from, to)}
-              style={S.segmentedBtn(activePreset === v)}
-            >
-              {l}
-            </button>
-          ))}
-        </div>
-        <YearRangeSlider
-          years={yearOptsAsc}
-          fromYear={fromYearEff}
-          toYear={toYearEff}
-          onFromYear={handleFromYear}
-          onToYear={handleToYear}
-          trackStyle={isWide ? { margin: "18px 0 8px", flexGrow: 0, flex: "0 1 260px" } : undefined}
-        />
-      </div>
-
-      {/* Category filter: multi-select chip, applies to all 3 charts below.
-          Empty selection = all categories (no filter). Transfer is excluded
-          from `categoryOptions`, so it can never be selected here.
-          On desktop it's shown inline above (left of the range presets) instead. */}
-      {!isWide ? (
-        <div style={{ display: "flex" }}>
-          <HeaderFilter
-            label="Category"
-            value={categoryFilter}
-            options={categoryOptions}
-            onChange={setCategoryFilter}
-            chip
-          />
-        </div>
-      ) : null}
+      ) : (
+        <>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
+            {categoryChip}
+            {granularitySwitch}
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+            {rangePresetsSwitch}
+            {yearRangeSlider}
+          </div>
+        </>
+      )}
 
       {scoped.length === 0 ? <Empty>No data for {rangeLabel}.</Empty> : null}
 
