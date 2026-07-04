@@ -2610,7 +2610,12 @@ function YearRangeSlider({ years, fromYear, toYear, onFromYear, onToYear }) {
         aria-label="From year"
         aria-valuenow={fromYear}
         onPointerDown={startDrag("from")}
-        style={{ ...S.yearRangeHandle, left: `${pctFor(fromIdx)}%`, zIndex: dragging === "from" ? 2 : 1 }}
+        style={{
+          ...S.yearRangeHandle,
+          left: `${pctFor(fromIdx)}%`,
+          transform: `translate(${fromIdx === toIdx ? "-100%" : "-50%"}, -50%)`,
+          zIndex: dragging === "from" ? 3 : 1,
+        }}
       >
         <span style={S.yearRangeLabel}>{fromYear}</span>
       </div>
@@ -2619,7 +2624,12 @@ function YearRangeSlider({ years, fromYear, toYear, onFromYear, onToYear }) {
         aria-label="To year"
         aria-valuenow={toYear}
         onPointerDown={startDrag("to")}
-        style={{ ...S.yearRangeHandle, left: `${pctFor(toIdx)}%`, zIndex: dragging === "to" ? 2 : 1 }}
+        style={{
+          ...S.yearRangeHandle,
+          left: `${pctFor(toIdx)}%`,
+          transform: `translate(${fromIdx === toIdx ? "0%" : "-50%"}, -50%)`,
+          zIndex: dragging === "to" ? 3 : 2,
+        }}
       >
         <span style={S.yearRangeLabel}>{toYear}</span>
       </div>
@@ -2650,14 +2660,13 @@ function Charts({ transactions, hideValues, config }) {
   const [categoryFilter, setCategoryFilter] = useState([]);
   const categoryOptions = useMemo(() => [...EXPENSE_CATEGORIES, ...INCOME_CATEGORIES], [config]);
 
-  // Clamp: ensure from <= to. When the user changes one, adjust the other.
+  // Clamp: from can't pass to, and vice versa — each handle stops at the
+  // other's position rather than dragging it along.
   const handleFromYear = (v) => {
-    setFromYear(v);
-    if (toYearEff && v > toYearEff) setToYear(v);
+    setFromYear(toYearEff && v > toYearEff ? toYearEff : v);
   };
   const handleToYear = (v) => {
-    setToYear(v);
-    if (fromYearEff && v < fromYearEff) setFromYear(v);
+    setToYear(fromYearEff && v < fromYearEff ? fromYearEff : v);
   };
 
   // Filter transactions to the selected year range.
@@ -2992,11 +3001,10 @@ function Transactions({ transactions, money, hideValues, isWide, onDelete, onUpd
         // From/To filter by day on both platforms.
         if (from && (t.date || "") < from) return false;
         if (to && (t.date || "") > to) return false;
-        // Date-header / chip filter: year(s) and/or month(s) — both platforms.
-        const y = (t.date || "").slice(0, 4);
-        const m = (t.date || "").slice(5, 7);
-        if (dateYears.length && !dateYears.includes(y)) return false;
-        if (dateMonths.length && !dateMonths.includes(m)) return false;
+        // Date-header / chip filter: year+month pairs, keyed as "YYYY-MM" —
+        // both platforms. Checking a year selects all of its month keys.
+        const ym = (t.date || "").slice(0, 7);
+        if (dateMonths.length && !dateMonths.includes(ym)) return false;
         return true;
       })
       .filter((t) =>
@@ -3399,143 +3407,55 @@ function HeaderFilter({ label, value, options, onChange, chip }) {
   );
 }
 
-// Single scrollable wheel column (mo/day/yr picker). `items` is an array of
-// either primitives or { v, l } objects (label vs value differ, e.g. months).
-// Scroll-snap centers the selected row; on scroll-settle (debounced) it snaps
-// exactly and reports the new value via onSelect. No drag/gesture lib needed —
-// this is native browser scroll-snap plus a settle-detector.
-const WHEEL_ITEM_H = 36;
-const WHEEL_VISIBLE = 5; // odd count so one row sits dead-center
-function WheelColumn({ items, value, onSelect, ariaLabel }) {
-  const ref = useRef(null);
-  const timerRef = useRef(null);
-  const valueOf = (it) => (it && typeof it === "object" ? it.v : it);
-  const labelOf = (it) => (it && typeof it === "object" ? it.l : it);
-
-  // Keep the column in sync when `value` changes for reasons other than the
-  // user's own scroll (e.g. day list got clamped after a month change).
-  useEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-    const i = items.findIndex((it) => valueOf(it) === value);
-    if (i < 0) return;
-    const target = i * WHEEL_ITEM_H;
-    if (Math.abs(el.scrollTop - target) > 2) el.scrollTop = target;
-  }, [value, items]);
-
-  const settle = () => {
-    const el = ref.current;
-    if (!el) return;
-    const i = Math.max(0, Math.min(items.length - 1, Math.round(el.scrollTop / WHEEL_ITEM_H)));
-    el.scrollTo({ top: i * WHEEL_ITEM_H, behavior: "smooth" });
-    const v = valueOf(items[i]);
-    if (v !== value) onSelect(v);
-  };
-
-  const handleScroll = () => {
-    if (timerRef.current) clearTimeout(timerRef.current);
-    timerRef.current = setTimeout(settle, 130);
-  };
-
-  return (
-    <div
-      ref={ref}
-      onScroll={handleScroll}
-      role="listbox"
-      aria-label={ariaLabel}
-      style={S.wheelCol}
-    >
-      <div style={{ height: WHEEL_ITEM_H * Math.floor(WHEEL_VISIBLE / 2) }} />
-      {items.map((it) => {
-        const v = valueOf(it);
-        const sel = v === value;
-        return (
-          <div
-            key={v}
-            onClick={() => {
-              const el = ref.current;
-              const i = items.findIndex((x) => valueOf(x) === v);
-              if (el && i >= 0) el.scrollTo({ top: i * WHEEL_ITEM_H, behavior: "smooth" });
-              onSelect(v);
-            }}
-            style={S.wheelItem(sel)}
-          >
-            {labelOf(it)}
-          </div>
-        );
-      })}
-      <div style={{ height: WHEEL_ITEM_H * Math.floor(WHEEL_VISIBLE / 2) }} />
-    </div>
-  );
-}
-
-// Three-column (Month / Day / Year) wheel date picker. `value` is a
-// "YYYY-MM-DD" string (or ""); `onChange` fires with the same format on every
-// settle, keeping the from/to state contract unchanged.
-function DateWheelPicker({ value, onChange }) {
-  const now = new Date();
-  const init = value ? new Date(`${value}T00:00:00`) : now;
-  const initYear = Number.isFinite(init.getFullYear()) ? init.getFullYear() : now.getFullYear();
-  const [year, setYear] = useState(initYear);
-  const [month, setMonth] = useState(init.getMonth() + 1);
-  const [day, setDay] = useState(init.getDate());
-
-  const yearsList = useMemo(() => {
-    const cy = now.getFullYear();
-    const lo = Math.min(cy - 15, initYear);
-    const hi = Math.max(cy + 5, initYear);
-    const arr = [];
-    for (let y = lo; y <= hi; y++) arr.push(y);
-    return arr;
-  }, []);
-
-  const daysInMonth = new Date(year, month, 0).getDate();
-  const daysList = useMemo(() => Array.from({ length: daysInMonth }, (_, i) => i + 1), [daysInMonth]);
-
-  // Clamp day when month/year changes leave it out of range (e.g. Feb 31).
-  useEffect(() => {
-    if (day > daysInMonth) setDay(daysInMonth);
-  }, [daysInMonth]);
-
-  useEffect(() => {
-    const mm = String(month).padStart(2, "0");
-    const dd = String(Math.min(day, daysInMonth)).padStart(2, "0");
-    onChange(`${year}-${mm}-${dd}`);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [year, month, day, daysInMonth]);
-
-  return (
-    <div style={S.wheelPickerWrap}>
-      <WheelColumn items={MONTHS.map((m) => ({ v: m.v, l: m.l }))} value={month} onSelect={setMonth} ariaLabel="Month" />
-      <WheelColumn items={daysList} value={day} onSelect={setDay} ariaLabel="Day" />
-      <WheelColumn items={yearsList} value={year} onSelect={setYear} ariaLabel="Year" />
-      <div style={S.wheelHighlight} />
-    </div>
-  );
-}
-
-// Date column-header filter: multi-select years and/or months, plus optional
-// From/To day-level range (passed as props when available).
+// Date column-header filter: multi-select years and/or months (Excel-style
+// tree — a year checkbox selects all its months; "+" expands to pick
+// individual months), plus optional From/To day-level range.
 function DateHeaderFilter({ years, dateYears, setDateYears, dateMonths, setDateMonths, chip, from, to, setFrom, setTo }) {
   const [open, setOpen] = useState(false);
-  const [pickerFor, setPickerFor] = useState(null); // "from" | "to" | null
+  const [expandedYears, setExpandedYears] = useState([]);
   const anchorRef = useRef(null);
   const hasRange = !!(from || to);
   const active = dateYears.length > 0 || dateMonths.length > 0 || hasRange;
   const toggle = (arr, set, v) =>
     set(arr.includes(v) ? arr.filter((x) => x !== v) : [...arr, v]);
+  const toggleExpand = (y) => toggleYearExpand(y);
+  function toggleYearExpand(y) {
+    setExpandedYears((arr) => (arr.includes(y) ? arr.filter((x) => x !== y) : [...arr, y]));
+  }
+  // Months of a given year, keyed as "YYYY-MM" to disambiguate across years.
+  const monthKey = (y, m) => `${y}-${String(m).padStart(2, "0")}`;
+  const yearMonthKeys = (y) => MONTHS.map((m) => monthKey(y, m.v));
+  const toggleYear = (y) => {
+    const keys = yearMonthKeys(y);
+    const allSelected = keys.every((k) => dateMonths.includes(k));
+    if (dateYears.includes(y) || allSelected) {
+      setDateYears(dateYears.filter((x) => x !== y));
+      setDateMonths(dateMonths.filter((k) => !keys.includes(k)));
+    } else {
+      setDateYears(dateYears.includes(y) ? dateYears : [...dateYears, y]);
+      setDateMonths([...dateMonths.filter((k) => !keys.includes(k)), ...keys]);
+    }
+  };
+  const toggleMonth = (y, m) => {
+    const k = monthKey(y, m);
+    const keys = yearMonthKeys(y);
+    const nextMonths = dateMonths.includes(k) ? dateMonths.filter((x) => x !== k) : [...dateMonths, k];
+    setDateMonths(nextMonths);
+    const allSelected = keys.every((kk) => nextMonths.includes(kk));
+    setDateYears(allSelected ? (dateYears.includes(y) ? dateYears : [...dateYears, y]) : dateYears.filter((x) => x !== y));
+  };
   const labelText = !active
     ? "Date"
     : hasRange && dateYears.length === 0 && dateMonths.length === 0
     ? `Date: ${from || "…"} → ${to || "…"}`
-    : `Date (${[...dateYears, ...dateMonths.map((m) => (MONTHS.find((x) => x.v === m) || {}).l)].join(", ")})`;
+    : `Date (${dateYears.length + dateMonths.length} selected)`;
   return (
     <div ref={anchorRef} style={{ position: "relative" }}>
       <button onClick={() => setOpen((o) => !o)} style={chip ? S.chipBtn(active) : S.thBtn(active)} title="Filter by date">
         <span>{labelText}</span>
         <span style={{ fontSize: 9, opacity: 0.7 }}>▼</span>
       </button>
-      <Popover open={open} setOpen={setOpen} anchorRef={anchorRef} style={{ display: "flex", flexDirection: "column", gap: 8, minWidth: 240 }}>
+      <Popover open={open} setOpen={setOpen} anchorRef={anchorRef} style={{ display: "flex", flexDirection: "column", gap: 8, minWidth: 220 }}>
           {/* From/To range — only when setFrom/setTo are provided */}
           {setFrom && setTo && (
             <div>
@@ -3543,74 +3463,57 @@ function DateHeaderFilter({ years, dateYears, setDateYears, dateMonths, setDateM
               <div style={{ display: "flex", flexDirection: "column", gap: 6, padding: "4px 8px" }}>
                 <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: "#8b94a3" }}>
                   <span style={{ width: 28 }}>From</span>
-                  <button
-                    type="button"
-                    onClick={() => setPickerFor("from")}
-                    style={{ ...S.input, flex: 1, padding: "6px 8px", fontSize: 12, textAlign: "left", cursor: "pointer" }}
-                  >
-                    {from || "Select date"}
-                  </button>
+                  <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} style={{ ...S.input, flex: 1, padding: "6px 8px", fontSize: 12 }} />
                 </label>
                 <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: "#8b94a3" }}>
                   <span style={{ width: 28 }}>To</span>
-                  <button
-                    type="button"
-                    onClick={() => setPickerFor("to")}
-                    style={{ ...S.input, flex: 1, padding: "6px 8px", fontSize: 12, textAlign: "left", cursor: "pointer" }}
-                  >
-                    {to || "Select date"}
-                  </button>
+                  <input type="date" value={to} onChange={(e) => setTo(e.target.value)} style={{ ...S.input, flex: 1, padding: "6px 8px", fontSize: 12 }} />
                 </label>
               </div>
             </div>
           )}
-          <div style={{ display: "flex", gap: 8 }}>
-            <div style={{ flex: 1 }}>
-              <div style={S.popHead}>Year</div>
-              {years.length === 0 ? <div style={{ ...S.popItem(false), color: "#6b7280" }}>—</div> : null}
-              {years.map((y) => {
-                const sel = dateYears.includes(y);
-                return (
-                  <button key={y} onClick={() => toggle(dateYears, setDateYears, y)} style={S.popItem(sel)}>
-                    <span style={{ display: "inline-block", width: 14 }}>{sel ? "✓" : ""}</span>
-                    {y}
-                  </button>
-                );
-              })}
-            </div>
-            <div style={{ flex: 1 }}>
-              <div style={S.popHead}>Month</div>
-              {MONTHS.map((m) => {
-                const sel = dateMonths.includes(m.v);
-                return (
-                  <button key={m.v} onClick={() => toggle(dateMonths, setDateMonths, m.v)} style={S.popItem(sel)}>
-                    <span style={{ display: "inline-block", width: 14 }}>{sel ? "✓" : ""}</span>
-                    {m.l}
-                  </button>
-                );
-              })}
-            </div>
+          <div>
+            <div style={S.popHead}>Year / Month</div>
+            {years.length === 0 ? <div style={{ ...S.popItem(false), color: "#6b7280" }}>—</div> : null}
+            {years.map((y) => {
+              const keys = yearMonthKeys(y);
+              const allSelected = keys.every((k) => dateMonths.includes(k));
+              const someSelected = keys.some((k) => dateMonths.includes(k));
+              const expanded = expandedYears.includes(y);
+              return (
+                <div key={y}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                    <button
+                      onClick={() => toggleExpand(y)}
+                      style={{ ...S.deleteBtn, width: 20, height: 20, padding: 0, flexShrink: 0 }}
+                      title={expanded ? "Collapse" : "Expand months"}
+                    >
+                      {expanded ? "−" : "+"}
+                    </button>
+                    <button onClick={() => toggleYear(y)} style={{ ...S.popItem(allSelected), flex: 1, textAlign: "left" }}>
+                      <span style={{ display: "inline-block", width: 14 }}>{allSelected ? "✓" : someSelected ? "•" : ""}</span>
+                      {y}
+                    </button>
+                  </div>
+                  {expanded && (
+                    <div style={{ paddingLeft: 24 }}>
+                      {MONTHS.map((m) => {
+                        const k = monthKey(y, m.v);
+                        const sel = dateMonths.includes(k);
+                        return (
+                          <button key={k} onClick={() => toggleMonth(y, m.v)} style={S.popItem(sel)}>
+                            <span style={{ display: "inline-block", width: 14 }}>{sel ? "✓" : ""}</span>
+                            {m.l}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
       </Popover>
-      {pickerFor && (
-        <div style={S.modalOverlay} onClick={() => setPickerFor(null)} role="dialog" aria-modal="true">
-          <div style={S.modalCard} onClick={(e) => e.stopPropagation()} aria-label={pickerFor === "from" ? "Select from date" : "Select to date"}>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
-              <h3 style={{ ...S.sectionTitle, margin: 0 }}>{pickerFor === "from" ? "From date" : "To date"}</h3>
-              <button onClick={() => setPickerFor(null)} style={S.deleteBtn} title="Close">
-                <X size={18} />
-              </button>
-            </div>
-            <DateWheelPicker
-              value={pickerFor === "from" ? from : to}
-              onChange={pickerFor === "from" ? setFrom : setTo}
-            />
-            <button type="button" onClick={() => setPickerFor(null)} style={{ ...S.primaryBtn, marginTop: 14, width: "100%" }}>
-              OK
-            </button>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
@@ -6967,49 +6870,6 @@ const S = {
     cursor: "pointer",
     transition: "background 0.15s, color 0.15s",
   }),
-  // Date wheel picker (mo/day/yr scroll-snap columns), used by
-  // DateHeaderFilter's From/To popups.
-  wheelPickerWrap: {
-    position: "relative",
-    display: "flex",
-    gap: 4,
-    height: WHEEL_ITEM_H * WHEEL_VISIBLE,
-    background: "rgba(15,18,22,0.92)",
-    border: "1px solid rgba(255,255,255,0.08)",
-    borderRadius: 12,
-    padding: "0 4px",
-    overflow: "hidden",
-  },
-  wheelCol: {
-    flex: 1,
-    height: "100%",
-    overflowY: "auto",
-    scrollSnapType: "y mandatory",
-    scrollbarWidth: "none",
-    textAlign: "center",
-  },
-  wheelItem: (selected) => ({
-    height: WHEEL_ITEM_H,
-    lineHeight: `${WHEEL_ITEM_H}px`,
-    scrollSnapAlign: "center",
-    fontSize: selected ? 16 : 14,
-    fontWeight: selected ? 700 : 400,
-    color: selected ? "#e5e7eb" : "#6b7280",
-    cursor: "pointer",
-    transition: "color 0.15s, font-size 0.15s",
-  }),
-  wheelHighlight: {
-    position: "absolute",
-    left: 4,
-    right: 4,
-    top: WHEEL_ITEM_H * Math.floor(WHEEL_VISIBLE / 2),
-    height: WHEEL_ITEM_H,
-    borderTop: "1px solid rgba(255,255,255,0.12)",
-    borderBottom: "1px solid rgba(255,255,255,0.12)",
-    pointerEvents: "none",
-    borderRadius: 8,
-    background: "rgba(59,130,246,0.08)",
-  },
   // Year-range drag slider (Charts / Trends), replaces from/to <select>s.
   yearRangeTrack: {
     position: "relative",
