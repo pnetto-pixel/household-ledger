@@ -1,5 +1,5 @@
 // api/category-description-rules.js
-// GET: { rules: [ { id, matchField, pattern, destinationCategory } ], savedAt }
+// GET: { rules: [ { id, matchField, pattern, destinationCategory, providerPattern?, allowTransferOverride? } ], savedAt }
 // PUT { rules: [...] }: { ok, savedAt, rules }
 // Auth required (x-google-token or x-app-password).
 //
@@ -29,6 +29,12 @@ function keyFromAuth(auth) {
 // destinationCategory; normalize matchField to one of the 3 values
 // (default "both"); generate an id when missing; reject Transfer as a
 // destination. Preserves array order.
+//
+// Optional fields (additive, back-compat): `providerPattern` (string, trimmed —
+// an extra AND condition against the row's provider/account) and
+// `allowTransferOverride` (boolean — when true, this rule is permitted to move
+// a row OUT of Transfer on import; only ever meaningful together with a
+// non-empty providerPattern). Both are only persisted when present/meaningful.
 function sanitize(rules) {
   const out = [];
   if (!Array.isArray(rules)) return out;
@@ -41,7 +47,13 @@ function sanitize(rules) {
     if (destinationCategory === TRANSFER) continue;
     const matchField = MATCH_FIELDS.includes(r.matchField) ? r.matchField : 'both';
     const id = typeof r.id === 'string' && r.id.trim() ? r.id.trim() : `r${Date.now()}${n}`;
-    out.push({ id, matchField, pattern, destinationCategory });
+    const clean = { id, matchField, pattern, destinationCategory };
+    const providerPattern = typeof r.providerPattern === 'string' ? r.providerPattern.trim() : '';
+    if (providerPattern) clean.providerPattern = providerPattern;
+    if (r.allowTransferOverride === true || r.allowTransferOverride === 'true') {
+      clean.allowTransferOverride = true;
+    }
+    out.push(clean);
     n += 1;
   }
   return out;

@@ -275,85 +275,24 @@ function mapCkCategory(ckCategoryRaw, ckType, mapObj) {
   return (mapObj && mapObj[token]) || "Other";
 }
 
-// Apple Daily Cash heuristic: Apple Card cashback deposits sometimes arrive
-// from Credit Karma tagged as Transfer (or something else entirely), even
-// though they're really income. Editable seed + runtime override, same
-// pattern as `DEFAULT_CK_CATEGORY_MAP`/`applyCkCategoryMapConfig` above —
-// overridden at runtime by `applyAppleDailyCashRuleConfig()` from
-// `/api/apple-daily-cash-rule`. Editable from Audit → "Apple Daily Cash rule".
-// No "enabled" flag: an empty `keywords` list simply never matches.
-const DEFAULT_APPLE_DAILY_CASH_RULE = {
-  providerPattern: "Apple Card",
-  keywords: ["Deposit", "Adjustment"],
-  destinationCategory: "Other Income",
-};
-
-// Runtime Apple Daily Cash rule (mutable) — seeded with the default above,
-// replaced by `applyAppleDailyCashRuleConfig()` once
-// `/api/apple-daily-cash-rule` loads. Module state (not React state), same
-// reasoning as `CK_CATEGORY_MAP`.
-let APPLE_DAILY_CASH_RULE = { ...DEFAULT_APPLE_DAILY_CASH_RULE };
-
-function applyAppleDailyCashRuleConfig(ruleObj) {
-  APPLE_DAILY_CASH_RULE = {
-    ...DEFAULT_APPLE_DAILY_CASH_RULE,
-    ...(ruleObj && typeof ruleObj === "object" ? ruleObj : {}),
-  };
-}
-
-// The current runtime Apple Daily Cash rule as a plain object (for seeding/
-// persisting React state).
-function currentAppleDailyCashRuleConfig() {
-  return { ...APPLE_DAILY_CASH_RULE };
-}
-
-// True when the row's provider/account matches `providerPattern`
-// (case-insensitive) AND its description contains at least one of
-// `ruleConfig.keywords` (case-insensitive). Shared by `applyAppleDailyCashRule`
-// (import time) and the Audit tab's rule-editing UI so both can never drift
-// out of sync. If `keywords` is empty, this never matches.
-function appleDailyCashRuleMatches(row, ruleConfig) {
-  const t = row || {};
-  const cfg = ruleConfig || DEFAULT_APPLE_DAILY_CASH_RULE;
-  const providerPattern = String(cfg.providerPattern || "").trim();
-  const keywords = Array.isArray(cfg.keywords) ? cfg.keywords.filter(Boolean) : [];
-  const destinationCategory = cfg.destinationCategory;
-  if (!providerPattern || !keywords.length || !destinationCategory) return false;
-
-  const providerHaystack = `${t.srcAccount || ""} ${t.account || ""}`.toLowerCase();
-  if (!providerHaystack.includes(providerPattern.toLowerCase())) return false;
-
-  const desc = String(t.description || "").toLowerCase();
-  return keywords.some((kw) => desc.includes(String(kw).toLowerCase()));
-}
-
-// Pure heuristic: when `appleDailyCashRuleMatches` fires, force the category
-// to `ruleConfig.destinationCategory`. Only reclassifies the category — the
-// amount/sign coming from the source is NEVER touched here. Unlike the
-// general rule, this heuristic IS allowed to move a row OUT of Transfer
-// (that's the real-world case: CK sometimes tags Apple Card cashback as
-// Transfer, and this promotes it to actual income). If it doesn't match, the
-// row's current category is returned unchanged.
-function applyAppleDailyCashRule(row, ruleConfig) {
-  const t = row || {};
-  const cfg = ruleConfig || DEFAULT_APPLE_DAILY_CASH_RULE;
-  if (!appleDailyCashRuleMatches(t, cfg)) return t.category;
-  return cfg.destinationCategory;
-}
-
 // ---------------------------------------------------------------------------
 // Category-by-description rules (PR: Description rules, Audit tab)
 // ---------------------------------------------------------------------------
 // Ordered list of override rules that force a destination category when the
 // row's description and/or provider (srcAccount/account) contains a substring
 // pattern. First matching rule wins (array order is semantic). These OVERRIDE
-// the CK category map / CSV category for NON-Transfer rows, but by design can
-// never create nor destroy a Transfer: `destinationCategory` is never
-// "Transfer" (guaranteed both server-side in api/category-description-rules.js
-// and client-side in the save path), and the Transfer safety net in buildRow
-// still keeps a CK-sourced Transfer as Transfer even when a rule matches.
+// the CK category map / CSV category for NON-Transfer rows. `destinationCategory`
+// is never "Transfer" (guaranteed both server-side in
+// api/category-description-rules.js and client-side in the save path).
+//
+// By default a rule can never de-transfer a row: the Transfer safety net in
+// buildRow keeps a CK-sourced Transfer as Transfer even when a rule matches.
+// A rule MAY opt into `allowTransferOverride: true` (requires a non-empty
+// `providerPattern` AND condition) to skip that safety net and promote a
+// Transfer row into its destination category on future imports — this is the
+// generalization of the former hard-coded Apple Daily Cash heuristic.
 // Seed is empty (no pre-populated rule). Same runtime-override pattern as
-// CK_CATEGORY_MAP / APPLE_DAILY_CASH_RULE: module state, replaced by
+// CK_CATEGORY_MAP: module state, replaced by
 // applyCategoryDescriptionRulesConfig() once /api/category-description-rules
 // loads.
 const DEFAULT_CATEGORY_DESCRIPTION_RULES = [];
@@ -371,14 +310,27 @@ function currentCategoryDescriptionRulesConfig() {
 
 // True when the row matches the rule's substring pattern on the configured
 // field(s). Case-insensitive substring match — no regex.
+//
+// A rule MAY carry an optional `providerPattern` (an extra AND condition
+// against srcAccount||account) — used by rules that were granted the
+// `allowTransferOverride` power (formerly the hard-coded Apple Daily Cash
+// heuristic, now folded into Description rules). Rules WITHOUT `providerPattern`
+// behave bit-for-bit identically to before this change.
 function descriptionRuleMatches(row, rule) {
   const desc = String(row.description || "").toLowerCase();
   const prov = String(row.srcAccount || row.account || "").toLowerCase();
   const pat = String(rule.pattern || "").toLowerCase();
   if (!pat) return false;
-  if (rule.matchField === "description") return desc.includes(pat);
-  if (rule.matchField === "provider") return prov.includes(pat);
-  return desc.includes(pat) || prov.includes(pat); // "both"
+  let baseMatch;
+  if (rule.matchField === "description") baseMatch = desc.includes(pat);
+  else if (rule.matchField === "provider") baseMatch = prov.includes(pat);
+  else baseMatch = desc.includes(pat) || prov.includes(pat); // "both"
+  if (!baseMatch) return false;
+
+  const extraProvider = String(rule.providerPattern || "").trim().toLowerCase();
+  if (extraProvider && !prov.includes(extraProvider)) return false; // AND extra condition
+
+  return true;
 }
 
 // Pre-save conflict check for the Description rules editor (purely
@@ -410,13 +362,23 @@ function computeDescriptionRuleConflicts(transactions, rule) {
   return result;
 }
 
-// Returns the destinationCategory of the FIRST rule that matches, or null when
-// none match. Never returns "Transfer" (sanitized out on save).
-function matchDescriptionCategoryRule(row, rules) {
+// Returns the FIRST rule that matches the row, or null when none match. Array
+// order is semantic (first match wins). buildRow uses this to also read the
+// winning rule's `allowTransferOverride` flag.
+function findMatchingDescriptionRule(row, rules) {
   for (const rule of rules || []) {
-    if (descriptionRuleMatches(row, rule)) return rule.destinationCategory;
+    if (descriptionRuleMatches(row, rule)) return rule;
   }
   return null;
+}
+
+// Returns the destinationCategory of the FIRST rule that matches, or null when
+// none match. Never returns "Transfer" (sanitized out on save). Thin wrapper
+// over `findMatchingDescriptionRule` — contract unchanged for its 3 existing
+// callsites (conflict check, manual-correction detection, v1.16.3 skip).
+function matchDescriptionCategoryRule(row, rules) {
+  const r = findMatchingDescriptionRule(row, rules);
+  return r ? r.destinationCategory : null;
 }
 
 // ---------------------------------------------------------------------------
@@ -862,47 +824,86 @@ export default function App() {
     }).catch(() => {});
   }, []);
 
-  // ---- Apple Daily Cash rule load / save ------------------------------------
-  const [appleDailyCashRule, setAppleDailyCashRule] = useState(() => currentAppleDailyCashRuleConfig());
+  // ---- Category description rules load / save --------------------------------
+  const [categoryDescriptionRules, setCategoryDescriptionRules] = useState(
+    () => currentCategoryDescriptionRulesConfig()
+  );
 
-  const loadAppleDailyCashRule = useCallback(async () => {
+  // One-shot, idempotent migration of the legacy Apple Daily Cash rule into the
+  // generalized Description rules system. The former hard-coded heuristic
+  // (provider pattern + description keywords, allowed to de-transfer) is now
+  // just a Description rule with `allowTransferOverride: true`. We fetch the
+  // legacy rule; if it still has a providerPattern + keywords + destination, we
+  // create one override rule per keyword (skipping any that already exist for
+  // idempotency), PREPEND them to the current rules array (so they win first —
+  // "first match wins"), persist the merged rules, and blank out the legacy
+  // rule (empty keywords = the "already migrated" marker). Returns the possibly
+  // migrated rules array so the caller can apply it.
+  const migrateAppleDailyCashRule = useCallback(async (currentRules) => {
     try {
       const res = await fetch("/api/apple-daily-cash-rule", {
         method: "GET",
         headers: buildAuthHeaders(),
       });
-      if (!res.ok) return;
+      if (!res.ok) return currentRules;
       const data = await res.json();
-      if (data.rule && typeof data.rule === "object" && data.rule.providerPattern) {
-        applyAppleDailyCashRuleConfig(data.rule);
-        setAppleDailyCashRule(currentAppleDailyCashRuleConfig());
+      const legacy = data && data.rule;
+      const providerPattern = String(legacy?.providerPattern || "").trim();
+      const keywords = Array.isArray(legacy?.keywords)
+        ? legacy.keywords.map((k) => String(k || "").trim()).filter(Boolean)
+        : [];
+      const destinationCategory = String(legacy?.destinationCategory || "").trim();
+      // Not active / never configured / already migrated → nothing to do.
+      if (!providerPattern || !keywords.length || !destinationCategory) return currentRules;
+
+      const created = [];
+      for (const keyword of keywords) {
+        const already = (currentRules || []).some(
+          (r) =>
+            r &&
+            r.allowTransferOverride === true &&
+            String(r.providerPattern || "").trim() === providerPattern &&
+            String(r.pattern || "") === keyword
+        );
+        if (already) continue;
+        created.push({
+          id: uid(),
+          matchField: "description",
+          pattern: keyword,
+          providerPattern,
+          allowTransferOverride: true,
+          destinationCategory,
+        });
       }
+
+      if (!created.length) {
+        // Nothing new to create, but the legacy rule is still populated — blank
+        // it out so we never re-check on future loads.
+        fetch("/api/apple-daily-cash-rule", {
+          method: "PUT",
+          headers: buildAuthHeaders(),
+          body: JSON.stringify({ rule: { providerPattern: "", keywords: [], destinationCategory: "" } }),
+        }).catch(() => {});
+        return currentRules;
+      }
+
+      const merged = [...created, ...(currentRules || [])];
+      // Persist the merged rules and the "migrated" marker.
+      fetch("/api/category-description-rules", {
+        method: "PUT",
+        headers: buildAuthHeaders(),
+        body: JSON.stringify({ rules: merged }),
+      }).catch(() => {});
+      fetch("/api/apple-daily-cash-rule", {
+        method: "PUT",
+        headers: buildAuthHeaders(),
+        body: JSON.stringify({ rule: { providerPattern: "", keywords: [], destinationCategory: "" } }),
+      }).catch(() => {});
+      return merged;
     } catch {
-      // Silently ignore — defaults already seeded.
+      return currentRules;
     }
   }, []);
-
-  useEffect(() => {
-    if (authed) loadAppleDailyCashRule();
-  }, [authed, loadAppleDailyCashRule]);
-
-  // Persist the Apple Daily Cash rule. Deliberately no cascade: only new
-  // imports (buildRow) are affected — existing transactions keep whatever
-  // category they were imported with.
-  const saveAppleDailyCashRule = useCallback((nextRule) => {
-    applyAppleDailyCashRuleConfig(nextRule);
-    setAppleDailyCashRule(currentAppleDailyCashRuleConfig());
-    return fetch("/api/apple-daily-cash-rule", {
-      method: "PUT",
-      headers: buildAuthHeaders(),
-      body: JSON.stringify({ rule: nextRule }),
-    }).catch(() => {});
-  }, []);
-
-  // ---- Category description rules load / save --------------------------------
-  const [categoryDescriptionRules, setCategoryDescriptionRules] = useState(
-    () => currentCategoryDescriptionRulesConfig()
-  );
 
   const loadCategoryDescriptionRules = useCallback(async () => {
     try {
@@ -912,14 +913,16 @@ export default function App() {
       });
       if (!res.ok) return;
       const data = await res.json();
-      if (Array.isArray(data.rules)) {
-        applyCategoryDescriptionRulesConfig(data.rules);
+      let rules = Array.isArray(data.rules) ? data.rules : null;
+      if (rules) {
+        rules = await migrateAppleDailyCashRule(rules);
+        applyCategoryDescriptionRulesConfig(rules);
         setCategoryDescriptionRules(currentCategoryDescriptionRulesConfig());
       }
     } catch {
       // Silently ignore — defaults already seeded.
     }
-  }, []);
+  }, [migrateAppleDailyCashRule]);
 
   useEffect(() => {
     if (authed) loadCategoryDescriptionRules();
@@ -1200,8 +1203,6 @@ export default function App() {
             onSaveAccountAliases={saveAccountAliasesAndApply}
             ckCategoryMap={ckCategoryMap}
             onSaveCkCategoryMap={saveCkCategoryMap}
-            appleDailyCashRule={appleDailyCashRule}
-            onSaveAppleDailyCashRule={saveAppleDailyCashRule}
             categoryDescriptionRules={categoryDescriptionRules}
             onSaveCategoryDescriptionRules={saveCategoryDescriptionRules}
             config={config}
@@ -1392,7 +1393,7 @@ function Header({ hideValues, onToggleHide, onLogout, saving, savedAt, dirty, sa
             <LayoutDashboard size={14} color="#fff" />
           </div>
           <span style={{ fontWeight: 700, fontSize: 15, letterSpacing: -0.5, color: "#e5e7eb" }}>Household</span>
-          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.19.0</span>
+          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.20.0</span>
         </div>
         <SaveIndicator saving={saving} dirty={dirty} savedAt={savedAt} saveError={saveError} />
       </div>
@@ -4347,7 +4348,6 @@ function SuggestedRulesSection({ suggestedFragments, suggestedTokens, suggestedC
 function SettingsTab({
   transactions, accountMap, accountAliases, onSaveAccountAliases,
   ckCategoryMap, onSaveCkCategoryMap,
-  appleDailyCashRule, onSaveAppleDailyCashRule,
   categoryDescriptionRules, onSaveCategoryDescriptionRules,
   config,
   onSaveAccountMap,
@@ -4464,11 +4464,6 @@ function SettingsTab({
           onReorder={(names) => onReorderCategories("income", names)}
         />
       </CollapsibleCard>
-      <AppleDailyCashRuleSection
-        rule={appleDailyCashRule}
-        onSave={onSaveAppleDailyCashRule}
-        config={config}
-      />
       <DescriptionRulesSection
         rules={categoryDescriptionRules}
         onSave={onSaveCategoryDescriptionRules}
@@ -4585,102 +4580,6 @@ function CkCategoryMapSection({ transactions, map, onSave, config, highlightToke
 // a destination category when the provider pattern + a description keyword
 // both match. Same visual/save pattern as `CkCategoryMapSection` — plain PUT,
 // no impact preview, no retroactive cascade: only affects NEW imports.
-function AppleDailyCashRuleSection({ rule, onSave, config }) {
-  const base = rule || DEFAULT_APPLE_DAILY_CASH_RULE;
-  const [draft, setDraft] = useState({
-    providerPattern: base.providerPattern || "",
-    keywords: (base.keywords || []).join(", "),
-    destinationCategory: base.destinationCategory || "Other Income",
-  });
-
-  useEffect(() => {
-    const r = rule || DEFAULT_APPLE_DAILY_CASH_RULE;
-    setDraft({
-      providerPattern: r.providerPattern || "",
-      keywords: (r.keywords || []).join(", "),
-      destinationCategory: r.destinationCategory || "Other Income",
-    });
-  }, [rule]);
-
-  const destinationOptions = useMemo(() => {
-    const expense = config?.expenseCategories || EXPENSE_CATEGORIES;
-    const income = config?.incomeCategories || INCOME_CATEGORIES;
-    return [...expense, ...income, TRANSFER_CATEGORY];
-  }, [config]);
-
-  const draftAsRule = useMemo(() => ({
-    providerPattern: draft.providerPattern.trim(),
-    keywords: draft.keywords.split(",").map((k) => k.trim()).filter(Boolean),
-    destinationCategory: draft.destinationCategory,
-  }), [draft]);
-
-  const savedAsRule = useMemo(() => ({
-    providerPattern: (base.providerPattern || "").trim(),
-    keywords: base.keywords || [],
-    destinationCategory: base.destinationCategory || "Other Income",
-  }), [base]);
-
-  const dirty = useMemo(
-    () => JSON.stringify(draftAsRule) !== JSON.stringify(savedAsRule),
-    [draftAsRule, savedAsRule]
-  );
-
-  return (
-    <CollapsibleCard title="Apple Daily Cash rule">
-      <div style={{ fontSize: 12, color: "#8b94a3", margin: "0 0 10px", lineHeight: 1.5 }}>
-        Detects Apple Card cashback deposits by matching a provider/account
-        pattern together with a description keyword, then reclassifies them
-        into the destination category below. Runs last, after the Credit
-        Karma category mapping and the Transfer safety net — unlike those,
-        this rule IS allowed to move a row OUT of Transfer into the
-        destination category when it matches (that's its real-world purpose).
-        Only the category is ever changed; the imported amount and its sign
-        are never touched. Saving only affects future imports — existing
-        transactions keep their current category.
-      </div>
-      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-        <Field label="Provider/account pattern">
-          <input
-            type="text"
-            value={draft.providerPattern}
-            onChange={(e) => setDraft((p) => ({ ...p, providerPattern: e.target.value }))}
-            placeholder="Apple Card"
-            style={S.input}
-          />
-        </Field>
-        <Field label="Description keywords (comma-separated)">
-          <input
-            type="text"
-            value={draft.keywords}
-            onChange={(e) => setDraft((p) => ({ ...p, keywords: e.target.value }))}
-            placeholder="Deposit, Adjustment"
-            style={S.input}
-          />
-        </Field>
-        <Field label="Destination category">
-          <select
-            value={draft.destinationCategory}
-            onChange={(e) => setDraft((p) => ({ ...p, destinationCategory: e.target.value }))}
-            style={S.select}
-          >
-            {destinationOptions.map((c) => (
-              <option key={c} value={c}>{c}</option>
-            ))}
-          </select>
-        </Field>
-      </div>
-      <button
-        type="button"
-        onClick={() => onSave(draftAsRule)}
-        disabled={!dirty}
-        style={{ ...S.primaryBtn, marginTop: 10, opacity: dirty ? 1 : 0.5, cursor: dirty ? "pointer" : "not-allowed" }}
-      >
-        Save rule
-      </button>
-    </CollapsibleCard>
-  );
-}
-
 // Editable, ordered list of category-by-description override rules. Each rule
 // forces a destination category when the description and/or provider contains
 // a substring pattern; the FIRST matching rule wins, so order is semantic
@@ -4693,7 +4592,10 @@ function AppleDailyCashRuleSection({ rule, onSave, config }) {
 function DescriptionRulesSection({ rules, onSave, config, prefill, transactions }) {
   const [draft, setDraft] = useState(() => (rules || []).map((r) => ({ ...r })));
   const [confirmDelete, setConfirmDelete] = useState(null);
-  const [newRule, setNewRule] = useState({ pattern: "", matchField: "both", destinationCategory: "" });
+  const [newRule, setNewRule] = useState({
+    pattern: "", matchField: "both", destinationCategory: "",
+    allowTransferOverride: false, providerPattern: "",
+  });
   // Pre-save conflict warning (purely informational — see
   // `computeDescriptionRuleConflicts`). Any further edit to `draft` resets
   // this back to false, same pattern as `showPreview` in
@@ -4713,6 +4615,8 @@ function DescriptionRulesSection({ rules, onSave, config, prefill, transactions 
         pattern: prefill.pattern || "",
         matchField: prefill.matchField || "description",
         destinationCategory: prefill.destinationCategory || "",
+        allowTransferOverride: false,
+        providerPattern: "",
       });
     }
   }, [prefill]);
@@ -4756,11 +4660,23 @@ function DescriptionRulesSection({ rules, onSave, config, prefill, transactions 
     const pattern = newRule.pattern.trim();
     const destinationCategory = newRule.destinationCategory || destinationOptions[0] || "";
     if (!pattern || !destinationCategory) return;
+    const allowTransferOverride = !!newRule.allowTransferOverride;
+    const providerPattern = String(newRule.providerPattern || "").trim();
+    // A rule that can override Transfer MUST carry a provider pattern.
+    if (allowTransferOverride && !providerPattern) return;
     setDraft((prev) => [
       ...prev,
-      { id: uid(), pattern, matchField: newRule.matchField, destinationCategory },
+      {
+        id: uid(), pattern, matchField: newRule.matchField, destinationCategory,
+        ...(allowTransferOverride
+          ? { allowTransferOverride: true, providerPattern }
+          : {}),
+      },
     ]);
-    setNewRule({ pattern: "", matchField: "both", destinationCategory: "" });
+    setNewRule({
+      pattern: "", matchField: "both", destinationCategory: "",
+      allowTransferOverride: false, providerPattern: "",
+    });
     setShowConflicts(false);
   };
 
@@ -4774,7 +4690,16 @@ function DescriptionRulesSection({ rules, onSave, config, prefill, transactions 
       .filter((e) => e.conflict.transferCount > 0 || e.conflict.manualCount > 0);
   }, [draft, transactions]);
 
+  // Client-side validation: a rule that can override Transfer MUST carry a
+  // provider pattern (that AND condition is what makes the special power safe).
+  const invalidOverrideRules = useMemo(
+    () => draft.filter((r) => r.allowTransferOverride && !String(r.providerPattern || "").trim()),
+    [draft]
+  );
+  const hasInvalidOverride = invalidOverrideRules.length > 0;
+
   const handleSaveClick = () => {
+    if (hasInvalidOverride) return;
     if (!showConflicts && conflictsByRule.length > 0) {
       setShowConflicts(true);
       return;
@@ -4804,10 +4729,7 @@ function DescriptionRulesSection({ rules, onSave, config, prefill, transactions 
         {draft.map((r, idx) => (
           <div
             key={r.id || idx}
-            style={{
-              display: "flex", flexDirection: "column", gap: 6, borderRadius: 10,
-              padding: "8px 10px", background: "#161a20", border: "1px solid #1e2530",
-            }}
+            style={r.allowTransferOverride ? S.overrideRuleCard : S.descRuleCard}
           >
             <input
               type="text"
@@ -4836,6 +4758,36 @@ function DescriptionRulesSection({ rules, onSave, config, prefill, transactions 
                 ))}
               </select>
             </div>
+            <label style={S.overrideCheckboxRow}>
+              <input
+                type="checkbox"
+                checked={!!r.allowTransferOverride}
+                onChange={(e) => updateRule(idx, {
+                  allowTransferOverride: e.target.checked,
+                  ...(e.target.checked ? {} : { providerPattern: "" }),
+                })}
+              />
+              Allow removing from Transfer
+            </label>
+            {r.allowTransferOverride ? (
+              <>
+                <input
+                  type="text"
+                  value={r.providerPattern || ""}
+                  onChange={(e) => updateRule(idx, { providerPattern: e.target.value })}
+                  placeholder="Provider/account pattern (e.g. Apple Card)"
+                  style={S.input}
+                />
+                <div style={S.overrideNote}>
+                  This rule can move a transaction OUT of Transfer on future imports.
+                </div>
+                {!String(r.providerPattern || "").trim() ? (
+                  <div style={S.overrideError}>
+                    Provider pattern is required when this rule can override Transfer.
+                  </div>
+                ) : null}
+              </>
+            ) : null}
             <div style={{ display: "flex", gap: 6, alignItems: "center", justifyContent: "flex-end" }}>
               <button
                 type="button"
@@ -4910,21 +4862,53 @@ function DescriptionRulesSection({ rules, onSave, config, prefill, transactions 
           <button
             type="button"
             onClick={addRule}
-            disabled={!newRule.pattern.trim()}
+            disabled={!newRule.pattern.trim() || (newRule.allowTransferOverride && !String(newRule.providerPattern || "").trim())}
             title="Add rule"
-            style={{ ...S.iconBtnSmall, opacity: newRule.pattern.trim() ? 1 : 0.4, cursor: newRule.pattern.trim() ? "pointer" : "not-allowed" }}
+            style={{ ...S.iconBtnSmall, opacity: (newRule.pattern.trim() && !(newRule.allowTransferOverride && !String(newRule.providerPattern || "").trim())) ? 1 : 0.4, cursor: newRule.pattern.trim() ? "pointer" : "not-allowed" }}
           >
             <Plus size={16} />
           </button>
         </div>
+        <label style={S.overrideCheckboxRow}>
+          <input
+            type="checkbox"
+            checked={!!newRule.allowTransferOverride}
+            onChange={(e) => setNewRule((p) => ({
+              ...p,
+              allowTransferOverride: e.target.checked,
+              ...(e.target.checked ? {} : { providerPattern: "" }),
+            }))}
+          />
+          Allow removing from Transfer
+        </label>
+        {newRule.allowTransferOverride ? (
+          <>
+            <input
+              type="text"
+              value={newRule.providerPattern}
+              onChange={(e) => setNewRule((p) => ({ ...p, providerPattern: e.target.value }))}
+              placeholder="Provider/account pattern (e.g. Apple Card)"
+              style={S.input}
+            />
+            <div style={S.overrideNote}>
+              This rule can move a transaction OUT of Transfer on future imports.
+            </div>
+            {!String(newRule.providerPattern || "").trim() ? (
+              <div style={S.overrideError}>
+                Provider pattern is required when this rule can override Transfer.
+              </div>
+            ) : null}
+          </>
+        ) : null}
       </div>
 
       {dirty && showConflicts && conflictsByRule.length > 0 ? (
         <div style={{ background: "#1a1500", border: "1px solid #4b3a00", borderRadius: 10, padding: 10, margin: "6px 0 10px", fontSize: 12, color: "#fbbf24" }}>
           <div style={{ marginBottom: 6, fontWeight: 600 }}>
-            Heads up — this is informational only. Saving never reprocesses
-            existing transactions and never removes a transaction from
-            Transfer; it only affects future imports.
+            Heads up — saving never reprocesses existing transactions; it only
+            affects future imports. Rules without "Allow removing from Transfer"
+            can never move a transaction out of Transfer; rules that DO have it
+            can (see the highlighted note per rule below).
           </div>
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
             {conflictsByRule.map(({ rule, conflict }, i) => (
@@ -4939,6 +4923,12 @@ function DescriptionRulesSection({ rules, onSave, config, prefill, transactions 
                     ? `${conflict.manualCount} with a manual correction`
                     : null}
                 </div>
+                {rule.allowTransferOverride && conflict.transferCount > 0 ? (
+                  <div style={{ color: "#f87171", marginTop: 2, fontWeight: 600 }}>
+                    This rule WILL be able to move future matching imports out of
+                    Transfer — review the examples below carefully.
+                  </div>
+                ) : null}
                 {conflict.transferExamples.length || conflict.manualExamples.length ? (
                   <div style={{ color: "#8b94a3", marginTop: 2 }}>
                     e.g. {[...conflict.transferExamples, ...conflict.manualExamples].slice(0, 5).join("; ")}
@@ -4950,12 +4940,18 @@ function DescriptionRulesSection({ rules, onSave, config, prefill, transactions 
         </div>
       ) : null}
 
+      {hasInvalidOverride ? (
+        <div style={{ ...S.overrideError, marginTop: 8 }}>
+          Provider pattern is required when a rule can override Transfer.
+        </div>
+      ) : null}
+
       <div style={{ display: "flex", gap: 8 }}>
         <button
           type="button"
           onClick={handleSaveClick}
-          disabled={!dirty}
-          style={{ ...S.primaryBtn, marginTop: 10, opacity: dirty ? 1 : 0.5, cursor: dirty ? "pointer" : "not-allowed" }}
+          disabled={!dirty || hasInvalidOverride}
+          style={{ ...S.primaryBtn, marginTop: 10, opacity: (dirty && !hasInvalidOverride) ? 1 : 0.5, cursor: (dirty && !hasInvalidOverride) ? "pointer" : "not-allowed" }}
         >
           {showConflicts && conflictsByRule.length > 0 ? "Save anyway" : "Save rules"}
         </button>
@@ -5092,34 +5088,31 @@ function buildRow(raw, mapping, profile, accountMap) {
 
   const description = val("description");
 
-  // Description/provider override rules (Audit → "Description rules"). These
+  // Description/provider override rules (Settings → "Description rules"). A
+  // SINGLE pass over the ordered list — the first matching rule wins. These
   // OVERRIDE the CK-map/CSV category for the "CK got the category wrong, my
-  // rule fixes it" case. `descOverride` is never Transfer (guaranteed by the
-  // endpoint sanitize AND the client save path), so this only ever replaces a
-  // NON-Transfer category — and crucially it feeds INTO the Transfer safety
-  // net below, which still forces Transfer when the CK original said Transfer.
-  // That means a description rule can never de-transfer a row (intentional
-  // invariant). Never touches `amount`/its sign.
-  const descOverride = matchDescriptionCategoryRule(
+  // rule fixes it" case. Never touches `amount`/its sign.
+  const matchedRule = findMatchingDescriptionRule(
     { description, srcAccount: rawAccount, account },
     CATEGORY_DESCRIPTION_RULES
   );
-  const overridden = descOverride != null ? descOverride : recomputedCategory;
+  const overridden = matchedRule ? matchedRule.destinationCategory : recomputedCategory;
 
-  const safetyNetCategory = (overridden === TRANSFER_CATEGORY || csvCategory === TRANSFER_CATEGORY)
-    ? TRANSFER_CATEGORY
-    : matchOption(overridden, CATEGORIES, "Other");
-  // Apple Daily Cash heuristic runs LAST, after the CK->ledger map and the
-  // Transfer safety-net above. Unlike everything before it, this heuristic is
-  // explicitly allowed to move a row OUT of Transfer into its destination
-  // category (e.g. "Other Income") when the provider + description pattern
-  // matches — that's the real-world case it exists for. It's still purely
-  // additive: if the pattern doesn't match, `safetyNetCategory` passes through
-  // untouched. Never touches `amount`/its sign.
-  const category = applyAppleDailyCashRule(
-    { srcAccount: rawAccount, account, description, category: safetyNetCategory },
-    APPLE_DAILY_CASH_RULE
-  );
+  // Transfer safety-net: keeps a CK-sourced (or CSV-sourced) Transfer as
+  // Transfer even when a rule matches — a description rule can NEVER de-transfer
+  // a row by default (intentional invariant, PR #111). The ONLY escape hatch is
+  // a winning rule that explicitly opted into `allowTransferOverride: true`
+  // (which requires a non-empty `providerPattern`); such a rule skips the
+  // safety net entirely and promotes the row into its destination category —
+  // this is the generalization of the former Apple Daily Cash heuristic. Note
+  // that "first match wins" applies here too: a broader non-override rule
+  // ordered before the override rule would win and the override never fires,
+  // which is why migrated Apple Daily Cash rules are prepended to the array.
+  const category = (matchedRule && matchedRule.allowTransferOverride)
+    ? matchedRule.destinationCategory
+    : ((overridden === TRANSFER_CATEGORY || csvCategory === TRANSFER_CATEGORY)
+        ? TRANSFER_CATEGORY
+        : matchOption(overridden, CATEGORIES, "Other"));
 
   const row = {
     id: uid(),
@@ -6037,6 +6030,27 @@ const S = {
     padding: "10px 12px",
     color: "#e5e7eb",
     fontSize: 14,
+  },
+  // Description rule card (Settings → Description rules). Default state uses the
+  // muted surface/border; `overrideRuleCard` swaps to an amber accent while the
+  // rule has the special "Allow removing from Transfer" power turned on.
+  descRuleCard: {
+    display: "flex", flexDirection: "column", gap: 6, borderRadius: 10,
+    padding: "8px 10px", background: "#161a20", border: "1px solid #1e2530",
+  },
+  overrideRuleCard: {
+    display: "flex", flexDirection: "column", gap: 6, borderRadius: 10,
+    padding: "8px 10px", background: "#1a1500", border: "1px solid #b45309",
+  },
+  overrideCheckboxRow: {
+    display: "flex", alignItems: "center", gap: 6,
+    fontSize: 12, color: "#8b94a3", cursor: "pointer",
+  },
+  overrideNote: {
+    fontSize: 11, color: "#fbbf24", lineHeight: 1.4,
+  },
+  overrideError: {
+    fontSize: 11, color: "#f87171", lineHeight: 1.4,
   },
   // Compact category picker inside the Import preview row — same tokens as
   // `select` but sized to sit inline next to the date/account line without
