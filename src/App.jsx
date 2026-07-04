@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useLayoutEffect, useMemo, useCallback, useRef } from "react";
 import { createPortal } from "react-dom";
 import {
-  LayoutDashboard,
+  Wallet,
   Home,
   List,
   Upload,
@@ -1414,15 +1414,15 @@ function Header({ hideValues, onToggleHide, onLogout, saving, savedAt, dirty, sa
       <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <div style={{
-            width: 28, height: 28, borderRadius: 8,
-            background: "linear-gradient(135deg, #0A84FF 0%, #0055cc 100%)",
+            width: 28, height: 28, borderRadius: 9,
+            background: "linear-gradient(135deg, rgba(255,255,255,0.25), rgba(255,255,255,0) 60%), linear-gradient(135deg, #0A84FF 0%, #0055cc 100%)",
             display: "grid", placeItems: "center", flexShrink: 0,
-            boxShadow: "0 2px 8px rgba(10,132,255,0.35)",
+            boxShadow: "0 2px 8px rgba(10,132,255,0.35), inset 0 1px 1px rgba(255,255,255,0.3)",
           }}>
-            <LayoutDashboard size={14} color="#fff" />
+            <Wallet size={14} color="#fff" />
           </div>
           <span style={{ fontWeight: 700, fontSize: 15, letterSpacing: -0.5, color: "#e5e7eb" }}>Household</span>
-          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.21.0</span>
+          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.21.1</span>
         </div>
         <SaveIndicator saving={saving} dirty={dirty} savedAt={savedAt} saveError={saveError} />
       </div>
@@ -6287,8 +6287,10 @@ const S = {
     boxSizing: "border-box",
     display: "flex",
     justifyContent: "space-evenly",
-    background: "#0b0d10",
-    borderTop: "1px solid rgba(255,255,255,0.06)",
+    background: "rgba(11,13,16,0.85)",
+    backdropFilter: "blur(20px) saturate(180%)",
+    WebkitBackdropFilter: "blur(20px) saturate(180%)",
+    borderTop: "1px solid rgba(255,255,255,0.08)",
     padding: "8px 8px max(10px, env(safe-area-inset-bottom))",
     zIndex: 10,
     gap: 4,
