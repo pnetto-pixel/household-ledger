@@ -1,4 +1,4 @@
-# Household Ledger · v1.20.2
+# Household Ledger · v1.20.3
 
 Aplicativo mobile-first de controle financeiro doméstico. Registra
 transações da casa (despesas e receitas) por categoria e conta, com
@@ -24,7 +24,28 @@ A cada PR, atualize a versão em **dois lugares**:
 1. `src/App.jsx` — a string `v1.x.x` no span ao lado de "Household"
 2. `household-ledger.md` — o `· v1.x.x` no título `# Household Ledger`
 
-Versão atual: **v1.20.2** — **Rename da tab "Dashboard" para "Home" +
+Versão atual: **v1.20.3** — **Backup local de transactions na tab Settings**
+(patch/manutenção, item avulso pedido pelo usuário fora do roadmap de fases,
+`src/App.jsx` único arquivo alterado). Novo botão **"Backup transactions"**
+dentro de um novo `CollapsibleCard` **"Data & Backup"** na tab **Settings**
+(`SettingsTab`): ao clicar, baixa localmente um arquivo JSON
+`household-transactions-backup-YYYY-MM-DD.json` com
+`{ transactions: [...], exportedAt: ISOString }` — export puro do array de
+transactions já carregado em memória no client (mesmo dado retornado por
+`GET /api/transactions`), 100% client-side, **sem nenhuma mudança de
+contrato de API, formato Redis ou modelo de transação**. Feedback de UI:
+mensagem "Downloaded N transactions." por ~2s após o clique. A função
+`triggerDownload(blob, filename)`, antes local ao componente `Transactions`
+(usada só pelo export CSV), foi elevada a escopo de módulo e passou a ser
+reaproveitada também por este novo backup. **Fora de escopo (não
+implementado)**: import/restore do JSON, backup automático/agendado, e
+backup de outros namespaces Redis (account-map, config, budgets, aliases,
+description-rules) — cobre só `transactions`. Motivação: manutenção/
+segurança pedida pelo usuário antes de mudanças estruturais no app, para
+mitigar risco de perda de dados; não é item de nenhuma fase do Roadmap. —
+PR #140 (draft), branch `claude/transaction-backup-settings-d5e86h`.
+
+Versão anterior: **v1.20.2** — **Rename da tab "Dashboard" para "Home" +
 padronização de cores dos ícones de categoria** (patch, `src/App.jsx` único
 arquivo alterado). (1) A primeira tab da tab bar deixou de se chamar
 "Dashboard" e passou a se chamar **"Home"** — label, ícone (`LayoutDashboard`
@@ -1139,6 +1160,14 @@ shell de altura cheia (`#root` em `100lvh` + shell `height:100%`): só o
    6. **Category mapping** — **movida para o final da tab** (antes vinha logo
       após "Account aliases"), com menos destaque/prioridade visual; continua
       colapsável e **fechada por padrão**.
+   7. **Data & Backup** (desde a v1.20.3, PR #140) — novo card no final da
+      tab, com o botão **"Backup transactions"**: baixa localmente um JSON
+      `household-transactions-backup-YYYY-MM-DD.json` com
+      `{ transactions: [...], exportedAt }`, export puro do array de
+      transactions já em memória (mesmo dado de `GET /api/transactions`),
+      100% client-side. Feedback "Downloaded N transactions." por ~2s. Só
+      cobre `transactions` — sem import/restore, sem agendamento, sem outros
+      namespaces Redis (fora de escopo desta entrega).
 
    Renderiza `AccountAliasesSection` (mesmas props de antes:
    `transactions`, `accountMap`, `aliases={accountAliases}`,
@@ -2033,6 +2062,18 @@ O app inicia com array vazio quando não há dados salvos (sem SEED).
   (endpoint e dado no Redis continuam existindo, só a UI foi retirada).
   Discutir: reintroduzir como seção própria, mover para dentro da Home,
   ou repensar a interação.
+- [x] **Backup local de transactions na tab Settings** (PR #140, draft,
+  branch `claude/transaction-backup-settings-d5e86h`, v1.20.3) — item
+  **avulso de manutenção/segurança**, pedido diretamente pelo usuário fora
+  do roadmap de fases, para mitigar risco de perda de dados antes de
+  mudanças estruturais futuras. Novo card **"Data & Backup"** na tab
+  Settings com o botão "Backup transactions": baixa localmente um JSON com
+  `{ transactions: [...], exportedAt }`, 100% client-side, sem mudança de
+  API/Redis/modelo de transação. Cobre só `transactions` — import/restore
+  do JSON, backup agendado e backup de outros namespaces Redis (account-map,
+  config, budgets, aliases, description-rules) ficaram fora de escopo e
+  **não** foram adicionados como pendência formal (avaliar sob demanda, se
+  o usuário pedir).
 - [ ] **Recurrents (recorrentes / assinaturas) — reavaliar formato**
   *(removido do Analyze no PR #104)*: antes vivia como detecção client-side
   de transações com a mesma descrição em ≥2 meses e valor dentro de ±10% da
