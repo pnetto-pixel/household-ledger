@@ -2660,14 +2660,43 @@ function Charts({ transactions, hideValues, config }) {
   const [categoryFilter, setCategoryFilter] = useState([]);
   const categoryOptions = useMemo(() => [...EXPENSE_CATEGORIES, ...INCOME_CATEGORIES], [config]);
 
+  // Central setter for the year range: applies the from/to clamp and, when
+  // the resulting span exceeds one year, nudges granularity to "Y" as a
+  // sensible default (not a lock — the user can still pick M/Q/H afterwards
+  // even with a multi-year range). Used by drag handles and the All/L3Y/YTD
+  // preset buttons alike, so the rule lives in exactly one place.
+  const applyYearRange = (from, to) => {
+    setFromYear(from);
+    setToYear(to);
+    if (from && to && from !== to) setGranularity("Y");
+  };
+
   // Clamp: from can't pass to, and vice versa — each handle stops at the
   // other's position rather than dragging it along.
   const handleFromYear = (v) => {
-    setFromYear(toYearEff && v > toYearEff ? toYearEff : v);
+    const next = toYearEff && v > toYearEff ? toYearEff : v;
+    applyYearRange(next, toYearEff);
   };
   const handleToYear = (v) => {
-    setToYear(fromYearEff && v < fromYearEff ? fromYearEff : v);
+    const next = fromYearEff && v < fromYearEff ? fromYearEff : v;
+    applyYearRange(fromYearEff, next);
   };
+
+  // All / L3Y / YTD presets, built from the available years + current date.
+  const currentYear = String(new Date().getFullYear());
+  const oldestYear = years.length ? years[years.length - 1] : currentYear;
+  const newestYear = years.length ? years[0] : currentYear;
+  const l3yFrom = (() => {
+    const target = String(Number(currentYear) - 2);
+    return target > oldestYear ? target : oldestYear;
+  })();
+
+  const rangePresets = [
+    { v: "all", l: "All", from: oldestYear, to: newestYear },
+    { v: "l3y", l: "L3Y", from: l3yFrom, to: currentYear },
+    { v: "ytd", l: "YTD", from: currentYear, to: currentYear },
+  ];
+  const activePreset = rangePresets.find((p) => p.from === fromYearEff && p.to === toYearEff)?.v;
 
   // Filter transactions to the selected year range.
   const scopedByYear = useMemo(() => {
@@ -2773,14 +2802,27 @@ function Charts({ transactions, hideValues, config }) {
         </div>
       </div>
 
-      {/* Year range drag slider */}
-      <YearRangeSlider
-        years={yearOptsAsc}
-        fromYear={fromYearEff}
-        toYear={toYearEff}
-        onFromYear={handleFromYear}
-        onToYear={handleToYear}
-      />
+      {/* Range presets (left) + year-range drag slider (right) */}
+      <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+        <div style={S.segmented}>
+          {rangePresets.map(({ v, l, from, to }) => (
+            <button
+              key={v}
+              onClick={() => applyYearRange(from, to)}
+              style={S.segmentedBtn(activePreset === v)}
+            >
+              {l}
+            </button>
+          ))}
+        </div>
+        <YearRangeSlider
+          years={yearOptsAsc}
+          fromYear={fromYearEff}
+          toYear={toYearEff}
+          onFromYear={handleFromYear}
+          onToYear={handleToYear}
+        />
+      </div>
 
       {/* Category filter: multi-select chip, applies to all 3 charts below.
           Empty selection = all categories (no filter). Transfer is excluded
@@ -6876,7 +6918,9 @@ const S = {
     height: 4,
     borderRadius: 999,
     background: "rgba(255,255,255,0.08)",
-    margin: "18px 10px 8px",
+    margin: "18px auto 8px",
+    maxWidth: 260,
+    flex: "1 1 200px",
   },
   yearRangeFill: {
     position: "absolute",
@@ -6891,12 +6935,15 @@ const S = {
     width: 20,
     height: 20,
     borderRadius: "50%",
-    background: "#0A84FF",
-    border: "2px solid #e5e7eb",
+    background:
+      "linear-gradient(135deg, rgba(255,255,255,0.35), rgba(255,255,255,0) 50%), rgba(10,132,255,0.85)",
+    border: "1px solid rgba(255,255,255,0.5)",
+    backdropFilter: "blur(6px) saturate(160%)",
+    WebkitBackdropFilter: "blur(6px) saturate(160%)",
     transform: "translate(-50%, -50%)",
     cursor: "grab",
     touchAction: "none",
-    boxShadow: "0 2px 6px rgba(0,0,0,0.4)",
+    boxShadow: "0 2px 6px rgba(0,0,0,0.4), inset 0 1px 1px rgba(255,255,255,0.35)",
   },
   yearRangeLabel: {
     position: "absolute",
