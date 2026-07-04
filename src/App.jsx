@@ -3463,11 +3463,11 @@ function DateHeaderFilter({ years, dateYears, setDateYears, dateMonths, setDateM
               <div style={{ display: "flex", flexDirection: "column", gap: 6, padding: "4px 8px" }}>
                 <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: "#8b94a3" }}>
                   <span style={{ width: 28 }}>From</span>
-                  <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} style={{ ...S.input, flex: 1, padding: "6px 8px", fontSize: 12 }} />
+                  <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} style={{ ...S.input, flex: 1, padding: "6px 8px", fontSize: 12, fontFamily: "inherit" }} />
                 </label>
                 <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: "#8b94a3" }}>
                   <span style={{ width: 28 }}>To</span>
-                  <input type="date" value={to} onChange={(e) => setTo(e.target.value)} style={{ ...S.input, flex: 1, padding: "6px 8px", fontSize: 12 }} />
+                  <input type="date" value={to} onChange={(e) => setTo(e.target.value)} style={{ ...S.input, flex: 1, padding: "6px 8px", fontSize: 12, fontFamily: "inherit" }} />
                 </label>
               </div>
             </div>
