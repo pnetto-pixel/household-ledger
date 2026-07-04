@@ -1165,11 +1165,26 @@ Settings (antiga **Audit**, renomeada e consolidada com o antigo
 shell de altura cheia (`#root` em `100lvh` + shell `height:100%`): só o
 `<main>` faz scroll, então header e tab bar ficam fixos.
 
-1. **Home** (antiga Dashboard) — `PeriodFilter` (seletor ano/mês) fica acima do hero e
-   controla o período exibido. **Hero card** mostra o saldo líquido, receita
+1. **Home** (antiga Dashboard) — **Desde o PR #161**, o antigo `PeriodFilter`
+   (dois `<select>` nativos de ano/mês) foi substituído por
+   **`SinglePeriodFilter`**: chip-button + Popover (mesmo padrão visual já
+   usado nos chips da tab Transactions), mantendo semântica single-select
+   (`year`/`month` continuam string única `"All"`|valor, não arrays — a
+   lógica de `matchPeriod`/`heroComparisons`/`cutoffDay`/`dashboardPaceData`
+   não mudou). O chip fica acima do hero e controla o período exibido.
+   O chip de categoria do bloco "by Category" também foi restilizado no PR
+   #161: o antigo `<select>` nativo virou **`SingleCategoryFilter`**
+   (chip-button + Popover, comportamento rádio — clicar seleciona e fecha),
+   sem alterar `catFilter` (segue string única). O PR #161 também corrigiu um
+   bug de fonte: os popovers usam `createPortal` para `document.body` (fora
+   da árvore `.app`) e não herdavam a fonte do app; nova constante de módulo
+   `FONT_STACK` foi aplicada em `S.headerPop` e nos inputs de data do
+   `DateHeaderFilter` da Transactions (que tinham `fontFamily: "inherit"`
+   hardcoded), uniformizando a fonte em todos os popovers do app. **Hero
+   card** mostra o saldo líquido, receita
    e despesa do **período selecionado** (antes era all-time). Abaixo do hero,
    **`DailyPaceCard`** (v1.5.6) — AreaChart de gasto cumulativo diário com
-   duas séries vinculadas ao período selecionado pelo `PeriodFilter`: mês
+   duas séries vinculadas ao período selecionado pelo `SinglePeriodFilter`: mês
    selecionado (laranja `#F97316`, linha sólida + fill semi-transparente) e
    mês anterior (cinza `#8b94a3`, linha tracejada + fill sutil). Eixo X =
    dia do mês; eixo Y = despesa cumulativa em formato `$X.XK`. Exibe
@@ -1203,8 +1218,8 @@ shell de altura cheia (`#root` em `100lvh` + shell `height:100%`): só o
    "By Category" (`CategoryStackedBarCard`). No topo da seção há um
    **segmented control de granularidade** (M / Quarter / Half / Year) e um
    **filtro de range de anos** (From / To) que substituiu os dropdowns
-   Ano+Mês exclusivos do Charts (o componente compartilhado `PeriodFilter`
-   continua usado pela Home). **Desde o PR #152**, os dois `<select>` de
+   Ano+Mês exclusivos do Charts (a Home usa seu próprio `SinglePeriodFilter`
+   — ver item 1 acima, restilizado no PR #161). **Desde o PR #152**, os dois `<select>` de
    fromYear/toYear desse filtro de range foram substituídos pelo novo
    componente **`YearRangeSlider`**: trilha única com dois handles
    arrastáveis via pointer events (mouse + touch), snap discreto por ano e
@@ -1800,6 +1815,19 @@ O app inicia com array vazio quando não há dados salvos (sem SEED).
 - [x] Desktop: switch M/Q/H/Y da tab Trends alinhado à direita da linha
   (v1.22.1), separado do bloco category/presets/slider à esquerda. Só
   `src/App.jsx` alterado; sem mudança de API/Redis/modelo de transação
+- [x] Restyle dos chips de Date/Category da tab Home (PR #161, mergeado em
+  `main`): antigo `PeriodFilter` (dois `<select>` nativos) substituído por
+  `SinglePeriodFilter` (chip-button + Popover, padrão já usado na tab
+  Transactions); chip de categoria do bloco "by Category" trocado de
+  `<select>` nativo para `SingleCategoryFilter` (chip-button + Popover,
+  comportamento rádio). Semântica single-select preservada — `year`/`month`/
+  `catFilter` continuam string única, `matchPeriod`/`heroComparisons`/
+  `cutoffDay`/`dashboardPaceData` não foram tocados. Corrigido também um bug
+  de fonte nos popovers (`createPortal` para `document.body`, fora de
+  `.app`, não herdava a fonte do app): nova constante `FONT_STACK` aplicada
+  em `S.headerPop` e nos inputs de data do `DateHeaderFilter` da
+  Transactions. Só `src/App.jsx` alterado; sem mudança de API/Redis/modelo
+  de transação
 - [ ] Multiusuário / household compartilhado
 - [ ] PWA offline-first
 - [~] Integrações de import (bancos, cartões) — exportador Credit Karma para
