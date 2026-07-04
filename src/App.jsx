@@ -1422,7 +1422,7 @@ function Header({ hideValues, onToggleHide, onLogout, saving, savedAt, dirty, sa
             <Wallet size={14} color="#fff" />
           </div>
           <span style={{ fontWeight: 700, fontSize: 15, letterSpacing: -0.5, color: "#e5e7eb" }}>Household</span>
-          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.21.4</span>
+          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.21.5</span>
         </div>
         <SaveIndicator saving={saving} dirty={dirty} savedAt={savedAt} saveError={saveError} />
       </div>
@@ -2043,7 +2043,7 @@ function MonthlyBarCard({ byBucket, hideValues, fmtK, fmtKTooltip, fmtBucketLabe
                   cursor={false}
                   formatter={(v) => (fmtKTooltip || fmtK)(v)}
                   labelFormatter={(v) => fmtBucketLabel(v)}
-                  contentStyle={{ background: "#161a20", border: "1px solid #1e2530", borderRadius: 10, fontSize: 12 }}
+                  contentStyle={{ background: "#161a20", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 14, fontSize: 12, boxShadow: "0 8px 24px rgba(0,0,0,0.4)" }}
                   itemStyle={{ color: "#e5e7eb" }}
                   labelStyle={{ color: "#8b94a3" }}
                 />
@@ -2166,7 +2166,7 @@ function DailyPaceCard({ paceData, hideValues, fmtK }) {
                   cursor={false}
                   formatter={(v, name) => [fmtK(v), name]}
                   labelFormatter={(d) => `Day ${d}`}
-                  contentStyle={{ background: "#161a20", border: "1px solid #1e2530", borderRadius: 10, fontSize: 12 }}
+                  contentStyle={{ background: "#161a20", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 14, fontSize: 12, boxShadow: "0 8px 24px rgba(0,0,0,0.4)" }}
                   itemStyle={{ color: "#e5e7eb" }}
                   labelStyle={{ color: "#8b94a3" }}
                 />
@@ -2303,7 +2303,7 @@ function CategoryStackedBarCard({ scoped, granularity, hideValues, fmtK, fmtKFul
               <Tooltip
                 formatter={(val, name) => [fmtKFull(val), name]}
                 labelFormatter={(bk) => bucketLabel(bk)}
-                contentStyle={{ background: "#1e2329", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 8, fontSize: 12 }}
+                contentStyle={{ background: "#1e2329", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 14, fontSize: 12, boxShadow: "0 8px 24px rgba(0,0,0,0.4)" }}
                 itemStyle={{ color: "#e5e7eb" }}
                 labelStyle={{ color: "#8b94a3" }}
                 cursor={false}
@@ -2460,7 +2460,7 @@ function MonthlyAvgByCategoryCard({ scopedAllYears, hideValues, fmtK, fmtKFull }
               <Tooltip
                 formatter={(val, name) => [fmtKFull(val), name]}
                 labelFormatter={(bk) => bucketLabel(bk)}
-                contentStyle={{ background: "#1e2329", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 8, fontSize: 12 }}
+                contentStyle={{ background: "#1e2329", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 14, fontSize: 12, boxShadow: "0 8px 24px rgba(0,0,0,0.4)" }}
                 itemStyle={{ color: "#e5e7eb" }}
                 labelStyle={{ color: "#8b94a3" }}
                 cursor={false}
@@ -2735,7 +2735,7 @@ function Charts({ transactions, hideValues, config }) {
                     cursor={false}
                     formatter={(v) => fmtKFull(v)}
                     labelFormatter={(v) => bucketLabel(v)}
-                    contentStyle={{ background: "#161a20", border: "1px solid #1e2530", borderRadius: 10, fontSize: 12 }}
+                    contentStyle={{ background: "#161a20", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 14, fontSize: 12, boxShadow: "0 8px 24px rgba(0,0,0,0.4)" }}
                     itemStyle={{ color: "#e5e7eb" }}
                     labelStyle={{ color: "#8b94a3" }}
                   />
