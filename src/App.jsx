@@ -3977,7 +3977,7 @@ function ManagedRow({ name, used, editing, editVal, setEditVal, onStartEdit, onC
         }}
       >
         <button
-          onPointerDown={(e) => { e.stopPropagation(); onGripPointerDown(e); }}
+          onPointerDown={(e) => { e.stopPropagation(); close(); onGripPointerDown(e); }}
           onPointerMove={(e) => { e.stopPropagation(); onGripPointerMove(e); }}
           onPointerUp={(e) => { e.stopPropagation(); onGripPointerEnd(e); }}
           onPointerCancel={(e) => { e.stopPropagation(); onGripPointerEnd(e); }}
