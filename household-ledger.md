@@ -1,4 +1,4 @@
-# Household Ledger · v1.20.1
+# Household Ledger · v1.20.2
 
 Aplicativo mobile-first de controle financeiro doméstico. Registra
 transações da casa (despesas e receitas) por categoria e conta, com
@@ -24,7 +24,26 @@ A cada PR, atualize a versão em **dois lugares**:
 1. `src/App.jsx` — a string `v1.x.x` no span ao lado de "Household"
 2. `household-ledger.md` — o `· v1.x.x` no título `# Household Ledger`
 
-Versão atual: **v1.20.1** — **Fix: migração da Apple Daily Cash rule não
+Versão atual: **v1.20.2** — **Rename da tab "Dashboard" para "Home" +
+padronização de cores dos ícones de categoria** (patch, `src/App.jsx` único
+arquivo alterado). (1) A primeira tab da tab bar deixou de se chamar
+"Dashboard" e passou a se chamar **"Home"** — label, ícone (`LayoutDashboard`
+→ `Home`, ambos de `lucide-react`), id interno da tab (`"dashboard"` →
+`"home"`) e a comparação de render correspondente foram todos atualizados
+juntos; o ícone `LayoutDashboard` do logo/header do app foi **mantido**
+(elemento visual separado, fora de escopo). Puramente cosmético — nenhuma
+mudança de layout, dados ou comportamento da tela em si (hero card,
+DailyPaceCard, bloco "by Category", "All Time", ver "UI" abaixo). (2)
+Padronização das cores dos ícones de categoria: nova função central
+`getCategoryColor(cat)` (= `CATEGORY_COLOR_MAP[cat] || catDotColor(cat)`)
+agora usada tanto nos avatares de categoria da tab **Home** quanto no card
+**"By Category"** da tab **Analyze** — antes a Home usava só `catDotColor`
+sem checar o mapa curado `CATEGORY_COLOR_MAP`, causando divergência de cor
+para a mesma categoria entre as duas telas. Nenhuma mudança de contrato de
+API, formato Redis ou modelo de transação. — PR #138, branch
+`claude/dashboard-category-colors-ytmb16`, squash merge.
+
+Versão anterior: **v1.20.1** — **Fix: migração da Apple Daily Cash rule não
 rodava para households que nunca haviam salvo a regra manualmente** (patch,
 `src/App.jsx` único arquivo alterado). A regra tinha um **default hardcoded**
 (`Apple Card` / `Deposit`,`Adjustment` / `Other Income`) que funcionava
@@ -879,16 +898,19 @@ Mobile-first, tema escuro iOS. Tab bar inferior fixa com 5 abas. A entrada de tr
 - **Cantos arredondados**: cards 16 px, modais 20 px, inputs/botões 12 px, linhas de transação 14 px.
 - **Paleta dark mode iOS**: superfícies `#161a20`, borders `#1e2530`, system blue `#0A84FF` em botões primários e links, cinza `#636366` no botão de exclusão. (Background anterior `#0b0d10` substituído.)
 - **Densidade mobile (PR #40)**: Header e TabBar compactados para maximizar a área de lista na tab Transactions. Header: padding vertical `8px/8px` (antes `14px/12px`), ícones 16 px (antes 18 px), IconButton padding 6 px (antes 8 px), SaveIndicator 10 px (antes 11 px). TabBar: padding `4px / max(4px, inset-bottom)` (antes `8px / max(8px, ...)`), ícones 18 px (antes 22 px), labels 9 px com `marginTop: 1px` (antes 10 px / 2 px), tabBtn padding 2 px (antes 4 px). O header ocupa bem abaixo de 25 % da altura da tela. Um design spec developer-ready com dimensões, cores hex, font weights, spacing, hover states e responsividade mobile+desktop está embutido em `src/App.jsx` (bloco de comentário acima do objeto de estilos `S`).
-- **Modernização Copilot-inspired**: Dashboard com **hero card** de saldo líquido (gradiente, glow, 40 px, split receita/despesa), StatCards com borda de acento à esquerda + label uppercase, `TxnRow` com **avatar colorido** da categoria (inicial + paleta estável via `catDotColor`/`CATEGORY_COLORS`), logo tile azul no header, e linhas de orçamento com dot da categoria + glow na barra estourada. As **legendas dos ícones** da tab bar (Dashboard/Analyze/Txns/Import) seguem visíveis.
+- **Modernização Copilot-inspired**: Home com **hero card** de saldo líquido (gradiente, glow, 40 px, split receita/despesa), StatCards com borda de acento à esquerda + label uppercase, `TxnRow` com **avatar colorido** da categoria (inicial + paleta estável via `catDotColor`/`CATEGORY_COLORS`), logo tile azul no header, e linhas de orçamento com dot da categoria + glow na barra estourada. As **legendas dos ícones** da tab bar (Home/Analyze/Txns/Import) seguem visíveis.
+- **Rename Dashboard → Home (PR #138, v1.20.2)**: a tab antes chamada "Dashboard" (label, ícone `LayoutDashboard`→`Home` de `lucide-react`, id interno `"dashboard"`→`"home"`) passou a se chamar **"Home"** — puramente cosmético, mesma tela/comportamento descritos no item 1 da lista de tabs abaixo. O ícone `LayoutDashboard` do logo/header do app foi mantido (elemento separado).
+- **Cores de categoria unificadas (PR #138, v1.20.2)**: nova função central `getCategoryColor(cat)` (= `CATEGORY_COLOR_MAP[cat] || catDotColor(cat)`) usada tanto pelos avatares de categoria da tab Home quanto pelo card "By Category" da tab Analyze (`CategoryStackedBarCard`), eliminando a divergência de cor que existia antes entre as duas telas para a mesma categoria.
 - **Tela cheia iOS PWA (full-bleed)**: o `viewport-fit=cover` só passa a valer com o meta limpo (sem `maximum-scale`) **e** uma reinstalação na tela inicial (o iOS faz snapshot do viewport no add-to-home-screen). A medição no device foi decisiva: `100dvh`/`100svh` = a *layout viewport* (812 pt no iPhone 16 Pro, que **exclui** a área do home indicator), enquanto `100vh`/`100lvh` = a tela física completa (874 pt). Por isso `html`/`body`/`#root` usam **`height: 100lvh`** com `overflow: hidden` (sem rubber-band) e o shell `height: 100%`. Resultado: a tab bar encosta na borda física real (medido `belowNav = 0`), sem faixa preta. `env(safe-area-inset-bottom)` no padding da barra mantém os ícones acima do home indicator; `env(safe-area-inset-top)` no header limpa a Dynamic Island.
 
-São **5 tabs**: Dashboard, Analyze, Transactions, Import, Settings (antiga
-**Audit**, renomeada e consolidada com o antigo `SettingsModal` na v1.17.0,
-PR #128 — ver item 5 abaixo). O app usa
+São **5 tabs**: Home (antiga **Dashboard**, renomeada na v1.20.2, PR #138 —
+ver "Identidade visual" acima), Analyze, Transactions, Import, Settings
+(antiga **Audit**, renomeada e consolidada com o antigo `SettingsModal` na
+v1.17.0, PR #128 — ver item 5 abaixo). O app usa
 shell de altura cheia (`#root` em `100lvh` + shell `height:100%`): só o
 `<main>` faz scroll, então header e tab bar ficam fixos.
 
-1. **Dashboard** — `PeriodFilter` (seletor ano/mês) fica acima do hero e
+1. **Home** (antiga Dashboard) — `PeriodFilter` (seletor ano/mês) fica acima do hero e
    controla o período exibido. **Hero card** mostra o saldo líquido, receita
    e despesa do **período selecionado** (antes era all-time). Abaixo do hero,
    **`DailyPaceCard`** (v1.5.6) — AreaChart de gasto cumulativo diário com
@@ -900,7 +922,10 @@ shell de altura cheia (`#root` em `100lvh` + shell `height:100%`): só o
    Transfers excluídas; `cursor={false}`. Abaixo do DailyPaceCard, bloco
    **"by Category"**: gastos do mês selecionado por categoria, ordenados do
    maior para o menor (só categorias com gasto > 0; Transfer e categorias de
-   receita excluídas). Cada categoria exibe avatar colorido, valor e dois
+   receita excluídas). Cada categoria exibe avatar colorido (cor via
+   `getCategoryColor`, PR #138, v1.20.2 — mesma função usada pelo card "By
+   Category" da tab Analyze, item 2 abaixo, garantindo cor consistente entre
+   as duas telas), valor e dois
    badges de variação percentual — **M/M** (vs. mês anterior) e **Y/Y**
    (vs. mesmo mês do ano anterior). Comparações usam cutoff do mesmo dia
    (mês corrente → até hoje; mês passado → mês completo). Base 0 exibe "—";
@@ -909,7 +934,7 @@ shell de altura cheia (`#root` em `100lvh` + shell `height:100%`): só o
    Ao final da página, seção **"All Time"** com 3 StatCards (Income /
    Expenses / Net) totais históricos (`usd0`, sem centavos, para caberem na
    linha em telas estreitas).
-   O bloco **"Recent" (transações recentes) foi removido** do Dashboard
+   O bloco **"Recent" (transações recentes) foi removido** da Home
    (componente `TxnRow` permanece na aba Transactions).
 2. **Analyze** — a tab renderiza **somente `Charts`** (PR #104, v1.7.0): as
    sub-seções Trends ("Tendências mês a mês"), Budgets ("Orçamentos por
@@ -923,7 +948,7 @@ shell de altura cheia (`#root` em `100lvh` + shell `height:100%`): só o
    **segmented control de granularidade** (M / Quarter / Half / Year) e um
    **filtro de range de anos** (From / To) que substituiu os dropdowns
    Ano+Mês exclusivos do Charts (o componente compartilhado `PeriodFilter`
-   continua usado pelo Dashboard). Logo abaixo do range de anos, um **filtro
+   continua usado pela Home). Logo abaixo do range de anos, um **filtro
    de categoria (multi-select, PR #102, v1.6.0)** reutiliza o componente
    `HeaderFilter` (dropdown com checkboxes via Popover/portal, modo `chip`);
    a lista de opções é `EXPENSE_CATEGORIES + INCOME_CATEGORIES` combinadas
@@ -962,7 +987,10 @@ shell de altura cheia (`#root` em `100lvh` + shell `height:100%`): só o
    `CATEGORY_COLOR_MAP` (casa = vermelhos, carro = azuis, alimentação = verdes,
    lazer = púrpuras, finanças/saúde = âmbar/cinza; income: `Salary`/`Bonus`/
    `Bela Income`/`Other Income` em tons verdes `#10b981`/`#34d399`/`#6ee7b7`/
-   `#a7f3d0`); `radius={[4,4,0,0]}` aplicado apenas na barra do topo de cada
+   `#a7f3d0`) — **desde a v1.20.2 (PR #138)** acessada via a mesma função
+   central `getCategoryColor(cat)` usada pelos avatares da tab Home (ver
+   "Identidade visual" acima), garantindo cor idêntica para uma dada
+   categoria nas duas telas; `radius={[4,4,0,0]}` aplicado apenas na barra do topo de cada
    stack. As barras são **ordenadas por grupo temático fixo** via `CATEGORY_ORDER`
    (casa → carro → alimentação → lazer → finanças/saúde) em vez de por volume.
    **Total label** em formato `$X.XK` exibido acima de cada barra stacked via
@@ -1589,6 +1617,15 @@ O app inicia com array vazio quando não há dados salvos (sem SEED).
   `AuditTab` passou a fornecer `categoryDescriptionRules` nessa chamada. O
   "Dismiss" (só de sessão) não mudou — não era a causa do bug. Frontend
   puro, sem mudança de contrato de API/Redis, nenhum impacto nos Grupos A/B.
+- [x] Rename da tab "Dashboard" para "Home" + padronização de cores dos
+  ícones de categoria (PR #138, branch
+  `claude/dashboard-category-colors-ytmb16`, v1.20.2): label/ícone
+  (`LayoutDashboard`→`Home`)/id interno da tab atualizados juntos (ícone do
+  logo/header mantido, fora de escopo); nova função central
+  `getCategoryColor(cat)` unifica a cor do avatar de categoria entre a tab
+  Home e o card "By Category" da tab Analyze, eliminando a divergência de
+  cor que existia antes para a mesma categoria. Frontend puro, sem mudança
+  de contrato de API/Redis/modelo de transação.
 
 ### Fase 5 — Inteligência e Auditoria
 
@@ -1994,7 +2031,7 @@ O app inicia com array vazio quando não há dados salvos (sem SEED).
   com limite mensal editável inline, barra de progresso (verde/amarelo
   75%/vermelho 100%), banner de estouro; persistido em `/api/budgets`
   (endpoint e dado no Redis continuam existindo, só a UI foi retirada).
-  Discutir: reintroduzir como seção própria, mover para dentro do Dashboard,
+  Discutir: reintroduzir como seção própria, mover para dentro da Home,
   ou repensar a interação.
 - [ ] **Recurrents (recorrentes / assinaturas) — reavaliar formato**
   *(removido do Analyze no PR #104)*: antes vivia como detecção client-side
@@ -2003,4 +2040,4 @@ O app inicia com array vazio quando não há dados salvos (sem SEED).
   semanal/irregular) e próxima ocorrência estimada. Nota: essa seção tinha
   texto em português hardcoded (Mensal/Anual/Semanal/Irregular, "Próx.
   estimada:") que precisa ser traduzido se/quando reintroduzida. Discutir:
-  manter como está, mover para o Dashboard, ou integrar como alerta.
+  manter como está, mover para a Home, ou integrar como alerta.
