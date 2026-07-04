@@ -381,6 +381,35 @@ function descriptionRuleMatches(row, rule) {
   return desc.includes(pat) || prov.includes(pat); // "both"
 }
 
+// Pre-save conflict check for the Description rules editor (purely
+// informational — never blocks, never reprocesses, never mutates anything).
+// Runs the same pure `descriptionRuleMatches(row, rule)` used by the save
+// pipeline against the CURRENT transactions and flags two situations where
+// the rule's pattern is broader than the user may realize: (1) it also
+// matches rows already classified as `Transfer` (which the rule can never
+// touch — the Transfer safety net in `buildRow` still applies on future
+// imports, so this is just a heads-up, not a warning of a real bug), and
+// (2) it also matches rows with `categoryManual === true` (a manual
+// correction the user made on purpose, which this rule would NOT retroactively
+// change, but might contradict on the next import if the user isn't aware).
+function computeDescriptionRuleConflicts(transactions, rule) {
+  const result = { transferCount: 0, transferExamples: [], manualCount: 0, manualExamples: [] };
+  if (!rule || !String(rule.pattern || "").trim()) return result;
+  for (const row of transactions || []) {
+    if (!descriptionRuleMatches(row, rule)) continue;
+    const label = `${String(row.description || row.srcAccount || "").slice(0, 40)} (${row.date || "?"})`;
+    if (row.category === TRANSFER_CATEGORY) {
+      result.transferCount++;
+      if (result.transferExamples.length < 5) result.transferExamples.push(label);
+    }
+    if (row.categoryManual === true) {
+      result.manualCount++;
+      if (result.manualExamples.length < 5) result.manualExamples.push(label);
+    }
+  }
+  return result;
+}
+
 // Returns the destinationCategory of the FIRST rule that matches, or null when
 // none match. Never returns "Transfer" (sanitized out on save).
 function matchDescriptionCategoryRule(row, rules) {
@@ -1363,7 +1392,7 @@ function Header({ hideValues, onToggleHide, onLogout, saving, savedAt, dirty, sa
             <LayoutDashboard size={14} color="#fff" />
           </div>
           <span style={{ fontWeight: 700, fontSize: 15, letterSpacing: -0.5, color: "#e5e7eb" }}>Household</span>
-          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.18.0</span>
+          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.19.0</span>
         </div>
         <SaveIndicator saving={saving} dirty={dirty} savedAt={savedAt} saveError={saveError} />
       </div>
@@ -4445,6 +4474,7 @@ function SettingsTab({
         onSave={onSaveCategoryDescriptionRules}
         config={config}
         prefill={rulePrefill}
+        transactions={transactions}
       />
       <CkCategoryMapSection
         transactions={transactions}
@@ -4660,10 +4690,15 @@ function AppleDailyCashRuleSection({ rule, onSave, config }) {
 // destination dropdown. Same visual/save pattern as the sibling sections —
 // plain PUT, no impact preview, no retroactive cascade: only affects NEW
 // imports.
-function DescriptionRulesSection({ rules, onSave, config, prefill }) {
+function DescriptionRulesSection({ rules, onSave, config, prefill, transactions }) {
   const [draft, setDraft] = useState(() => (rules || []).map((r) => ({ ...r })));
   const [confirmDelete, setConfirmDelete] = useState(null);
   const [newRule, setNewRule] = useState({ pattern: "", matchField: "both", destinationCategory: "" });
+  // Pre-save conflict warning (purely informational — see
+  // `computeDescriptionRuleConflicts`). Any further edit to `draft` resets
+  // this back to false, same pattern as `showPreview` in
+  // `AccountAliasesSection`.
+  const [showConflicts, setShowConflicts] = useState(false);
 
   useEffect(() => {
     setDraft((rules || []).map((r) => ({ ...r })));
@@ -4697,11 +4732,13 @@ function DescriptionRulesSection({ rules, onSave, config, prefill }) {
 
   const updateRule = (idx, patch) => {
     setDraft((prev) => prev.map((r, i) => (i === idx ? { ...r, ...patch } : r)));
+    setShowConflicts(false); // any further edit invalidates a shown warning
   };
 
   const deleteRule = (idx) => {
     setDraft((prev) => prev.filter((_, i) => i !== idx));
     setConfirmDelete(null);
+    setShowConflicts(false);
   };
 
   const reorder = (idx, dir) => {
@@ -4712,6 +4749,7 @@ function DescriptionRulesSection({ rules, onSave, config, prefill }) {
       [next[idx], next[j]] = [next[j], next[idx]];
       return next;
     });
+    setShowConflicts(false);
   };
 
   const addRule = () => {
@@ -4723,6 +4761,26 @@ function DescriptionRulesSection({ rules, onSave, config, prefill }) {
       { id: uid(), pattern, matchField: newRule.matchField, destinationCategory },
     ]);
     setNewRule({ pattern: "", matchField: "both", destinationCategory: "" });
+    setShowConflicts(false);
+  };
+
+  // Conflicts per draft rule (only rules with a non-empty pattern), computed
+  // eagerly whenever the draft changes so the "Save rules" click can decide
+  // synchronously whether to show the warning or save right away.
+  const conflictsByRule = useMemo(() => {
+    return draft
+      .filter((r) => String(r.pattern || "").trim())
+      .map((r) => ({ rule: r, conflict: computeDescriptionRuleConflicts(transactions, r) }))
+      .filter((e) => e.conflict.transferCount > 0 || e.conflict.manualCount > 0);
+  }, [draft, transactions]);
+
+  const handleSaveClick = () => {
+    if (!showConflicts && conflictsByRule.length > 0) {
+      setShowConflicts(true);
+      return;
+    }
+    onSave(draft);
+    setShowConflicts(false);
   };
 
   return (
@@ -4861,14 +4919,56 @@ function DescriptionRulesSection({ rules, onSave, config, prefill }) {
         </div>
       </div>
 
-      <button
-        type="button"
-        onClick={() => onSave(draft)}
-        disabled={!dirty}
-        style={{ ...S.primaryBtn, marginTop: 10, opacity: dirty ? 1 : 0.5, cursor: dirty ? "pointer" : "not-allowed" }}
-      >
-        Save rules
-      </button>
+      {dirty && showConflicts && conflictsByRule.length > 0 ? (
+        <div style={{ background: "#1a1500", border: "1px solid #4b3a00", borderRadius: 10, padding: 10, margin: "6px 0 10px", fontSize: 12, color: "#fbbf24" }}>
+          <div style={{ marginBottom: 6, fontWeight: 600 }}>
+            Heads up — this is informational only. Saving never reprocesses
+            existing transactions and never removes a transaction from
+            Transfer; it only affects future imports.
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {conflictsByRule.map(({ rule, conflict }, i) => (
+              <div key={rule.id || i}>
+                <div style={{ color: "#e5e7eb" }}>
+                  "{rule.pattern}" ({rule.matchField}) → {rule.destinationCategory}:{" "}
+                  {conflict.transferCount > 0
+                    ? `${conflict.transferCount} transaction${conflict.transferCount === 1 ? "" : "s"} already tagged Transfer`
+                    : null}
+                  {conflict.transferCount > 0 && conflict.manualCount > 0 ? ", " : null}
+                  {conflict.manualCount > 0
+                    ? `${conflict.manualCount} with a manual correction`
+                    : null}
+                </div>
+                {conflict.transferExamples.length || conflict.manualExamples.length ? (
+                  <div style={{ color: "#8b94a3", marginTop: 2 }}>
+                    e.g. {[...conflict.transferExamples, ...conflict.manualExamples].slice(0, 5).join("; ")}
+                  </div>
+                ) : null}
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : null}
+
+      <div style={{ display: "flex", gap: 8 }}>
+        <button
+          type="button"
+          onClick={handleSaveClick}
+          disabled={!dirty}
+          style={{ ...S.primaryBtn, marginTop: 10, opacity: dirty ? 1 : 0.5, cursor: dirty ? "pointer" : "not-allowed" }}
+        >
+          {showConflicts && conflictsByRule.length > 0 ? "Save anyway" : "Save rules"}
+        </button>
+        {showConflicts && conflictsByRule.length > 0 ? (
+          <button
+            type="button"
+            onClick={() => setShowConflicts(false)}
+            style={{ marginTop: 10, background: "transparent", border: "1px solid #2a313c", color: "#cbd5e1", borderRadius: 8, padding: "8px 16px", fontSize: 13, cursor: "pointer" }}
+          >
+            Cancel
+          </button>
+        ) : null}
+      </div>
     </CollapsibleCard>
   );
 }
