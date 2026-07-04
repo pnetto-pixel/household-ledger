@@ -30,4 +30,5 @@ Feature alvo (se especificada pelo usuário): **$ARGUMENTS**
 - **Não altere o contrato da API nem o formato Redis** (`household:*:transactions`, GET/PUT em `/api/transactions`) sem necessidade explícita.
 - **Não altere o modelo de transação fixo** nem a regra de que `Transfer` é excluída de todos os totais e gráficos.
 - Modelo default Sonnet; só sugira Opus para algum passo se a feature for estruturalmente complexa.
+- Os subagents usam `CONSTRAINTS.md` (resumo do contexto fixo) em vez de reler `household-ledger.md` inteiro a cada rodada — só recorra ao doc completo se precisar de um detalhe de UI/roadmap/histórico que não esteja no resumo. Se o contexto fixo mudar de verdade, atualize os dois arquivos juntos.
 - Ao final, entregue ao usuário: link do PR, resumo do que foi feito, e o que ficou pendente.

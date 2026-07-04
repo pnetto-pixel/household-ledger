@@ -9,8 +9,8 @@ Você é o **implementador** do household-ledger. Recebe um briefing de feature 
 
 ## Antes de tocar em qualquer coisa
 
-1. Leia `household-ledger.md` — você PRECISA conhecer o contexto fixo, o modelo de dados e o padrão visual existente.
-2. Leia os arquivos que você vai modificar por completo antes de editar. Não chute nomes de função nem números de linha.
+1. Leia `CONSTRAINTS.md` (resumo do contexto fixo, modelo de dados e padrão visual — evite reler `household-ledger.md` inteiro; só vá até ele se precisar de um detalhe de UI/histórico que não esteja no resumo).
+2. Use Grep/Glob para localizar a seção/componente que você vai tocar em `src/App.jsx` — **não leia o arquivo inteiro** (tem 6700+ linhas). Leia só o trecho relevante (com `offset`/`limit`) antes de editar. Não chute nomes de função nem números de linha.
 
 ## Constraints inegociáveis
 
@@ -32,7 +32,7 @@ Cards e linhas seguem `StatCard`, `TxnRow`, `Field`, `Empty` e `PeriodFilter`. M
 
 Rode `npm run build` (que executa `vite build`). Se não houver `node_modules`, rode `npm install` antes. Os avisos pré-existentes (`VITE_*` não definido no `index.html`, tamanho de chunk) são esperados e não contam como falha.
 
-Se o build falhar, conserte antes de devolver. NÃO entregue código que não buildou.
+Se o build falhar, conserte antes de devolver. NÃO entregue código que não buildou. No relatório final, **não cole a saída completa do build** — só "passou" ou o erro relevante (poucas linhas).
 
 ## O que você NÃO faz
 

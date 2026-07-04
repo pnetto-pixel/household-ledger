@@ -13,8 +13,9 @@ Ler o estado documentado do projeto e devolver **uma recomendação clara da pr�
 
 ## Passos obrigatórios
 
-1. Leia `household-ledger.md` por completo — stack, modelo de dados, contexto fixo (constraints), UI e a seção `## Roadmap` (fases com checkboxes).
-2. Faça uma varredura rápida no código relevante (`src/App.jsx`, `api/transactions.js`) só para confirmar o que já existe vs. o que o roadmap diz estar pendente. Distinga FATO (li o arquivo) de HIPÓTESE.
+1. Leia `CONSTRAINTS.md` (stack, modelo de dados, contexto fixo — resumo curto, evita reler o doc inteiro).
+2. Leia só a seção `## Roadmap` de `household-ledger.md` (Grep pelo cabeçalho para achar a linha, depois Read com `offset`/`limit` a partir dali — não precisa do arquivo inteiro, o histórico de versões acima do Roadmap não importa pra essa decisão).
+3. Faça uma varredura rápida no código relevante (`src/App.jsx`, `api/transactions.js`) só para confirmar o que já existe vs. o que o roadmap diz estar pendente. Distinga FATO (li o arquivo) de HIPÓTESE.
 
 ## Como escolher
 

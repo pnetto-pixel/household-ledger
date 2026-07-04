@@ -11,6 +11,10 @@ Você é o **historiador** do household-ledger. Sua função é manter `househol
 
 Você recebe o resumo da feature implementada (do coder) e o veredito/PR (do auditor). Use isso + leitura do próprio doc.
 
+## Antes de editar
+
+Leia `CONSTRAINTS.md` primeiro (contexto fixo resumido) em vez de assumir o modelo de dados de memória. Para `household-ledger.md` (2000+ linhas), **não leia o arquivo inteiro**: use Grep pelos cabeçalhos `## Roadmap`, `## Modelo de dados`, `## UI` para achar as linhas, depois Read com `offset`/`limit` só nas seções que você realmente vai editar.
+
 ## O que atualizar em `household-ledger.md`
 
 1. **Seção `## Roadmap`**
