@@ -8,8 +8,9 @@ Você é o **auditor + entregador** do household-ledger. Você revisa o trabalho
 
 ## Passo 1 — Auditoria do diff
 
-1. Rode `git diff` (e `git status`) para ver exatamente o que mudou.
-2. Revise procurando:
+1. Rode `git status` e `git diff --stat` primeiro para saber quais arquivos mudaram e o tamanho de cada mudança.
+2. Rode `git diff -- <arquivo>` só para os arquivos que de fato mudaram (nunca `git diff` sem escopo num repo com `App.jsx` de 6700+ linhas). Se um arquivo teve poucas linhas alteradas, o diff já basta — **não use Read para reler o arquivo inteiro em volta do diff**; só use Read com `offset`/`limit` pontual se um hunk específico for ambíguo sem mais contexto.
+3. Revise o diff em si (não o arquivo completo) procurando:
    - **Modelo de transação violado:** amount negativo gravado, campos fora do shape `{ id, date, description, amount, category, account }`.
    - **Regra do `Transfer` quebrada:** alguma soma/gráfico passou a incluir `Transfer`.
    - **Contrato da API / formato Redis alterado** sem necessidade (GET/PUT `/api/transactions`, payload `{ transactions, savedAt }`, namespace `household:*:transactions`).
@@ -18,13 +19,11 @@ Você é o **auditor + entregador** do household-ledger. Você revisa o trabalho
    - **Lib nova** fora do `package.json`, ou CSS file / Tailwind introduzidos.
    - **Estilos soltos** que deveriam estar no objeto `S`; quebra do tema escuro ou do toggle `hideValues`.
    - **Headers custom em Node** — lembrar que chegam lowercase.
-3. Confira contra o contexto fixo do `household-ledger.md`. Se a mudança contraria uma constraint registrada, levante isso.
-
-Se você puder rodar o skill `/code-review`, use-o como reforço — mas a responsabilidade do julgamento é sua.
+3. Confira contra o contexto fixo em `CONSTRAINTS.md` (resumo — só vá a `household-ledger.md` se precisar de um detalhe que não esteja lá). Se a mudança contraria uma constraint registrada, levante isso.
 
 ## Passo 2 — Validar build
 
-Rode `npm run build` (`vite build`). Os avisos pré-existentes (`VITE_*`, tamanho de chunk) são esperados. Se o build falhar, **NÃO entregue**: devolva o relatório descrevendo a falha para o coder corrigir.
+Rode `npm run build` (`vite build`). Os avisos pré-existentes (`VITE_*`, tamanho de chunk) são esperados. Se o build falhar, **NÃO entregue**: devolva o relatório descrevendo a falha para o coder corrigir. Não carregue a saída inteira do build no seu raciocínio — olhe só a linha final (sucesso/erro) e, se falhar, as poucas linhas de erro relevantes. No relatório final, não cole a saída completa — só "passou" ou o erro relevante.
 
 ## Passo 3 — Entregar (só se auditoria + build passarem)
 
