@@ -1,4 +1,4 @@
-# Household Ledger · v1.18.0
+# Household Ledger · v1.19.0
 
 Aplicativo mobile-first de controle financeiro doméstico. Registra
 transações da casa (despesas e receitas) por categoria e conta, com
@@ -24,7 +24,37 @@ A cada PR, atualize a versão em **dois lugares**:
 1. `src/App.jsx` — a string `v1.x.x` no span ao lado de "Household"
 2. `household-ledger.md` — o `· v1.x.x` no título `# Household Ledger`
 
-Versão atual: **v1.18.0** — **Reordenar `ManagedList` por drag-and-drop em
+Versão atual: **v1.19.0** — **Aviso de conflito pré-save em Description
+rules** (feature de UX, `src/App.jsx` único arquivo alterado). Dentro da
+seção **Description rules** (tab **Settings**, `DescriptionRulesSection`),
+clicar "Save rules" deixou de salvar direto quando alguma regra do draft
+(com `pattern` não vazio) bateria em transações **já existentes** na base
+que são `category === "Transfer"` ou têm `categoryManual === true` (já
+corrigidas manualmente pelo usuário antes). Nesses casos, um aviso inline
+âmbar (mesmo estilo já usado em "Account aliases" > Preview impact) lista,
+por regra individual, quantas transações de cada tipo bateriam + até 5
+exemplos curtos (descrição truncada a 40 caracteres + data); o botão vira
+**"Save anyway"**, exigindo um segundo clique para confirmar. Regras sem
+conflito continuam salvando no primeiro clique. Qualquer edição subsequente
+no draft (update/add/delete/reorder de regra) reseta o aviso. Nova função
+pura `computeDescriptionRuleConflicts(transactions, rule)` reaproveita
+`descriptionRuleMatches` já existente (sem duplicar lógica de matching);
+`DescriptionRulesSection` ganhou a prop nova `transactions`. **Puramente
+client-side e não-bloqueante**: não reprocessa nada retroativamente, não
+muda `onSave`, o formato persistido em `api/category-description-rules.js`,
+`matchDescriptionCategoryRule`, nem o pipeline de import (`buildRow`) — o
+aviso serve só para tornar visível, no momento de criar a regra, que um
+pattern amplo (ex. `"chase"`) pode acidentalmente bater em pagamentos de
+fatura (Transfer) além das compras que a regra pretendia corrigir. A rede
+de segurança real que impede Description rules de "tirar" uma transação de
+Transfer em **novos imports** (o safety-net do PR #111, ver "Regras de
+categoria por descrição/provider" no Modelo de dados) já existia antes e
+**continua intocada** — este aviso é sobre visibilidade de transações já
+existentes na base, não sobre a lógica do pipeline. — PR #133, branch
+`claude/settings-tab-consolidation-ec2ds1`, squash merge, SHA
+12d4c0901303e8223e759815ef34c37dab2eb030.
+
+Versão anterior: **v1.18.0** — **Reordenar `ManagedList` por drag-and-drop em
 vez de setas ↑/↓** (feature de UI, `src/App.jsx` único arquivo alterado).
 Nas listas **Accounts**, **Expense categories** e **Income categories** (tab
 **Settings**), o par de botões ↑/↓ foi substituído por uma **alça de
@@ -502,6 +532,22 @@ já que a ordem é semântica); o select de categoria de destino não lista
 Transfer). **Sem preview de impacto e sem cascata retroativa** — só afeta
 novos imports a partir da mudança (mesmo padrão das demais seções de regra
 da tab).
+
+**Aviso de conflito pré-save (PR #133, v1.19.0).** Ao clicar "Save rules",
+se alguma regra do draft (`pattern` não vazio) bateria em transações **já
+existentes** que são `category === "Transfer"` ou têm `categoryManual ===
+true`, um aviso âmbar inline (mesmo padrão de "Account aliases" > Preview
+impact) lista por regra individual as contagens de cada tipo + até 5
+exemplos (descrição truncada a 40 caracteres + data); o botão vira "Save
+anyway", exigindo um segundo clique. Nova função pura
+`computeDescriptionRuleConflicts(transactions, rule)`, reaproveitando
+`descriptionRuleMatches` sem duplicar a lógica de match. Regras sem
+conflito continuam salvando no primeiro clique; qualquer edição no draft
+reseta o aviso. **Puramente educativo/client-side** — não altera `onSave`,
+o endpoint, o formato persistido, `matchDescriptionCategoryRule` nem
+`buildRow`; a rede de segurança real contra de-transferir em novos imports
+continua sendo exclusivamente o safety-net do PR #111 descrito acima, que
+não foi tocado.
 
 **Fatia 2 (PR #119, v1.15.0) — concluída.** Detecção automática de
 "correções manuais" recorrentes ("double check"): nova função pura
@@ -991,6 +1037,15 @@ shell de altura cheia (`#root` em `100lvh` + shell `height:100%`): só o
    recorrentes como candidatas a regra, PR #119, v1.15.0) está **concluída**
    — ver o Grupo C ("Manual category corrections") na seção **Suggested
    rules** abaixo.
+
+   **Aviso de conflito pré-save (PR #133, v1.19.0).** Antes de salvar, se
+   alguma regra do draft bateria em transações já existentes marcadas
+   `Transfer` ou `categoryManual === true`, um aviso âmbar (mesmo estilo do
+   Preview impact de Account aliases) aparece **antes** do save, listando por
+   regra as contagens + até 5 exemplos, e o botão vira "Save anyway"
+   (segundo clique confirma). Puramente client-side/educativo — não muda
+   `onSave`, o endpoint, nem o pipeline de import; ver "Regras de categoria
+   por descrição/provider" no Modelo de dados para os detalhes técnicos.
 
    No **topo** da tab (`SettingsTab`, antes `AuditTab`), acima de "Account
    aliases", desde o **PR #115 (v1.13.0)**, a seção **"Suggested rules"**.
@@ -1637,6 +1692,23 @@ O app inicia com array vazio quando não há dados salvos (sem SEED).
      qualquer forma, o fix é **não renderizar o rail enquanto `dragActive`
      for true** (`{!dragActive && (<div>...rail...</div>)}`) em vez de
      tentar sincronizar seu transform com o do foreground.
+- [x] **Aviso de conflito pré-save em Description rules** (PR #133, squash
+  merge, SHA 12d4c0901303e8223e759815ef34c37dab2eb030, v1.19.0) — antes,
+  "Save rules" salvava direto; agora, se alguma regra do draft (`pattern`
+  não vazio) bateria em transações já existentes `category === "Transfer"`
+  ou com `categoryManual === true`, um aviso âmbar inline (mesmo padrão do
+  Preview impact de Account aliases) aparece antes do save, listando por
+  regra as contagens de cada tipo + até 5 exemplos (descrição truncada a 40
+  caracteres + data); o botão vira "Save anyway", exigindo segundo clique.
+  Nova função pura `computeDescriptionRuleConflicts(transactions, rule)`
+  reaproveita `descriptionRuleMatches` sem duplicar lógica de matching;
+  `DescriptionRulesSection` ganhou a prop `transactions`. Puramente
+  client-side e não-bloqueante — não altera `onSave`, o formato persistido
+  em `api/category-description-rules.js`, `matchDescriptionCategoryRule`
+  nem o pipeline de import (`buildRow`); a rede de segurança real contra
+  de-transferir em novos imports continua sendo exclusivamente o
+  safety-net de Transfer do PR #111, intocado. Único arquivo alterado:
+  `src/App.jsx`.
 - [x] **Auditoria de classificação de categorias** — área no app onde o
   usuário pode ver e editar as regras de auto-classificação que o app usa. A
   decisão de layout (tab dedicada **Audit**, em vez de dentro do
