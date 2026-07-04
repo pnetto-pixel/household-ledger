@@ -3888,6 +3888,15 @@ function ManagedRow({ name, used, editing, editVal, setEditVal, onStartEdit, onC
     return () => clearTimeout(t);
   }, [confirming]);
 
+  // Any row's drag (not just this one, since a row being shifted to make
+  // room for the drop target isn't itself "dragging") should close a
+  // leftover swipe-open Edit/Delete rail — otherwise it stays visible
+  // underneath the reorder shift. useLayoutEffect (not useEffect) so this
+  // resolves before paint, with no visible flash of the open rail.
+  useLayoutEffect(() => {
+    if (dragActive) { setOpen(false); setDx(0); }
+  }, [dragActive]);
+
   // Pointer Events (not touch-only) so the swipe-to-reveal gesture works
   // with mouse drags on desktop too, not just touch.
   const onRowPointerDown = (e) => {
@@ -3977,7 +3986,7 @@ function ManagedRow({ name, used, editing, editVal, setEditVal, onStartEdit, onC
         }}
       >
         <button
-          onPointerDown={(e) => { e.stopPropagation(); close(); onGripPointerDown(e); }}
+          onPointerDown={(e) => { e.stopPropagation(); onGripPointerDown(e); }}
           onPointerMove={(e) => { e.stopPropagation(); onGripPointerMove(e); }}
           onPointerUp={(e) => { e.stopPropagation(); onGripPointerEnd(e); }}
           onPointerCancel={(e) => { e.stopPropagation(); onGripPointerEnd(e); }}
