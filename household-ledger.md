@@ -1,4 +1,4 @@
-# Household Ledger · v1.21.9
+# Household Ledger · v1.21.10
 
 Aplicativo mobile-first de controle financeiro doméstico. Registra
 transações da casa (despesas e receitas) por categoria e conta, com
@@ -24,7 +24,16 @@ A cada PR, atualize a versão em **dois lugares**:
 1. `src/App.jsx` — a string `v1.x.x` no span ao lado de "Household"
 2. `household-ledger.md` — o `· v1.x.x` no título `# Household Ledger`
 
-Versão atual: **v1.21.9** — **Filtro de categoria da tab Trends movido para
+Versão atual: **v1.21.10** — **Fix: labels do `YearRangeSlider` sobrepostos
+quando o range é 1 ano só**: quando `fromYear === toYear`, os dois handles
+ficam lado a lado (mesmo comportamento de antes) mas antes cada um
+renderizava seu próprio label com o mesmo ano, sobrepondo o texto tanto no
+mobile quanto no desktop; agora o label do handle "from" é omitido nesse
+caso, deixando só o label do handle "to" visível (single source of truth
+visual do ano selecionado). Só `src/App.jsx` alterado; sem mudança de
+API/Redis/modelo de transação.
+
+Versão anterior: **v1.21.9** — **Filtro de categoria da tab Trends movido para
 o lado esquerdo do switch All/L3Y/YTD no desktop** (`isWide`): antes ficava
 sempre numa linha própria abaixo do range de anos; agora, no desktop, o chip
 `HeaderFilter` de Category entra na mesma row do segmented All/L3Y/YTD +
@@ -1758,6 +1767,10 @@ O app inicia com array vazio quando não há dados salvos (sem SEED).
   `YearRangeSlider` (posicionado antes deles); no mobile continua numa
   linha própria abaixo. Só `src/App.jsx` alterado; sem mudança de
   API/Redis/modelo de transação
+- [x] Fix: labels do `YearRangeSlider` sobrepostos quando o range é 1 ano só
+  — o label do handle "from" agora é omitido quando `fromYear === toYear`,
+  deixando só o label do handle "to" visível. Só `src/App.jsx` alterado; sem
+  mudança de API/Redis/modelo de transação
 - [ ] Multiusuário / household compartilhado
 - [ ] PWA offline-first
 - [~] Integrações de import (bancos, cartões) — exportador Credit Karma para
