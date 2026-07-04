@@ -1422,7 +1422,7 @@ function Header({ hideValues, onToggleHide, onLogout, saving, savedAt, dirty, sa
             <Wallet size={14} color="#fff" />
           </div>
           <span style={{ fontWeight: 700, fontSize: 15, letterSpacing: -0.5, color: "#e5e7eb" }}>Household</span>
-          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.21.2</span>
+          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.21.3</span>
         </div>
         <SaveIndicator saving={saving} dirty={dirty} savedAt={savedAt} saveError={saveError} />
       </div>
@@ -1824,13 +1824,15 @@ function Dashboard({ transactions, money, hideValues }) {
       </div>
 
       <div style={{
-        background: "linear-gradient(145deg, #161a20 0%, #1b2236 100%)",
-        border: "1px solid #1e2530",
+        background: "linear-gradient(135deg, rgba(255,255,255,0.07), rgba(255,255,255,0) 45%), linear-gradient(145deg, rgba(22,26,32,0.7) 0%, rgba(27,34,54,0.7) 100%)",
+        border: "1px solid rgba(255,255,255,0.08)",
         borderRadius: 20,
         padding: "22px 20px 20px",
         position: "relative",
         overflow: "hidden",
-        boxShadow: "0 4px 24px rgba(0,0,0,0.4)",
+        backdropFilter: "blur(16px) saturate(160%)",
+        WebkitBackdropFilter: "blur(16px) saturate(160%)",
+        boxShadow: "0 4px 24px rgba(0,0,0,0.4), inset 0 1px 1px rgba(255,255,255,0.08)",
       }}>
         <div style={{
           position: "absolute", top: -40, right: -40, width: 120, height: 120,
@@ -3830,7 +3832,15 @@ function CollapsibleCard({ title, badge, defaultOpen = false, icon: Icon, childr
     if (openSignal) setOpen(true);
   }, [openSignal]);
   return (
-    <div id={id} style={{ marginBottom: 10, border: "1px solid #2a313c", borderRadius: 12, overflow: "hidden", background: "#12161c" }}>
+    <div id={id} style={{
+      marginBottom: 10,
+      border: "1px solid rgba(255,255,255,0.08)",
+      borderRadius: 14,
+      overflow: "hidden",
+      background: "rgba(22,26,32,0.7)",
+      backdropFilter: "blur(16px) saturate(160%)",
+      WebkitBackdropFilter: "blur(16px) saturate(160%)",
+    }}>
       <button
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
@@ -6240,10 +6250,12 @@ const S = {
   },
   cardRow: { display: "flex", gap: 8 },
   card: {
-    background: "#161a20",
-    border: "1px solid #1e2530",
-    borderRadius: 16,
+    background: "rgba(22,26,32,0.7)",
+    border: "1px solid rgba(255,255,255,0.08)",
+    borderRadius: 14,
     padding: 16,
+    backdropFilter: "blur(16px) saturate(160%)",
+    WebkitBackdropFilter: "blur(16px) saturate(160%)",
     boxShadow: "0 2px 12px rgba(0,0,0,0.28)",
   },
   sectionTitle: { margin: "4px 0 0", fontSize: 10, color: "#8b94a3", fontWeight: 700, textTransform: "uppercase", letterSpacing: 1 },
@@ -6535,9 +6547,11 @@ const S = {
     alignItems: "center",
     fontSize: 12,
     padding: "6px 10px",
-    background: "#161a20",
-    border: "1px solid #1e2530",
-    borderRadius: 10,
+    background: "rgba(22,26,32,0.7)",
+    border: "1px solid rgba(255,255,255,0.08)",
+    borderRadius: 14,
+    backdropFilter: "blur(16px) saturate(160%)",
+    WebkitBackdropFilter: "blur(16px) saturate(160%)",
   },
   swipeAction: {
     border: "none",
@@ -6588,9 +6602,11 @@ const S = {
     flexWrap: "wrap",
     alignItems: "center",
     padding: "8px 10px",
-    background: "#101826",
-    border: "1px solid #1e3a5f",
-    borderRadius: 10,
+    background: "rgba(16,24,38,0.7)",
+    border: "1px solid rgba(96,165,250,0.35)",
+    borderRadius: 14,
+    backdropFilter: "blur(16px) saturate(160%)",
+    WebkitBackdropFilter: "blur(16px) saturate(160%)",
   },
   cellSelect: {
     background: "#0f1216",
