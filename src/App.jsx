@@ -848,12 +848,28 @@ export default function App() {
       if (!res.ok) return currentRules;
       const data = await res.json();
       const legacy = data && data.rule;
-      const providerPattern = String(legacy?.providerPattern || "").trim();
-      const keywords = Array.isArray(legacy?.keywords)
-        ? legacy.keywords.map((k) => String(k || "").trim()).filter(Boolean)
-        : [];
-      const destinationCategory = String(legacy?.destinationCategory || "").trim();
-      // Not active / never configured / already migrated → nothing to do.
+      // `savedAt` is only ever set once something has been PUT to this
+      // endpoint — either by the user editing the old dedicated section, or
+      // by this very migration blanking it out afterwards (the "already
+      // migrated" marker). If it's null, the row was NEVER persisted, which
+      // means the household was silently relying on the old hardcoded
+      // default (Apple Card / Deposit,Adjustment / Other Income) — that
+      // default lived only in code and was deleted along with the dedicated
+      // section, so we must fall back to it here or the behavior vanishes
+      // for anyone who never opened Settings to customize it.
+      const neverSaved = !data || !data.savedAt;
+      const providerPattern = neverSaved
+        ? "Apple Card"
+        : String(legacy?.providerPattern || "").trim();
+      const keywords = neverSaved
+        ? ["Deposit", "Adjustment"]
+        : Array.isArray(legacy?.keywords)
+          ? legacy.keywords.map((k) => String(k || "").trim()).filter(Boolean)
+          : [];
+      const destinationCategory = neverSaved
+        ? "Other Income"
+        : String(legacy?.destinationCategory || "").trim();
+      // Not active / already migrated (blanked-out marker, savedAt set) → nothing to do.
       if (!providerPattern || !keywords.length || !destinationCategory) return currentRules;
 
       const created = [];
@@ -1393,7 +1409,7 @@ function Header({ hideValues, onToggleHide, onLogout, saving, savedAt, dirty, sa
             <LayoutDashboard size={14} color="#fff" />
           </div>
           <span style={{ fontWeight: 700, fontSize: 15, letterSpacing: -0.5, color: "#e5e7eb" }}>Household</span>
-          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.20.0</span>
+          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.20.1</span>
         </div>
         <SaveIndicator saving={saving} dirty={dirty} savedAt={savedAt} saveError={saveError} />
       </div>

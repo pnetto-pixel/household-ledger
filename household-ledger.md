@@ -1,4 +1,4 @@
-# Household Ledger · v1.20.0
+# Household Ledger · v1.20.1
 
 Aplicativo mobile-first de controle financeiro doméstico. Registra
 transações da casa (despesas e receitas) por categoria e conta, com
@@ -24,7 +24,34 @@ A cada PR, atualize a versão em **dois lugares**:
 1. `src/App.jsx` — a string `v1.x.x` no span ao lado de "Household"
 2. `household-ledger.md` — o `· v1.x.x` no título `# Household Ledger`
 
-Versão atual: **v1.20.0** — **Unificação da Apple Daily Cash rule dentro do
+Versão atual: **v1.20.1** — **Fix: migração da Apple Daily Cash rule não
+rodava para households que nunca haviam salvo a regra manualmente** (patch,
+`src/App.jsx` único arquivo alterado). A regra tinha um **default hardcoded**
+(`Apple Card` / `Deposit`,`Adjustment` / `Other Income`) que funcionava
+sozinho sem o usuário nunca precisar abrir a antiga seção e clicar "Save" —
+ou seja, para quem nunca customizou, **nada estava persistido no Redis**. A
+migração automática (PR #135, v1.20.0) só lia do Redis via
+`GET /api/apple-daily-cash-rule` e, ao não encontrar nada salvo, tratava como
+"nunca configurado" e não migrava — mas o default hardcoded que ela deveria
+ter herdado foi removido junto com o resto do código antigo, então o
+comportamento simplesmente desapareceu silenciosamente para esses households
+(sem nenhum erro, sem transações quebradas — só a promoção automática de
+cashback do Apple Card parou de acontecer em novos imports). Fix em
+`migrateAppleDailyCashRule` (`src/App.jsx`): usa o campo `savedAt` da
+resposta do endpoint como discriminador — `savedAt` só existe depois de
+algum `PUT` (seja do usuário editando a seção antiga, seja da própria
+migração ao "zerar" a regra legada como marcador de já-migrado). Se
+`savedAt` for `null` (nunca houve PUT), a regra assume que o default
+hardcoded estava implicitamente ativo e usa `Apple Card` /
+`["Deposit", "Adjustment"]` / `Other Income` como valores de migração, em
+vez de pular. Households que já tinham customizado a regra (ou que já
+passaram pela migração antes) continuam com o comportamento inalterado —
+`savedAt` não-nulo com campos vazios permanece o marcador de "já migrado",
+e não-nulo com campos preenchidos usa os valores persistidos normalmente.
+Nenhuma mudança de contrato de API, formato Redis, ou do pipeline `buildRow`
+em si (só a lógica de migração one-shot).
+
+Versão anterior: **v1.20.0** — **Unificação da Apple Daily Cash rule dentro do
 sistema de Description rules** (feature de core de classificação,
 `src/App.jsx` único arquivo alterado; auditada com rigor extra por mexer no
 pipeline central de `buildRow`). A heurística Apple Daily Cash deixou de
@@ -1887,6 +1914,17 @@ O app inicia com array vazio quando não há dados salvos (sem SEED).
     enforcement server-side em `api/category-description-rules.js` para
     rejeitar `allowTransferOverride: true` com `providerPattern` vazio,
     fechando a lacuna que hoje só o client bloqueia.
+  - [x] **Fix (v1.20.1): migração não rodava para households que nunca
+    salvaram a regra manualmente** — a Apple Daily Cash rule tinha um
+    default hardcoded (`Apple Card` / `Deposit`,`Adjustment` / `Other
+    Income`) que funcionava sem precisar de save explícito; para quem nunca
+    customizou, nada estava persistido no Redis, e a migração (que só lê do
+    Redis) tratava isso como "nunca configurado" — o comportamento
+    desapareceu silenciosamente. Fix: `migrateAppleDailyCashRule` usa
+    `savedAt` (só existe após algum `PUT`) para diferenciar "nunca salvo →
+    usar o default hardcoded pra migrar" de "já migrado → marcador vazio,
+    pular". Households que já haviam customizado ou já migrado continuam
+    inalterados.
 - [x] **Auditoria de classificação de categorias** — área no app onde o
   usuário pode ver e editar as regras de auto-classificação que o app usa. A
   decisão de layout (tab dedicada **Audit**, em vez de dentro do
