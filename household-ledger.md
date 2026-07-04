@@ -1156,7 +1156,13 @@ shell de altura cheia (`#root` em `100lvh` + shell `height:100%`): só o
    **segmented control de granularidade** (M / Quarter / Half / Year) e um
    **filtro de range de anos** (From / To) que substituiu os dropdowns
    Ano+Mês exclusivos do Charts (o componente compartilhado `PeriodFilter`
-   continua usado pela Home). Logo abaixo do range de anos, um **filtro
+   continua usado pela Home). **Desde o PR #152**, os dois `<select>` de
+   fromYear/toYear desse filtro de range foram substituídos pelo novo
+   componente **`YearRangeSlider`**: trilha única com dois handles
+   arrastáveis via pointer events (mouse + touch), snap discreto por ano e
+   preenchimento visual do range selecionado; reaproveita os handlers
+   `handleFromYear`/`handleToYear` e o clamp já existentes, sem mudar a
+   lógica de negócio do filtro. Logo abaixo do range de anos, um **filtro
    de categoria (multi-select, PR #102, v1.6.0)** reutiliza o componente
    `HeaderFilter` (dropdown com checkboxes via Popover/portal, modo `chip`);
    a lista de opções é `EXPENSE_CATEGORIES + INCOME_CATEGORIES` combinadas
@@ -1227,7 +1233,14 @@ shell de altura cheia (`#root` em `100lvh` + shell `height:100%`): só o
    Account / Category / Date) que abrem dropdowns via **portal** (`Popover`
    em `position: fixed` no `document.body`, ancorado por `getBoundingClientRect`
    — escapam de qualquer container com `overflow`, antes ficavam clipados). O
-   range from/to vive dentro do chip **Date**. A barra de resumo virou **pills
+   range from/to vive dentro do chip **Date**. **Desde o PR #152**, o
+   `DateHeaderFilter` deixou de usar os dois `<input type="date">` nativos
+   (From/To) e passou a abrir um popup com o novo componente
+   **`DateWheelPicker`**: três colunas roláveis estilo "wheel" (Mês / Dia /
+   Ano) com scroll-snap CSS, que auto-selecionam o valor ao parar de rolar
+   (debounce ~130ms) — sem botão "Aplicar", só um "OK" para fechar o popup; a
+   coluna de dia respeita o número de dias do mês/ano selecionado. O estado
+   `from`/`to` continua string `YYYY-MM-DD`, sem mudança de contrato. A barra de resumo virou **pills
    coloridos** (↑ income / ↓ expenses / = net). A pill de expenses exibe a
    magnitude com `↓` em vermelho quando há saída líquida (`summary.expenses < 0`);
    quando reembolsos superam as despesas do período (`summary.expenses >= 0`),
@@ -1661,6 +1674,16 @@ O app inicia com array vazio quando não há dados salvos (sem SEED).
   layout viewport de 812 pt no 16 Pro) com `html/body/#root` em `100lvh` +
   `overflow:hidden`; tab bar encosta na borda física (`belowNav = 0`), sem
   faixa preta nem rubber-band
+- [x] Refinamento dos filtros de data (PR #152, branch
+  `claude/date-wheel-year-range-picker`): na tab Transactions, o
+  `DateHeaderFilter` trocou os dois `<input type="date">` (From/To) por
+  botões que abrem um popup com o novo `DateWheelPicker` (três colunas
+  roláveis Mês/Dia/Ano estilo "wheel", scroll-snap + auto-seleção por
+  debounce, sem botão "Aplicar" manual); na tab Trends, os `<select>` de
+  fromYear/toYear foram substituídos pelo novo `YearRangeSlider` (trilha com
+  dois handles arrastáveis via pointer events, snap por ano). Puramente
+  visual, sem mudança de contrato de `from`/`to` (continuam string
+  `YYYY-MM-DD`) nem de API/Redis/modelo de transação
 - [ ] Multiusuário / household compartilhado
 - [ ] PWA offline-first
 - [~] Integrações de import (bancos, cartões) — exportador Credit Karma para
