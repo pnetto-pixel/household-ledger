@@ -1410,7 +1410,7 @@ function Header({ hideValues, onToggleHide, onLogout, saving, savedAt, dirty, sa
             <LayoutDashboard size={14} color="#fff" />
           </div>
           <span style={{ fontWeight: 700, fontSize: 15, letterSpacing: -0.5, color: "#e5e7eb" }}>Household</span>
-          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.20.1</span>
+          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.20.3</span>
         </div>
         <SaveIndicator saving={saving} dirty={dirty} savedAt={savedAt} saveError={saveError} />
       </div>
@@ -2598,6 +2598,20 @@ const CAT_EMOJI = {
 };
 function catEmoji(cat) { return CAT_EMOJI[cat] ?? cat?.[0] ?? "?"; }
 
+// Shared download helper — creates an object URL for a Blob, triggers a
+// browser download via a throwaway <a>, then revokes the URL. Module-level
+// (not tied to any single component) so both the Transactions tab (CSV
+// export) and the Settings tab (JSON backup) can reuse it without
+// duplicating the same 6 lines.
+function triggerDownload(blob, filename) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
 // Maps category name → a stable color from CATEGORY_COLORS palette
 function catDotColor(cat) {
   if (!cat) return "#8b94a3";
@@ -2661,15 +2675,6 @@ function Transactions({ transactions, money, hideValues, isWide, onDelete, onUpd
       category: t.category,
       account: t.account,
     }));
-
-  const triggerDownload = (blob, filename) => {
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = filename;
-    a.click();
-    URL.revokeObjectURL(url);
-  };
 
   const handleExportCSV = (filteredArr) => {
     const rows = exportRows(filteredArr);
@@ -4500,7 +4505,42 @@ function SettingsTab({
         config={config}
         highlightToken={categoryHighlight}
       />
+      <DataBackupSection transactions={transactions} />
     </div>
+  );
+}
+
+// Local, client-side backup of the transaction ledger — downloads a JSON
+// snapshot of everything currently in memory (the same array that feeds
+// GET/PUT /api/transactions). Purely a convenience export: no import/restore
+// path, no server round-trip, no effect on the Redis-persisted data.
+function DataBackupSection({ transactions }) {
+  const [justDownloaded, setJustDownloaded] = useState(null);
+
+  useEffect(() => {
+    if (!justDownloaded) return;
+    const t = setTimeout(() => setJustDownloaded(null), 2000);
+    return () => clearTimeout(t);
+  }, [justDownloaded]);
+
+  const handleBackup = () => {
+    const payload = { transactions, exportedAt: new Date().toISOString() };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+    triggerDownload(blob, `household-transactions-backup-${todayISO()}.json`);
+    setJustDownloaded(transactions.length);
+  };
+
+  return (
+    <CollapsibleCard title="Data & Backup">
+      <button type="button" style={S.primaryBtn} onClick={handleBackup}>
+        Backup transactions
+      </button>
+      <div style={{ fontSize: 12, color: "#8b94a3", marginTop: 8 }}>
+        {justDownloaded !== null
+          ? `Downloaded ${justDownloaded} transaction${justDownloaded === 1 ? "" : "s"}.`
+          : "Downloads a local JSON copy of all your transactions."}
+      </div>
+    </CollapsibleCard>
   );
 }
 
