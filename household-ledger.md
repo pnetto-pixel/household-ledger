@@ -1,4 +1,4 @@
-# Household Ledger · v1.17.1
+# Household Ledger · v1.18.0
 
 Aplicativo mobile-first de controle financeiro doméstico. Registra
 transações da casa (despesas e receitas) por categoria e conta, com
@@ -24,7 +24,37 @@ A cada PR, atualize a versão em **dois lugares**:
 1. `src/App.jsx` — a string `v1.x.x` no span ao lado de "Household"
 2. `household-ledger.md` — o `· v1.x.x` no título `# Household Ledger`
 
-Versão atual: **v1.17.1** — **Unificar Expense/Income categories num único
+Versão atual: **v1.18.0** — **Reordenar `ManagedList` por drag-and-drop em
+vez de setas ↑/↓** (feature de UI, `src/App.jsx` único arquivo alterado).
+Nas listas **Accounts**, **Expense categories** e **Income categories** (tab
+**Settings**), o par de botões ↑/↓ foi substituído por uma **alça de
+arrastar** (`GripVertical`) por item — arrastar pela alça (não a linha
+inteira) para não conflitar com o swipe horizontal de Edit/Delete já
+existente. Implementado com **Pointer Events** nativos (mouse + touch, sem
+lib de terceiros): o item arrastado segue o pointer 1:1 via `translateY`,
+os itens entre a posição original e a posição-alvo se deslocam por uma
+altura de linha (só visual), e a nova ordem só é persistida uma vez, no
+`pointerup`, via o `onReorder` já existente (assinatura inalterada). O
+wrapper de cada linha passa a `overflow: visible` durante qualquer drag da
+lista (evita clipar o item deslocado). Nenhuma mudança de contrato de API,
+formato Redis, modelo de transação, ou das setas ↑/↓ do painel **Description
+rules** (fora do escopo). **Amendments no mesmo PR** (feedback de teste no
+preview): (1) o swipe Edit/Delete de `ManagedRow` usava só eventos
+`onTouchStart`/`onTouchMove`/`onTouchEnd` e nunca funcionava com mouse no
+desktop — convertido para **Pointer Events** (mesmo padrão da alça de
+drag), com `touchAction: "pan-y"` e `stopPropagation` na alça para não
+conflitar; (2) o card **Accounts** foi unificado ao card de categorias —
+agora um único card **"Accounts & Categories"** com as três listas
+(Accounts, Expense categories, Income categories) empilhadas e separadas
+por divisor; (3) causa raiz real do "Edit/Delete aparecendo durante o
+drag": o rail de Edit/Delete é irmão do foreground da linha (não filho) e
+nunca recebia o `translateY` do drag — só o foreground se movia, expondo o
+rail parado por baixo em **qualquer** linha deslocada (não só a
+arrastada). Fix definitivo: o rail simplesmente não é renderizado enquanto
+`dragActive` for true, em vez de tentar sincronizar seu transform com o do
+foreground. — PR #132, branch `claude/settings-tab-consolidation-ec2ds1`.
+
+Versão anterior: **v1.17.1** — **Unificar Expense/Income categories num único
 card** (patch, `src/App.jsx` único arquivo alterado). Na tab **Settings**,
 `Expense categories` e `Income categories` deixaram de ser dois
 `CollapsibleCard` separados e passaram a viver dentro de um único card
@@ -541,13 +571,15 @@ não-vazias e deduplicadas). As funções puras (`matchAccount`, `isIncome`,
 `buildRow`) leem os valores correntes; os componentes React re-renderizam
 via o `config` state no App (`Transfer` continua fixo). A UI é a tab
 **Settings** (ver UI), que reúne **Card mapping** + adiciona/renomeia/exclui
-nas três listas. `Accounts` é seu próprio `CollapsibleCard`; desde a v1.17.1
-(PR #131), `Expense categories` e `Income categories` foram unificadas num
-único card **"Categories"**, com as duas listas renderizadas lado a lado
-dentro dele (função `ManagedList` ganhou um modo `bare` sem o chrome do
-`CollapsibleCard`, usado para nidificar as duas dentro do card
-compartilhado), separadas por um divisor horizontal — antes eram dois cards
-colapsáveis distintos. Até o PR #107
+nas três listas. As três (`Accounts`, `Expense categories`, `Income
+categories`) vivem juntas num único card **"Accounts & Categories"** desde
+a v1.18.0 (PR #132), empilhadas e separadas por um divisor horizontal
+(função `ManagedList` tem um modo `bare` sem o chrome do `CollapsibleCard`,
+usado para nidificar as três dentro do card compartilhado). Evolução:
+originalmente três `ManagedList` cards colapsáveis separados (migrados do
+`SettingsModal`); no PR #131 (v1.17.1), `Expense categories` + `Income
+categories` viraram um card "Categories" (Accounts seguia à parte); no PR
+#132 (v1.18.0), `Accounts` entrou no mesmo card. Até o PR #107
 (v1.9.0) isso vivia num modal (`SettingsModal`, atrás da engrenagem no
 header), que já não continha a seção "Account aliases" (movida para a tab
 dedicada Audit naquele PR); desde o PR #128 (v1.17.0) o próprio modal foi
@@ -557,12 +589,21 @@ valores do mapa de contas; categoria atualiza transações + chaves de
 orçamento. Itens em uso por transações não podem ser excluídos (renomear,
 sim).
 
-**Edição de itens (`ManagedRow`).** Cada item tem **ordem manual** via setas
-↑/↓ (handlers `reorderAccounts`/`reorderCategories` → `saveConfig` com a nova
-ordem); por isso contas e categorias de despesa **não são mais auto-ordenadas
-alfabeticamente** no add/rename (novos itens entram no fim, rename mantém a
-posição — a ordem persiste). **Swipe para a esquerda** revela os chips Edit /
-Delete (mesmo padrão de `TxnAuditCard`; Delete desabilitado se em uso). O chip
+**Edição de itens (`ManagedRow`).** Cada item tem **ordem manual** via
+**drag-and-drop pela alça** (ícone `GripVertical`, desde a v1.18.0/PR #132 —
+antes eram setas ↑/↓; handlers `reorderAccounts`/`reorderCategories` →
+`saveConfig` com a nova ordem, inalterados); por isso contas e categorias de
+despesa **não são mais auto-ordenadas alfabeticamente** no add/rename (novos
+itens entram no fim, rename mantém a posição — a ordem persiste). O drag é
+via Pointer Events (mouse + touch) numa alça dedicada em vez da linha
+inteira, para não conflitar com o swipe horizontal de Edit/Delete: o item
+arrastado segue o dedo/cursor 1:1, os demais itens "abrem espaço"
+deslocando-se por uma altura de linha, e a nova ordem só é persistida
+(`onReorder`) no pointer up. **Swipe para a esquerda** revela os chips Edit /
+Delete (mesmo padrão de `TxnAuditCard`; Delete desabilitado se em uso) — o
+gesto usa **Pointer Events** (não só `touch*`), então funciona tanto por
+touch quanto **arrastando com o mouse no desktop** (antes só funcionava por
+touch; bug corrigido no mesmo PR #132). O chip
 de delete é vermelho (`#f87171`) e requer **confirmação em 2 cliques**; sem
 segundo clique, reseta em 2,5 s. A **edição é inline**: campo de nome de
 largura total com botões pequenos **Save** (✓) / **Cancel** logo abaixo. A
@@ -870,14 +911,15 @@ shell de altura cheia (`#root` em `100lvh` + shell `height:100%`): só o
    1. **Suggested rules** (topo)
    2. **Account aliases**
    3. **Card mapping** (Credit Karma) — migrado do antigo `SettingsModal`
-   4. **Accounts** (managed list) — migrado do antigo `SettingsModal`
-   5. **Categories** — card único com **Expense categories** e **Income
-      categories** lado a lado, separadas por um divisor (desde a v1.17.1,
-      PR #131; antes eram dois `ManagedList` cards colapsáveis distintos —
-      migrados do antigo `SettingsModal`)
-   6. **Apple Daily Cash rule**
-   7. **Description rules**
-   8. **Category mapping** — **movida para o final da tab** (antes vinha logo
+   4. **Accounts & Categories** — card único com **Accounts**, **Expense
+      categories** e **Income categories** empilhadas, cada uma separada por
+      um divisor (desde a v1.18.0/PR #132; antes eram dois cards distintos —
+      um "Accounts" e um "Categories" com Expense+Income, este último criado
+      no PR #131/v1.17.1; e antes disso, três `ManagedList` cards colapsáveis
+      separados, migrados do antigo `SettingsModal`)
+   5. **Apple Daily Cash rule**
+   6. **Description rules**
+   7. **Category mapping** — **movida para o final da tab** (antes vinha logo
       após "Account aliases"), com menos destaque/prioridade visual; continua
       colapsável e **fechada por padrão**.
 
@@ -891,11 +933,11 @@ shell de altura cheia (`#root` em `100lvh` + shell `height:100%`): só o
    `api/account-aliases.js` — tudo igual, só mudou onde é renderizado).
 
    Logo abaixo, **Card mapping** (`AccountMapSection`, ver "Classificação de
-   conta no import" no Modelo de dados), o `ManagedList` de **Accounts** (seu
-   próprio card) e o card **Categories** com **Expense categories** e
-   **Income categories** lado a lado (ver "Listas gerenciáveis" no Modelo de
-   dados) — que antes só existiam dentro do `SettingsModal` (por trás da
-   engrenagem no header) e agora vivem diretamente na tab, sem modal.
+   conta no import" no Modelo de dados) e o card **Accounts & Categories**
+   com as três `ManagedList` — **Accounts**, **Expense categories**,
+   **Income categories** (ver "Listas gerenciáveis" no Modelo de dados) —
+   que antes só existiam dentro do `SettingsModal` (por trás da engrenagem
+   no header) e agora vivem diretamente na tab, sem modal.
 
    > **Nota (PR #117, v1.14.0)**: a seção **"Classification history"** (e a
    > função `explainClassification`/`CLASSIFICATION_PAGE_SIZE`) foi
@@ -1535,6 +1577,66 @@ O app inicia com array vazio quando não há dados salvos (sem SEED).
   nidificação. Menos relevância dada ao card de `Accounts`, que segue
   separado. Nenhuma mudança de lógica (add/rename/delete/reorder,
   `api/config.js`) — puramente reorganização visual.
+- [x] **Reordenar `ManagedList` por drag-and-drop em vez de setas ↑/↓**
+  (PR #132, v1.18.0) — nas listas **Accounts**, **Expense categories** e
+  **Income categories** (tab Settings), o par de botões ↑/↓ foi substituído
+  por uma **alça de arrastar** (`GripVertical`) por item. Decisão de UX:
+  arrastar pela alça (não a linha inteira), para não conflitar com o swipe
+  horizontal já existente de Edit/Delete. Implementado com **Pointer Events**
+  nativos (sem lib de terceiros) — funciona com mouse e touch: no
+  `pointerdown` na alça, captura o pointer (`setPointerCapture`); no
+  `pointermove`, o item arrastado segue o dedo/cursor 1:1 (`translateY`) e os
+  itens entre a posição original e a posição-alvo se deslocam por uma altura
+  de linha para abrir espaço (só visual, via `transform`, sem re-render da
+  lista real); no `pointerup`/`pointercancel`, a nova ordem é computada uma
+  única vez e persistida via o `onReorder` já existente
+  (`reorderAccounts`/`reorderCategories` → `saveConfig`, inalterados). O
+  wrapper de cada linha (`overflow: hidden`, usado para esconder o swipe
+  rail de Edit/Delete) passa a `overflow: visible` enquanto qualquer drag
+  está em andamento na lista, senão o próprio card cliparia o item sendo
+  arrastado/deslocado ao ultrapassar a altura de uma linha. Nenhuma mudança
+  de contrato de API, formato Redis ou modelo de transação — a assinatura de
+  `onReorder` (array de nomes na nova ordem) não mudou. As setas ↑/↓ do
+  painel **Description rules** (ordem semântica de regras, lista tipicamente
+  curta) não foram tocadas — fora do escopo deste pedido.
+
+  **Amendments no mesmo PR #132/v1.18.0** (feedback de teste manual no
+  preview de desktop):
+  1. **Fix: swipe Edit/Delete não funcionava com mouse no desktop** — os
+     handlers de swipe (`ManagedRow`) usavam só eventos `onTouchStart`/
+     `onTouchMove`/`onTouchEnd` (`e.touches[0].clientX/Y`), que nunca
+     disparam com mouse. Convertidos para **Pointer Events**
+     (`onPointerDown`/`onPointerMove`/`onPointerUp`/`onPointerCancel`,
+     `e.clientX/Y` direto — mesmo padrão já usado na alça de drag), com
+     `setPointerCapture` e `touchAction: "pan-y"` na linha (permite scroll
+     vertical da página, intercepta o arrasto horizontal). A alça de drag
+     (`GripVertical`) chama `e.stopPropagation()` nos seus próprios
+     handlers de pointer para não disparar também o swipe da linha.
+  2. **`Accounts` unificado no mesmo card que `Categories`** — o card
+     **"Accounts & Categories"** agora contém as três `ManagedList`
+     (`Accounts`, `Expense categories`, `Income categories`) empilhadas,
+     cada uma separada por um divisor — antes `Accounts` tinha seu próprio
+     card e só `Expense`+`Income` estavam unificados (PR #131). Badge do
+     card passou a somar as três listas.
+  3. **Fix (tentativa 1, insuficiente): fechar `open`/`dx` de toda linha
+     quando qualquer drag está ativo** — `ManagedRow` ganhou um
+     `useLayoutEffect` que fecha o próprio swipe sempre que `dragActive` é
+     true, não só a linha efetivamente arrastada. Reduziu mas não eliminou
+     o bug.
+  4. **Causa raiz real + fix definitivo: o rail de Edit/Delete é irmão do
+     "foreground" da linha, não filho dele** — só o **foreground** recebe
+     `transform: translateY(yShift)` durante o drag (seja a própria linha
+     arrastada, seja uma linha vizinha só "abrindo espaço"); o **rail**
+     (`position: absolute; inset: 0`) nunca se move, pois nenhum yShift era
+     aplicado a ele. Resultado: assim que o foreground desliza para
+     cima/baixo, ele deixa de cobrir o rail, que fica exposto exatamente na
+     posição original da linha — reproduzindo o "Edit/Delete abaixo do
+     tile" em **qualquer** linha deslocada (não só a arrastada), consistente
+     com o relato do usuário ("aparece de todos os tiles"). Como as ações
+     de Edit/Delete não fazem sentido durante um drag de reordenar de
+     qualquer forma, o fix é **não renderizar o rail enquanto `dragActive`
+     for true** (`{!dragActive && (<div>...rail...</div>)}`) em vez de
+     tentar sincronizar seu transform com o do foreground.
 - [x] **Auditoria de classificação de categorias** — área no app onde o
   usuário pode ver e editar as regras de auto-classificação que o app usa. A
   decisão de layout (tab dedicada **Audit**, em vez de dentro do
