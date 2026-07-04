@@ -1,4 +1,4 @@
-# Household Ledger · v1.21.5
+# Household Ledger · v1.21.6
 
 Aplicativo mobile-first de controle financeiro doméstico. Registra
 transações da casa (despesas e receitas) por categoria e conta, com
@@ -24,7 +24,20 @@ A cada PR, atualize a versão em **dois lugares**:
 1. `src/App.jsx` — a string `v1.x.x` no span ao lado de "Household"
 2. `household-ledger.md` — o `· v1.x.x` no título `# Household Ledger`
 
-Versão atual: **v1.21.5** — **Overhaul visual "Liquid Glass" (fases A–F),
+Versão atual: **v1.21.6** — **Ícones de categoria na Home com o mesmo tile
+de vidro do header** (ajuste pontual de UI, pedido direto do usuário,
+`src/App.jsx` único arquivo alterado). O avatar de categoria na seção
+"[Mês] — by Category" do Home passou do círculo flat (`${dotColor}1a` de
+fundo, borda `${dotColor}35`) para o mesmo padrão de tile usado no ícone do
+header desde a Fase A do overhaul Liquid Glass: gradiente diagonal com sheen
+branco translúcido (`rgba(255,255,255,0.25)→0`) sobre um gradiente da cor da
+categoria (`${dotColor}` → `${dotColor}99`), com `boxShadow` externo colorido
+(`${dotColor}59`) e realce interno de luz (`inset 0 1px 1px
+rgba(255,255,255,0.3)`) — mesma fórmula do header, trocando o azul fixo pela
+cor de cada categoria. Nenhuma mudança em API, Redis, modelo de transação,
+ou dependências.
+
+Versão anterior: **v1.21.5** — **Overhaul visual "Liquid Glass" (fases A–F),
 Fase F: Gráficos e Tooltips do Recharts** (feature de UI em fases, decidida
 com o usuário, `src/App.jsx` único arquivo alterado). Última fase do
 overhaul visual em múltiplas fases (A a F) inspirado no "Liquid Glass" da
