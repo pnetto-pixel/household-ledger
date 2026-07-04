@@ -1265,7 +1265,7 @@ export default function App() {
             onRestoreTransactions={restoreTransactions}
           />
         ) : (
-          <Charts transactions={transactions} hideValues={hideValues} config={config} />
+          <Charts transactions={transactions} hideValues={hideValues} config={config} isWide={isWide} />
         )}
       </main>
 
@@ -2554,7 +2554,7 @@ const DUP_FILTERS = [
 // (pointer events, mouse + touch) mapping X position to the nearest year in
 // `years` (ascending). Reuses the caller's existing clamp handlers so From/To
 // ordering logic stays in one place.
-function YearRangeSlider({ years, fromYear, toYear, onFromYear, onToYear }) {
+function YearRangeSlider({ years, fromYear, toYear, onFromYear, onToYear, trackStyle }) {
   const trackRef = useRef(null);
   const [dragging, setDragging] = useState(null); // "from" | "to" | null
 
@@ -2591,53 +2591,55 @@ function YearRangeSlider({ years, fromYear, toYear, onFromYear, onToYear }) {
   if (n === 0) return null;
 
   return (
-    <div
-      style={S.yearRangeTrack}
-      ref={trackRef}
-      onPointerMove={onMove}
-      onPointerUp={endDrag}
-      onPointerCancel={endDrag}
-    >
+    <div style={{ ...S.yearRangeWrap, ...trackStyle }}>
       <div
-        style={{
-          ...S.yearRangeFill,
-          left: `${pctFor(Math.min(fromIdx, toIdx))}%`,
-          right: `${100 - pctFor(Math.max(fromIdx, toIdx))}%`,
-        }}
-      />
-      <div
-        role="slider"
-        aria-label="From year"
-        aria-valuenow={fromYear}
-        onPointerDown={startDrag("from")}
-        style={{
-          ...S.yearRangeHandle,
-          left: `${pctFor(fromIdx)}%`,
-          transform: `translate(${fromIdx === toIdx ? "-100%" : "-50%"}, -50%)`,
-          zIndex: dragging === "from" ? 3 : 1,
-        }}
+        style={S.yearRangeTrack}
+        ref={trackRef}
+        onPointerMove={onMove}
+        onPointerUp={endDrag}
+        onPointerCancel={endDrag}
       >
-        <span style={S.yearRangeLabel}>{fromYear}</span>
-      </div>
-      <div
-        role="slider"
-        aria-label="To year"
-        aria-valuenow={toYear}
-        onPointerDown={startDrag("to")}
-        style={{
-          ...S.yearRangeHandle,
-          left: `${pctFor(toIdx)}%`,
-          transform: `translate(${fromIdx === toIdx ? "0%" : "-50%"}, -50%)`,
-          zIndex: dragging === "to" ? 3 : 2,
-        }}
-      >
-        <span style={S.yearRangeLabel}>{toYear}</span>
+        <div
+          style={{
+            ...S.yearRangeFill,
+            left: `${pctFor(Math.min(fromIdx, toIdx))}%`,
+            right: `${100 - pctFor(Math.max(fromIdx, toIdx))}%`,
+          }}
+        />
+        <div
+          role="slider"
+          aria-label="From year"
+          aria-valuenow={fromYear}
+          onPointerDown={startDrag("from")}
+          style={{
+            ...S.yearRangeHandle,
+            left: `${pctFor(fromIdx)}%`,
+            transform: `translate(${fromIdx === toIdx ? "-100%" : "-50%"}, -50%)`,
+            zIndex: dragging === "from" ? 3 : 1,
+          }}
+        >
+          <span style={S.yearRangeLabel}>{fromYear}</span>
+        </div>
+        <div
+          role="slider"
+          aria-label="To year"
+          aria-valuenow={toYear}
+          onPointerDown={startDrag("to")}
+          style={{
+            ...S.yearRangeHandle,
+            left: `${pctFor(toIdx)}%`,
+            transform: `translate(${fromIdx === toIdx ? "0%" : "-50%"}, -50%)`,
+            zIndex: dragging === "to" ? 3 : 2,
+          }}
+        >
+          <span style={S.yearRangeLabel}>{toYear}</span>
+        </div>
       </div>
     </div>
   );
 }
 
-function Charts({ transactions, hideValues, config }) {
+function Charts({ transactions, hideValues, config, isWide }) {
   const years = useMemo(() => availableYears(transactions), [transactions]);
 
   // Year-range filter: default to the most recent year of data on open.
@@ -2669,6 +2671,7 @@ function Charts({ transactions, hideValues, config }) {
     setFromYear(from);
     setToYear(to);
     if (from && to && from !== to) setGranularity("Y");
+    else if (from && to && from === to) setGranularity("M");
   };
 
   // Clamp: from can't pass to, and vice versa — each handle stops at the
@@ -2821,6 +2824,7 @@ function Charts({ transactions, hideValues, config }) {
           toYear={toYearEff}
           onFromYear={handleFromYear}
           onToYear={handleToYear}
+          trackStyle={isWide ? { margin: "18px 0 8px", flexGrow: 0, flex: "0 1 260px" } : undefined}
         />
       </div>
 
@@ -6918,9 +6922,15 @@ const S = {
     height: 4,
     borderRadius: 999,
     background: "rgba(255,255,255,0.08)",
+  },
+  yearRangeWrap: {
+    position: "relative",
     margin: "18px auto 8px",
     maxWidth: 260,
     flex: "1 1 200px",
+    paddingLeft: 12,
+    paddingRight: 12,
+    boxSizing: "border-box",
   },
   yearRangeFill: {
     position: "absolute",
