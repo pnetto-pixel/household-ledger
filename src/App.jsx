@@ -1422,7 +1422,7 @@ function Header({ hideValues, onToggleHide, onLogout, saving, savedAt, dirty, sa
             <Wallet size={14} color="#fff" />
           </div>
           <span style={{ fontWeight: 700, fontSize: 15, letterSpacing: -0.5, color: "#e5e7eb" }}>Household</span>
-          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.21.1</span>
+          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.21.2</span>
         </div>
         <SaveIndicator saving={saving} dirty={dirty} savedAt={savedAt} saveError={saveError} />
       </div>
@@ -6425,6 +6425,8 @@ const S = {
     inset: 0,
     zIndex: 50,
     background: "rgba(0,0,0,0.6)",
+    backdropFilter: "blur(4px)",
+    WebkitBackdropFilter: "blur(4px)",
     display: "flex",
     alignItems: "flex-end",
     justifyContent: "center",
@@ -6441,17 +6443,23 @@ const S = {
     // however far its sections expand.
     maxHeight: "calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset-bottom) - 28px)",
     overflowY: "auto",
-    background: "#161a20",
-    border: "1px solid #1e2530",
+    background: "rgba(22,26,32,0.82)",
+    backdropFilter: "blur(20px) saturate(180%)",
+    WebkitBackdropFilter: "blur(20px) saturate(180%)",
+    border: "1px solid rgba(255,255,255,0.08)",
     borderRadius: 20,
     padding: 16,
+    boxShadow: "0 16px 48px rgba(0,0,0,0.5)",
   },
   loginCard: {
-    background: "#161a20",
-    border: "1px solid #1e2530",
+    background: "rgba(22,26,32,0.82)",
+    backdropFilter: "blur(20px) saturate(180%)",
+    WebkitBackdropFilter: "blur(20px) saturate(180%)",
+    border: "1px solid rgba(255,255,255,0.08)",
     borderRadius: 20,
     padding: 24,
     margin: 16,
+    boxShadow: "0 16px 48px rgba(0,0,0,0.5)",
   },
   table: {
     width: "100%",
@@ -6621,8 +6629,10 @@ const S = {
     minWidth: 160,
     maxHeight: 280,
     overflowY: "auto",
-    background: "#161a20",
-    border: "1px solid #2a3340",
+    background: "rgba(22,26,32,0.82)",
+    backdropFilter: "blur(20px) saturate(180%)",
+    WebkitBackdropFilter: "blur(20px) saturate(180%)",
+    border: "1px solid rgba(255,255,255,0.08)",
     borderRadius: 10,
     padding: 4,
     zIndex: 40,
