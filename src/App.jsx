@@ -18,6 +18,7 @@ import {
   ChevronRight,
   ChevronUp,
   Check,
+  GripVertical,
 } from "lucide-react";
 import {
   ResponsiveContainer,
@@ -1362,7 +1363,7 @@ function Header({ hideValues, onToggleHide, onLogout, saving, savedAt, dirty, sa
             <LayoutDashboard size={14} color="#fff" />
           </div>
           <span style={{ fontWeight: 700, fontSize: 15, letterSpacing: -0.5, color: "#e5e7eb" }}>Household</span>
-          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.17.1</span>
+          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.18.0</span>
         </div>
         <SaveIndicator saving={saving} dirty={dirty} savedAt={savedAt} saveError={saveError} />
       </div>
@@ -3872,9 +3873,10 @@ function AccountAliasesSection({ transactions, accountMap, aliases, onSave, pref
 // Manage the user-editable lists (accounts + categories), persisted in Redis
 // via /api/config. Renames cascade into existing data (handled in App), and
 // items currently used by transactions can't be deleted (only renamed).
-// One managed item: swipe left to reveal Edit/Delete, reorder via the up/down
-// chevrons, or (when editing) an inline name field with Save/Cancel below.
-function ManagedRow({ name, used, isFirst, isLast, editing, editVal, setEditVal, onStartEdit, onCommitEdit, onCancelEdit, onDelete, onMoveUp, onMoveDown }) {
+// One managed item: swipe left to reveal Edit/Delete, reorder via dragging
+// the grip handle, or (when editing) an inline name field with Save/Cancel
+// below.
+function ManagedRow({ name, used, editing, editVal, setEditVal, onStartEdit, onCommitEdit, onCancelEdit, onDelete, rowRef, yShift, dragging, dragActive, onGripPointerDown, onGripPointerMove, onGripPointerEnd }) {
   const [dx, setDx] = useState(0);
   const [open, setOpen] = useState(false);
   const [confirming, setConfirming] = useState(false);
@@ -3930,7 +3932,7 @@ function ManagedRow({ name, used, isFirst, isLast, editing, editVal, setEditVal,
   }
 
   return (
-    <div style={{ position: "relative", borderRadius: 10, overflow: "hidden" }}>
+    <div style={{ position: "relative", borderRadius: 10, overflow: dragActive ? "visible" : "hidden" }}>
       {/* Swipe action rail */}
       <div style={{ position: "absolute", inset: 0, display: "flex", justifyContent: "flex-end" }}>
         <button
@@ -3955,6 +3957,7 @@ function ManagedRow({ name, used, isFirst, isLast, editing, editVal, setEditVal,
 
       {/* Foreground row */}
       <div
+        ref={rowRef}
         onTouchStart={onTouchStart}
         onTouchMove={onTouchMove}
         onTouchEnd={onTouchEnd}
@@ -3962,18 +3965,22 @@ function ManagedRow({ name, used, isFirst, isLast, editing, editVal, setEditVal,
           display: "flex", alignItems: "center", gap: 8,
           background: "#161a20", border: "1px solid #1e2530", borderRadius: 10,
           padding: "8px 10px", position: "relative",
-          transform: `translateX(${translate}px)`,
-          transition: start.current ? "none" : "transform 0.2s ease",
+          transform: `translateX(${translate}px) translateY(${yShift || 0}px)`,
+          transition: start.current || dragging ? "none" : "transform 0.15s ease",
+          zIndex: dragging ? 10 : "auto",
+          boxShadow: dragging ? "0 4px 14px rgba(0,0,0,0.4)" : "none",
         }}
       >
-        <div style={{ display: "flex", flexDirection: "column", flexShrink: 0 }}>
-          <button onClick={onMoveUp} disabled={isFirst} title="Move up" style={{ ...S.reorderBtn, opacity: isFirst ? 0.25 : 1 }}>
-            <ChevronUp size={15} />
-          </button>
-          <button onClick={onMoveDown} disabled={isLast} title="Move down" style={{ ...S.reorderBtn, opacity: isLast ? 0.25 : 1 }}>
-            <ChevronDown size={15} />
-          </button>
-        </div>
+        <button
+          onPointerDown={onGripPointerDown}
+          onPointerMove={onGripPointerMove}
+          onPointerUp={onGripPointerEnd}
+          onPointerCancel={onGripPointerEnd}
+          title="Drag to reorder"
+          style={{ ...S.reorderBtn, flexShrink: 0, cursor: dragging ? "grabbing" : "grab", touchAction: "none" }}
+        >
+          <GripVertical size={16} />
+        </button>
         <div style={{ flex: 1, minWidth: 0, fontSize: 13, color: "#e5e7eb", overflowWrap: "anywhere" }}>
           {name}
           {used ? <span style={{ color: "#8b94a3", fontSize: 11 }}> · {used} txn{used === 1 ? "" : "s"}</span> : null}
@@ -3990,6 +3997,12 @@ function ManagedList({ title, items, usage, onAdd, onRename, onDelete, onReorder
   const [adding, setAdding] = useState("");
   const [editName, setEditName] = useState(null);
   const [editVal, setEditVal] = useState("");
+  // Drag-to-reorder: dragged row follows the pointer 1:1 (`delta`), the
+  // other rows shift by a full row height to open a gap at `target` — the
+  // real `items` order is only committed once, on pointer up.
+  const [drag, setDrag] = useState(null); // { idx, startY, delta, height, target }
+  const rowRefs = useRef([]);
+  rowRefs.current = [];
 
   const startEdit = (name) => { setEditName(name); setEditVal(name); };
   const cancelEdit = () => { setEditName(null); setEditVal(""); };
@@ -4003,12 +4016,36 @@ function ManagedList({ title, items, usage, onAdd, onRename, onDelete, onReorder
     if (v) onAdd(v);
     setAdding("");
   };
-  const move = (idx, dir) => {
-    const j = idx + dir;
-    if (j < 0 || j >= items.length) return;
-    const next = [...items];
-    [next[idx], next[j]] = [next[j], next[idx]];
-    onReorder(next);
+
+  const onGripPointerDown = (idx) => (e) => {
+    e.preventDefault();
+    const height = (rowRefs.current[idx]?.offsetHeight || 40) + 6; // + column gap
+    setDrag({ idx, startY: e.clientY, delta: 0, height, target: idx });
+    try { e.currentTarget.setPointerCapture(e.pointerId); } catch {}
+  };
+  const onDragPointerMove = (e) => {
+    if (!drag) return;
+    const delta = e.clientY - drag.startY;
+    const rawTarget = drag.idx + Math.round(delta / drag.height);
+    const target = Math.max(0, Math.min(items.length - 1, rawTarget));
+    setDrag((d) => (d ? { ...d, delta, target } : d));
+  };
+  const onDragPointerEnd = () => {
+    if (!drag) return;
+    if (drag.target !== drag.idx) {
+      const next = [...items];
+      const [moved] = next.splice(drag.idx, 1);
+      next.splice(drag.target, 0, moved);
+      onReorder(next);
+    }
+    setDrag(null);
+  };
+  const dragShiftFor = (idx) => {
+    if (!drag) return 0;
+    if (idx === drag.idx) return drag.delta;
+    if (drag.idx < drag.target && idx > drag.idx && idx <= drag.target) return -drag.height;
+    if (drag.idx > drag.target && idx >= drag.target && idx < drag.idx) return drag.height;
+    return 0;
   };
 
   const content = (
@@ -4017,10 +4054,9 @@ function ManagedList({ title, items, usage, onAdd, onRename, onDelete, onReorder
         {items.map((name, idx) => (
           <ManagedRow
             key={name}
+            rowRef={(el) => (rowRefs.current[idx] = el)}
             name={name}
             used={usage[name] || 0}
-            isFirst={idx === 0}
-            isLast={idx === items.length - 1}
             editing={editName === name}
             editVal={editVal}
             setEditVal={setEditVal}
@@ -4028,8 +4064,12 @@ function ManagedList({ title, items, usage, onAdd, onRename, onDelete, onReorder
             onCommitEdit={commitEdit}
             onCancelEdit={cancelEdit}
             onDelete={() => onDelete(name)}
-            onMoveUp={() => move(idx, -1)}
-            onMoveDown={() => move(idx, 1)}
+            yShift={dragShiftFor(idx)}
+            dragging={!!drag && drag.idx === idx}
+            dragActive={!!drag}
+            onGripPointerDown={onGripPointerDown(idx)}
+            onGripPointerMove={onDragPointerMove}
+            onGripPointerEnd={onDragPointerEnd}
           />
         ))}
       </div>
@@ -6075,10 +6115,10 @@ const S = {
     border: "none",
     color: "#8b94a3",
     cursor: "pointer",
-    padding: 0,
+    padding: "4px 6px",
+    margin: "-4px -6px",
     display: "grid",
     placeItems: "center",
-    height: 16,
   },
   iconBtnSmall: {
     background: "#161a20",

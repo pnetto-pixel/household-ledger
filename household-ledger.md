@@ -1,4 +1,4 @@
-# Household Ledger · v1.17.1
+# Household Ledger · v1.18.0
 
 Aplicativo mobile-first de controle financeiro doméstico. Registra
 transações da casa (despesas e receitas) por categoria e conta, com
@@ -24,7 +24,24 @@ A cada PR, atualize a versão em **dois lugares**:
 1. `src/App.jsx` — a string `v1.x.x` no span ao lado de "Household"
 2. `household-ledger.md` — o `· v1.x.x` no título `# Household Ledger`
 
-Versão atual: **v1.17.1** — **Unificar Expense/Income categories num único
+Versão atual: **v1.18.0** — **Reordenar `ManagedList` por drag-and-drop em
+vez de setas ↑/↓** (feature de UI, `src/App.jsx` único arquivo alterado).
+Nas listas **Accounts**, **Expense categories** e **Income categories** (tab
+**Settings**), o par de botões ↑/↓ foi substituído por uma **alça de
+arrastar** (`GripVertical`) por item — arrastar pela alça (não a linha
+inteira) para não conflitar com o swipe horizontal de Edit/Delete já
+existente. Implementado com **Pointer Events** nativos (mouse + touch, sem
+lib de terceiros): o item arrastado segue o pointer 1:1 via `translateY`,
+os itens entre a posição original e a posição-alvo se deslocam por uma
+altura de linha (só visual), e a nova ordem só é persistida uma vez, no
+`pointerup`, via o `onReorder` já existente (assinatura inalterada). O
+wrapper de cada linha passa a `overflow: visible` durante qualquer drag da
+lista (evita clipar o item deslocado). Nenhuma mudança de contrato de API,
+formato Redis, modelo de transação, ou das setas ↑/↓ do painel **Description
+rules** (fora do escopo). — PR #132, branch
+`claude/settings-tab-consolidation-ec2ds1`.
+
+Versão anterior: **v1.17.1** — **Unificar Expense/Income categories num único
 card** (patch, `src/App.jsx` único arquivo alterado). Na tab **Settings**,
 `Expense categories` e `Income categories` deixaram de ser dois
 `CollapsibleCard` separados e passaram a viver dentro de um único card
@@ -557,11 +574,17 @@ valores do mapa de contas; categoria atualiza transações + chaves de
 orçamento. Itens em uso por transações não podem ser excluídos (renomear,
 sim).
 
-**Edição de itens (`ManagedRow`).** Cada item tem **ordem manual** via setas
-↑/↓ (handlers `reorderAccounts`/`reorderCategories` → `saveConfig` com a nova
-ordem); por isso contas e categorias de despesa **não são mais auto-ordenadas
-alfabeticamente** no add/rename (novos itens entram no fim, rename mantém a
-posição — a ordem persiste). **Swipe para a esquerda** revela os chips Edit /
+**Edição de itens (`ManagedRow`).** Cada item tem **ordem manual** via
+**drag-and-drop pela alça** (ícone `GripVertical`, desde a v1.18.0/PR #132 —
+antes eram setas ↑/↓; handlers `reorderAccounts`/`reorderCategories` →
+`saveConfig` com a nova ordem, inalterados); por isso contas e categorias de
+despesa **não são mais auto-ordenadas alfabeticamente** no add/rename (novos
+itens entram no fim, rename mantém a posição — a ordem persiste). O drag é
+via Pointer Events (mouse + touch) numa alça dedicada em vez da linha
+inteira, para não conflitar com o swipe horizontal de Edit/Delete: o item
+arrastado segue o dedo/cursor 1:1, os demais itens "abrem espaço"
+deslocando-se por uma altura de linha, e a nova ordem só é persistida
+(`onReorder`) no pointer up. **Swipe para a esquerda** revela os chips Edit /
 Delete (mesmo padrão de `TxnAuditCard`; Delete desabilitado se em uso). O chip
 de delete é vermelho (`#f87171`) e requer **confirmação em 2 cliques**; sem
 segundo clique, reseta em 2,5 s. A **edição é inline**: campo de nome de
@@ -1535,6 +1558,28 @@ O app inicia com array vazio quando não há dados salvos (sem SEED).
   nidificação. Menos relevância dada ao card de `Accounts`, que segue
   separado. Nenhuma mudança de lógica (add/rename/delete/reorder,
   `api/config.js`) — puramente reorganização visual.
+- [x] **Reordenar `ManagedList` por drag-and-drop em vez de setas ↑/↓**
+  (PR #132, v1.18.0) — nas listas **Accounts**, **Expense categories** e
+  **Income categories** (tab Settings), o par de botões ↑/↓ foi substituído
+  por uma **alça de arrastar** (`GripVertical`) por item. Decisão de UX:
+  arrastar pela alça (não a linha inteira), para não conflitar com o swipe
+  horizontal já existente de Edit/Delete. Implementado com **Pointer Events**
+  nativos (sem lib de terceiros) — funciona com mouse e touch: no
+  `pointerdown` na alça, captura o pointer (`setPointerCapture`); no
+  `pointermove`, o item arrastado segue o dedo/cursor 1:1 (`translateY`) e os
+  itens entre a posição original e a posição-alvo se deslocam por uma altura
+  de linha para abrir espaço (só visual, via `transform`, sem re-render da
+  lista real); no `pointerup`/`pointercancel`, a nova ordem é computada uma
+  única vez e persistida via o `onReorder` já existente
+  (`reorderAccounts`/`reorderCategories` → `saveConfig`, inalterados). O
+  wrapper de cada linha (`overflow: hidden`, usado para esconder o swipe
+  rail de Edit/Delete) passa a `overflow: visible` enquanto qualquer drag
+  está em andamento na lista, senão o próprio card cliparia o item sendo
+  arrastado/deslocado ao ultrapassar a altura de uma linha. Nenhuma mudança
+  de contrato de API, formato Redis ou modelo de transação — a assinatura de
+  `onReorder` (array de nomes na nova ordem) não mudou. As setas ↑/↓ do
+  painel **Description rules** (ordem semântica de regras, lista tipicamente
+  curta) não foram tocadas — fora do escopo deste pedido.
 - [x] **Auditoria de classificação de categorias** — área no app onde o
   usuário pode ver e editar as regras de auto-classificação que o app usa. A
   decisão de layout (tab dedicada **Audit**, em vez de dentro do
