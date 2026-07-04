@@ -1,4 +1,4 @@
-# Household Ledger · v1.21.7
+# Household Ledger · v1.21.8
 
 Aplicativo mobile-first de controle financeiro doméstico. Registra
 transações da casa (despesas e receitas) por categoria e conta, com
@@ -24,7 +24,18 @@ A cada PR, atualize a versão em **dois lugares**:
 1. `src/App.jsx` — a string `v1.x.x` no span ao lado de "Household"
 2. `household-ledger.md` — o `· v1.x.x` no título `# Household Ledger`
 
-Versão atual: **v1.21.7** — **Ícones de categoria na Home trocados de emoji
+Versão atual: **v1.21.8** — **Ajustes finos no `YearRangeSlider` da tab
+Trends** (PR #154, mergeado em `main`): no mobile, a trilha do slider ganhou
+um wrapper com padding lateral de 12px para os handles não ficarem
+colados/quase saindo da borda direita da tela; no desktop, o slider deixou
+de ficar centralizado na row e passou a ficar alinhado à esquerda, colado
+ao segmented All/L3Y/YTD, via novo prop `isWide` (reaproveita
+`useMediaWide(900)`); e quando o range volta a cobrir só 1 ano
+(`fromYear === toYear`), a granularidade dos gráficos volta automaticamente
+para "M" (meses), espelhando a lógica inversa já existente. Só `src/App.jsx`
+alterado; sem mudança de API/Redis/modelo de transação.
+
+Versão anterior: **v1.21.7** — **Ícones de categoria na Home trocados de emoji
 para line-art (lucide-react)** (ajuste pontual de UI, pedido direto do
 usuário, `src/App.jsx` único arquivo alterado). O tile de vidro introduzido
 na v1.21.6 mostrava o emoji da categoria (`catEmoji`); agora mostra um ícone
