@@ -61,6 +61,14 @@ lucide-react (ícones) · funções serverless Vercel (`/api/*`) · Redis via
 - Reaproveite helpers existentes (`uid`, `todayISO`, `monthKey`, `usd`,
   `money`, `matchPeriod`, `computeTotals`) em vez de duplicar.
 
+## Versionamento (OBRIGATÓRIO em todo PR)
+Toda feature/fix — mesmo pequena — exige bump de versão nos **dois** lugares:
+`src/App.jsx` (span `v1.x.x` ao lado de "Household") e `household-ledger.md`
+(título `# Household Ledger · v1.x.x` + entrada "Versão atual"). Patch para
+bugfix/ajuste de UI/estilo; minor para feature/mudança de comportamento;
+major só se pedido. O feature-auditor reprova PR sem bump. Ver
+`household-ledger.md` seção `## Versionamento` para o histórico.
+
 ## Env vars
 `REDIS_URL`, `GOOGLE_CLIENT_ID`, `ALLOWED_EMAILS`, `ADMIN_EMAILS`,
 `APP_PASSWORD`, `VITE_GOOGLE_CLIENT_ID`, `VITE_ADMIN_EMAILS`.
