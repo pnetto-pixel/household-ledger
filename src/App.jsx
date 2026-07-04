@@ -20,6 +20,25 @@ import {
   ChevronUp,
   Check,
   GripVertical,
+  Car,
+  Dog,
+  Clapperboard,
+  Fuel,
+  ShoppingCart,
+  Pill,
+  Smartphone,
+  Landmark,
+  Package,
+  UtensilsCrossed,
+  Wrench,
+  ShoppingBag,
+  Bus,
+  Plane,
+  Lightbulb,
+  Banknote,
+  Gift,
+  Coins,
+  Tag,
 } from "lucide-react";
 import {
   ResponsiveContainer,
@@ -1422,7 +1441,7 @@ function Header({ hideValues, onToggleHide, onLogout, saving, savedAt, dirty, sa
             <Wallet size={14} color="#fff" />
           </div>
           <span style={{ fontWeight: 700, fontSize: 15, letterSpacing: -0.5, color: "#e5e7eb" }}>Household</span>
-          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.21.6</span>
+          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.21.7</span>
         </div>
         <SaveIndicator saving={saving} dirty={dirty} savedAt={savedAt} saveError={saveError} />
       </div>
@@ -1903,10 +1922,9 @@ function Dashboard({ transactions, money, hideValues }) {
                       width: 34, height: 34, borderRadius: 10, flexShrink: 0,
                       background: `linear-gradient(135deg, rgba(255,255,255,0.25), rgba(255,255,255,0) 60%), linear-gradient(135deg, ${dotColor} 0%, ${dotColor}99 100%)`,
                       display: "grid", placeItems: "center",
-                      fontSize: 16, lineHeight: 1,
                       boxShadow: `0 2px 8px ${dotColor}59, inset 0 1px 1px rgba(255,255,255,0.3)`,
                     }}>
-                      {catEmoji(cat)}
+                      {React.createElement(catIcon(cat), { size: 16, color: "#fff" })}
                     </div>
                     {/* Name + badges */}
                     <div style={{ flex: 1, minWidth: 0 }}>
@@ -2774,14 +2792,16 @@ function Charts({ transactions, hideValues, config }) {
   );
 }
 
-const CAT_EMOJI = {
-  "Car": "🚗", "Dog": "🐕", "Entertainment": "🎬", "Fuel": "⛽",
-  "Groceries": "🛒", "Home": "🏠", "Medical": "💊", "Mobile Phone": "📱",
-  "Mortgage": "🏡", "Other": "📦", "Restaurant": "🍽️", "Services": "🔧",
-  "Shopping": "🛍️", "Transport": "🚌", "Travel": "✈️", "Utilities": "💡",
-  "Salary": "💰", "Bonus": "🎁", "Bela Income": "💵", "Other Income": "💵",
+// Line-art icon per category, styled to match the header's glass tile
+// (white stroke on a colored gradient) instead of the flat emoji.
+const CAT_ICON = {
+  "Car": Car, "Dog": Dog, "Entertainment": Clapperboard, "Fuel": Fuel,
+  "Groceries": ShoppingCart, "Home": Home, "Medical": Pill, "Mobile Phone": Smartphone,
+  "Mortgage": Landmark, "Other": Package, "Restaurant": UtensilsCrossed, "Services": Wrench,
+  "Shopping": ShoppingBag, "Transport": Bus, "Travel": Plane, "Utilities": Lightbulb,
+  "Salary": Banknote, "Bonus": Gift, "Bela Income": Coins, "Other Income": Coins,
 };
-function catEmoji(cat) { return CAT_EMOJI[cat] ?? cat?.[0] ?? "?"; }
+function catIcon(cat) { return CAT_ICON[cat] ?? Tag; }
 
 // Shared download helper — creates an object URL for a Blob, triggers a
 // browser download via a throwaway <a>, then revokes the URL. Module-level

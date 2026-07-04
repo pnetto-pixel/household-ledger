@@ -1,4 +1,4 @@
-# Household Ledger · v1.21.6
+# Household Ledger · v1.21.7
 
 Aplicativo mobile-first de controle financeiro doméstico. Registra
 transações da casa (despesas e receitas) por categoria e conta, com
@@ -24,7 +24,24 @@ A cada PR, atualize a versão em **dois lugares**:
 1. `src/App.jsx` — a string `v1.x.x` no span ao lado de "Household"
 2. `household-ledger.md` — o `· v1.x.x` no título `# Household Ledger`
 
-Versão atual: **v1.21.6** — **Ícones de categoria na Home com o mesmo tile
+Versão atual: **v1.21.7** — **Ícones de categoria na Home trocados de emoji
+para line-art (lucide-react)** (ajuste pontual de UI, pedido direto do
+usuário, `src/App.jsx` único arquivo alterado). O tile de vidro introduzido
+na v1.21.6 mostrava o emoji da categoria (`catEmoji`); agora mostra um ícone
+de traço branco (`color="#fff"`, `size={16}`) do `lucide-react`, na mesma
+linguagem visual do ícone `Wallet` do header. Novo mapa `CAT_ICON` (categoria
+→ componente de ícone) e função `catIcon(cat)` com fallback `Tag` para
+categorias não mapeadas: Car, Dog, Clapperboard (Entertainment), Fuel,
+ShoppingCart (Groceries), Home, Pill (Medical), Smartphone (Mobile Phone),
+Landmark (Mortgage), Package (Other), UtensilsCrossed (Restaurant), Wrench
+(Services), ShoppingBag (Shopping), Bus (Transport), Plane (Travel),
+Lightbulb (Utilities), Banknote (Salary), Gift (Bonus), Coins (Bela Income /
+Other Income). `catEmoji`/`CAT_EMOJI` ficaram sem nenhum uso (era o único
+lugar que os chamava) e foram removidos do código. Nenhuma mudança em API,
+Redis, modelo de transação, ou dependências (lucide-react já era
+dependência existente).
+
+Versão anterior: **v1.21.6** — **Ícones de categoria na Home com o mesmo tile
 de vidro do header** (ajuste pontual de UI, pedido direto do usuário,
 `src/App.jsx` único arquivo alterado). O avatar de categoria na seção
 "[Mês] — by Category" do Home passou do círculo flat (`${dotColor}1a` de
