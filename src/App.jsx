@@ -1578,29 +1578,91 @@ function periodLabel(year, month) {
   return m ? `${m.l} ${year}` : year;
 }
 
-function PeriodFilter({ year, month, setYear, setMonth, years }) {
+// Single-select chip + Popover — same button/panel visual language as the
+// Transactions header filters (S.chipBtn/S.popItem/S.popHead + Popover), but
+// clicking an option selects it AND closes the popover (radio, not
+// checkbox), matching the Dashboard's single-value year/month/category
+// semantics (matchPeriod expects "All"|"YYYY" and "All"|"MM" strings).
+function SinglePeriodFilter({ year, month, setYear, setMonth, years }) {
+  const [open, setOpen] = useState(false);
+  const anchorRef = useRef(null);
   // Always include the currently-selected year so the control stays valid even
   // if the only matching transaction was just filtered/edited away.
   const yearOpts =
     year !== "All" && !years.includes(year) ? [year, ...years] : years;
+  const active = year !== "All" || month !== "All";
+  const pick = (y, m) => {
+    setYear(y);
+    setMonth(m);
+    setOpen(false);
+  };
   return (
-    <div style={{ display: "flex", gap: 8 }}>
-      <select value={year} onChange={(e) => setYear(e.target.value)} style={S.select}>
-        <option value="All">All years</option>
-        {yearOpts.map((y) => (
-          <option key={y} value={y}>
-            {y}
-          </option>
+    <div ref={anchorRef} style={{ position: "relative" }}>
+      <button onClick={() => setOpen((o) => !o)} style={S.chipBtn(active)} title="Filter by period">
+        <span>{periodLabel(year, month)}</span>
+        <span style={{ fontSize: 9, opacity: 0.7 }}>▼</span>
+      </button>
+      <Popover open={open} setOpen={setOpen} anchorRef={anchorRef} style={{ display: "flex", flexDirection: "column", gap: 8, minWidth: 220 }}>
+        <div>
+          <div style={S.popHead}>Year</div>
+          <button onClick={() => pick("All", "All")} style={S.popItem(year === "All")}>
+            <span style={{ display: "inline-block", width: 14 }}>{year === "All" ? "✓" : ""}</span>
+            All years
+          </button>
+          {yearOpts.map((y) => (
+            <button key={y} onClick={() => pick(y, month)} style={S.popItem(year === y)}>
+              <span style={{ display: "inline-block", width: 14 }}>{year === y ? "✓" : ""}</span>
+              {y}
+            </button>
+          ))}
+        </div>
+        <div>
+          <div style={S.popHead}>Month</div>
+          <button onClick={() => pick(year, "All")} style={S.popItem(month === "All")}>
+            <span style={{ display: "inline-block", width: 14 }}>{month === "All" ? "✓" : ""}</span>
+            All months
+          </button>
+          {MONTHS.map((m) => (
+            <button key={m.v} onClick={() => pick(year, m.v)} style={S.popItem(month === m.v)}>
+              <span style={{ display: "inline-block", width: 14 }}>{month === m.v ? "✓" : ""}</span>
+              {m.l}
+            </button>
+          ))}
+        </div>
+      </Popover>
+    </div>
+  );
+}
+
+// Single-select category chip + Popover for the Dashboard (radio semantics —
+// picking an option selects it and closes the popover). Mirrors
+// SinglePeriodFilter's pattern; `value` is "All" or a single category string.
+function SingleCategoryFilter({ value, options, setValue }) {
+  const [open, setOpen] = useState(false);
+  const anchorRef = useRef(null);
+  const active = value !== "All";
+  const pick = (v) => {
+    setValue(v);
+    setOpen(false);
+  };
+  return (
+    <div ref={anchorRef} style={{ position: "relative" }}>
+      <button onClick={() => setOpen((o) => !o)} style={S.chipBtn(active)} title="Filter by category">
+        <span>{active ? value : "All categories"}</span>
+        <span style={{ fontSize: 9, opacity: 0.7 }}>▼</span>
+      </button>
+      <Popover open={open} setOpen={setOpen} anchorRef={anchorRef}>
+        <button onClick={() => pick("All")} style={S.popItem(!active)}>
+          <span style={{ display: "inline-block", width: 14 }}>{!active ? "✓" : ""}</span>
+          All categories
+        </button>
+        {options.map((o) => (
+          <button key={o} onClick={() => pick(o)} style={S.popItem(value === o)}>
+            <span style={{ display: "inline-block", width: 14 }}>{value === o ? "✓" : ""}</span>
+            {o}
+          </button>
         ))}
-      </select>
-      <select value={month} onChange={(e) => setMonth(e.target.value)} style={S.select}>
-        <option value="All">All months</option>
-        {MONTHS.map((m) => (
-          <option key={m.v} value={m.v}>
-            {m.l}
-          </option>
-        ))}
-      </select>
+      </Popover>
     </div>
   );
 }
@@ -1833,13 +1895,8 @@ function Dashboard({ transactions, money, hideValues }) {
     <div style={S.col}>
       {/* Hero balance card — shows the SELECTED period */}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
-        <PeriodFilter year={year} month={month} setYear={setYear} setMonth={setMonth} years={years} />
-        <select value={catFilter} onChange={(e) => setCatFilter(e.target.value)} style={S.select}>
-          <option value="All">All categories</option>
-          {availableCats.map((c) => (
-            <option key={c} value={c}>{c}</option>
-          ))}
-        </select>
+        <SinglePeriodFilter year={year} month={month} setYear={setYear} setMonth={setMonth} years={years} />
+        <SingleCategoryFilter value={catFilter} options={availableCats} setValue={setCatFilter} />
       </div>
 
       <div style={{
@@ -3528,11 +3585,11 @@ function DateHeaderFilter({ years, dateYears, setDateYears, dateMonths, setDateM
               <div style={{ display: "flex", flexDirection: "column", gap: 6, padding: "4px 8px" }}>
                 <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: "#8b94a3" }}>
                   <span style={{ width: 28 }}>From</span>
-                  <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} style={{ ...S.input, flex: 1, padding: "6px 8px", fontSize: 12, fontFamily: "inherit" }} />
+                  <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} style={{ ...S.input, flex: 1, padding: "6px 8px", fontSize: 12, fontFamily: S.app.fontFamily }} />
                 </label>
                 <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: "#8b94a3" }}>
                   <span style={{ width: 28 }}>To</span>
-                  <input type="date" value={to} onChange={(e) => setTo(e.target.value)} style={{ ...S.input, flex: 1, padding: "6px 8px", fontSize: 12, fontFamily: "inherit" }} />
+                  <input type="date" value={to} onChange={(e) => setTo(e.target.value)} style={{ ...S.input, flex: 1, padding: "6px 8px", fontSize: 12, fontFamily: S.app.fontFamily }} />
                 </label>
               </div>
             </div>
@@ -6385,6 +6442,13 @@ function Empty({ children }) {
 //
 // ===========================================================================
 
+// App-wide font stack. Kept as a standalone constant (not just S.app.fontFamily)
+// because some elements — e.g. the Popover — are rendered via createPortal
+// into document.body, escaping the .app tree that would otherwise cascade
+// the font down; those need to restate it explicitly.
+const FONT_STACK =
+  '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", system-ui, "Segoe UI", Roboto, Helvetica, Arial, sans-serif';
+
 const S = {
   app: {
     // Fills #root, which is sized to 100lvh (the full physical screen) in
@@ -6395,8 +6459,7 @@ const S = {
     overflow: "hidden",
     background: "#0b0d10",
     color: "#e5e7eb",
-    fontFamily:
-      '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", system-ui, "Segoe UI", Roboto, Helvetica, Arial, sans-serif',
+    fontFamily: FONT_STACK,
     WebkitFontSmoothing: "antialiased",
     fontFeatureSettings: '"kern" 1',
     display: "flex",
@@ -6847,6 +6910,10 @@ const S = {
     left: 0,
     marginTop: 6,
     minWidth: 160,
+    // Popover is rendered via createPortal into document.body, escaping the
+    // .app tree that sets the app-wide font — restate it explicitly so
+    // buttons/inputs inside don't fall back to the browser default font.
+    fontFamily: FONT_STACK,
     maxHeight: 280,
     overflowY: "auto",
     background: "rgba(22,26,32,0.82)",
