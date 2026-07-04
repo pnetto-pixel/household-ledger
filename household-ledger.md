@@ -1,4 +1,4 @@
-# Household Ledger · v1.22.0
+# Household Ledger · v1.22.1
 
 Aplicativo mobile-first de controle financeiro doméstico. Registra
 transações da casa (despesas e receitas) por categoria e conta, com
@@ -24,7 +24,14 @@ A cada PR, atualize a versão em **dois lugares**:
 1. `src/App.jsx` — a string `v1.x.x` no span ao lado de "Household"
 2. `household-ledger.md` — o `· v1.x.x` no título `# Household Ledger`
 
-Versão atual: **v1.22.0** — **Reorganização dos controles da tab Trends**:
+Versão atual: **v1.22.1** — **Desktop: switch M/Q/H/Y da tab Trends
+alinhado à direita da linha** (`marginLeft: "auto"` no wrapper do
+`granularitySwitch`), separando-o visualmente do bloco
+category/presets/slider à esquerda. Só afeta o layout desktop (`isWide`);
+mobile inalterado. Só `src/App.jsx` alterado; sem mudança de
+API/Redis/modelo de transação.
+
+Versão anterior: **v1.22.0** — **Reorganização dos controles da tab Trends**:
 removido o header com o rótulo do range de anos (`h2` com `{rangeLabel}`,
 `rangeLabel` continua existindo só para a mensagem de estado vazio "No data
 for..."); no desktop (`isWide`), category chip, presets All/L3Y/YTD,
@@ -1790,6 +1797,9 @@ O app inicia com array vazio quando não há dados salvos (sem SEED).
   linha; no mobile, category chip + switch M/Q/H/Y numa linha e presets +
   `YearRangeSlider` na linha seguinte. Só `src/App.jsx` alterado; sem
   mudança de API/Redis/modelo de transação
+- [x] Desktop: switch M/Q/H/Y da tab Trends alinhado à direita da linha
+  (v1.22.1), separado do bloco category/presets/slider à esquerda. Só
+  `src/App.jsx` alterado; sem mudança de API/Redis/modelo de transação
 - [ ] Multiusuário / household compartilhado
 - [ ] PWA offline-first
 - [~] Integrações de import (bancos, cartões) — exportador Credit Karma para
