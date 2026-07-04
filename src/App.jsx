@@ -1422,7 +1422,7 @@ function Header({ hideValues, onToggleHide, onLogout, saving, savedAt, dirty, sa
             <LayoutDashboard size={14} color="#fff" />
           </div>
           <span style={{ fontWeight: 700, fontSize: 15, letterSpacing: -0.5, color: "#e5e7eb" }}>Household</span>
-          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.20.4</span>
+          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.21.0</span>
         </div>
         <SaveIndicator saving={saving} dirty={dirty} savedAt={savedAt} saveError={saveError} />
       </div>
@@ -1460,7 +1460,7 @@ function IconButton({ children, ...props }) {
 
 const TABS = [
   { id: "home", label: "Home", Icon: Home },
-  { id: "analyze", label: "Analyze", Icon: TrendingUp },
+  { id: "analyze", label: "Trends", Icon: TrendingUp },
   { id: "transactions", label: "Txns", Icon: List },
   { id: "import", label: "Import", Icon: Upload },
   { id: "settings", label: "Settings", Icon: Settings },
@@ -2355,6 +2355,163 @@ function CategoryStackedBarCard({ scoped, granularity, hideValues, fmtK, fmtKFul
 }
 
 // ===========================================================================
+// MonthlyAvgByCategoryCard — stacked bar chart of yearly totals divided into
+// a monthly average (always Y granularity, always ALL years, ignoring the
+// Charts year-range filter — see `scopedAllYears` in Charts).
+// ===========================================================================
+
+function MonthlyAvgByCategoryCard({ scopedAllYears, hideValues, fmtK, fmtKFull }) {
+  const [mode, setMode] = useState("expense");
+
+  const { rows, cats } = useMemo(() => {
+    const map = new Map();
+    const catTotals = {};
+
+    for (const t of scopedAllYears) {
+      if (isTransfer(t.category)) continue;
+      if (mode === "expense") {
+        if (isIncome(t.category)) continue;
+      } else {
+        if (!isIncome(t.category)) continue;
+      }
+      const bk = bucketKey(t.date, "Y");
+      if (!bk) continue;
+      if (!map.has(bk)) map.set(bk, { bucket: bk });
+      const entry = map.get(bk);
+      const val = Number(t.amount) || 0; // signed: refunds/clawbacks net out
+      entry[t.category] = (entry[t.category] || 0) + val;
+      catTotals[t.category] = (catTotals[t.category] || 0) + val;
+    }
+
+    const now = new Date();
+    const currentYear = String(now.getFullYear());
+    const currentMonth = now.getMonth() + 1; // e.g. July = 7
+
+    // Apply Math.abs per category after netting, then divide by the monthly
+    // divisor for that year (current year in progress → month-to-date count;
+    // any other year, incl. future years defensively → 12).
+    const rows = [...map.values()]
+      .map(({ bucket, ...cats }) => {
+        const newRow = { bucket };
+        const divisor = bucket === currentYear ? currentMonth : 12;
+        let total = 0;
+        for (const [cat, v] of Object.entries(cats)) {
+          const absV = Math.abs(v) / divisor;
+          newRow[cat] = absV;
+          total += absV;
+        }
+        newRow._total = total;
+        return newRow;
+      })
+      .sort((a, b) => a.bucket.localeCompare(b.bucket));
+
+    const cats = Object.keys(catTotals).sort((a, b) => {
+      const ia = CATEGORY_ORDER.indexOf(a);
+      const ib = CATEGORY_ORDER.indexOf(b);
+      if (ia === -1 && ib === -1) return a.localeCompare(b);
+      if (ia === -1) return 1;
+      if (ib === -1) return -1;
+      return ia - ib;
+    });
+    return { rows, cats };
+  }, [scopedAllYears, mode]);
+
+  if (rows.length === 0) return null;
+
+  return (
+    <div style={{ ...S.card, padding: 0, overflow: "visible" }}>
+      {/* Header — title + mode toggle */}
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 16px 0" }}>
+        <h3 style={{ ...S.sectionTitle, margin: 0 }}>Monthly Avg by Category</h3>
+        <div style={{ display: "flex", gap: 4 }}>
+          {["expense", "income"].map(m => (
+            <button
+              key={m}
+              onClick={() => setMode(m)}
+              style={S.togglePill(mode === m)}
+            >
+              {m === "income" ? "Income" : "Expense"}
+            </button>
+          ))}
+        </div>
+      </div>
+      {/* Chart */}
+      <div style={{ height: 260 }}>
+        <ResponsiveContainer width="100%" height="100%">
+          <BarChart data={rows} margin={{ top: 24, right: 16, left: 0, bottom: 0 }}>
+            <CartesianGrid vertical={false} stroke="rgba(255,255,255,0.05)" />
+            <XAxis
+              dataKey="bucket"
+              tickFormatter={bk => bucketLabel(bk)}
+              tick={{ fill: "#6b7280", fontSize: 10 }}
+              tickLine={false}
+              axisLine={false}
+            />
+            <YAxis
+              tickFormatter={hideValues ? () => "" : fmtK}
+              tick={{ fill: "#6b7280", fontSize: 10 }}
+              tickLine={false}
+              axisLine={false}
+              width={56}
+            />
+            {!hideValues && (
+              <Tooltip
+                formatter={(val, name) => [fmtKFull(val), name]}
+                labelFormatter={(bk) => bucketLabel(bk)}
+                contentStyle={{ background: "#1e2329", border: "1px solid rgba(255,255,255,0.08)", borderRadius: 8, fontSize: 12 }}
+                itemStyle={{ color: "#e5e7eb" }}
+                labelStyle={{ color: "#8b94a3" }}
+                cursor={false}
+              />
+            )}
+            {cats.map((cat, i) => (
+              <Bar
+                key={cat}
+                dataKey={cat}
+                name={cat}
+                stackId="cat"
+                fill={getCategoryColor(cat)}
+                radius={i === cats.length - 1 ? [4, 4, 0, 0] : [0, 0, 0, 0]}
+                activeBar={{ opacity: 0.8 }}
+              >
+                {i === cats.length - 1 && (
+                  <LabelList
+                    dataKey="_total"
+                    position="top"
+                    content={({ x, y, width, value }) =>
+                      hideValues || !value ? null : (
+                        <text
+                          x={x + width / 2}
+                          y={y - 4}
+                          textAnchor="middle"
+                          fill="#6b7280"
+                          fontSize={10}
+                        >
+                          {fmtK(value)}
+                        </text>
+                      )
+                    }
+                  />
+                )}
+              </Bar>
+            ))}
+          </BarChart>
+        </ResponsiveContainer>
+      </div>
+      {/* Legend — below chart, only categories present across all years */}
+      <div style={{ display: "flex", flexWrap: "wrap", gap: "6px 12px", padding: "8px 16px 14px", justifyContent: "center" }}>
+        {cats.map(cat => (
+          <span key={cat} style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 10, color: "#6b7280" }}>
+            <span style={{ display: "inline-block", width: 10, height: 10, borderRadius: 2, background: getCategoryColor(cat) }} />
+            {cat}
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ===========================================================================
 // Charts
 // ===========================================================================
 
@@ -2425,6 +2582,13 @@ function Charts({ transactions, hideValues, config }) {
     if (categoryFilter.length === 0) return scopedByYear;
     return scopedByYear.filter((t) => categoryFilter.includes(t.category));
   }, [scopedByYear, categoryFilter]);
+
+  // Category-only scope, ignoring the year-range filter — feeds the
+  // Monthly Avg by Category card, which always shows every year.
+  const scopedAllYears = useMemo(() => {
+    if (categoryFilter.length === 0) return transactions;
+    return transactions.filter((t) => categoryFilter.includes(t.category));
+  }, [transactions, categoryFilter]);
 
   // Aggregate into buckets based on granularity.
   const byBucket = useMemo(() => {
@@ -2593,6 +2757,13 @@ function Charts({ transactions, hideValues, config }) {
       <CategoryStackedBarCard
         scoped={scoped}
         granularity={granularity}
+        hideValues={hideValues}
+        fmtK={fmtK}
+        fmtKFull={fmtKFull}
+      />
+
+      <MonthlyAvgByCategoryCard
+        scopedAllYears={scopedAllYears}
         hideValues={hideValues}
         fmtK={fmtK}
         fmtKFull={fmtKFull}
