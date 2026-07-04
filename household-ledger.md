@@ -1,4 +1,4 @@
-# Household Ledger · v1.22.1
+# Household Ledger · v1.23.0
 
 Aplicativo mobile-first de controle financeiro doméstico. Registra
 transações da casa (despesas e receitas) por categoria e conta, com
@@ -20,11 +20,31 @@ Regra de bump:
 - **Minor** (`x.+1.0`) — feature nova ou mudança de comportamento relevante
 - **Major** (`+1.0.0`) — redesign, mudança de arquitetura, breaking change
 
-A cada PR, atualize a versão em **dois lugares**:
+**OBRIGATÓRIO em TODO PR, sem exceção** — mesmo mudanças pequenas (1 linha,
+CSS, texto) exigem bump de **patch** no mínimo. Nenhum PR deve ser
+aprovado/mergeado sem o bump. A cada PR, atualize a versão em **dois
+lugares**:
 1. `src/App.jsx` — a string `v1.x.x` no span ao lado de "Household"
 2. `household-ledger.md` — o `· v1.x.x` no título `# Household Ledger`
 
-Versão atual: **v1.22.1** — **Desktop: switch M/Q/H/Y da tab Trends
+O `feature-auditor` deve conferir, como parte da checklist de auditoria, que
+o diff inclui o bump nos dois arquivos antes de aprovar — se faltar, isso é
+motivo de reprovação (devolver ao coder), não um detalhe opcional.
+
+Versão atual: **v1.23.0** — **Home: chip de data em árvore Excel-style
+(single-select) + alinhamento do chip de categoria**. O chip de período do
+Dashboard (`SinglePeriodFilter`) trocou o layout de duas seções separadas
+("Year" / "Month") por uma árvore única ano → mês (mesmo padrão visual do
+`DateHeaderFilter` da Transactions): cada ano tem um botão "+" que expande
+para mostrar os meses; clicar no ano seleciona o ano inteiro ("All months"),
+clicar num mês dentro do ano expandido seleciona aquele mês — sempre
+single-select (não vira multi-select como na Transactions) e fecha o
+popover ao escolher. O chip de categoria (`SingleCategoryFilter`) passou a
+ficar alinhado à esquerda ao lado do chip de data (antes ficava empurrado
+para a direita via `justifyContent: space-between`). Só `src/App.jsx`
+alterado; sem mudança de API/Redis/modelo de transação.
+
+Versão anterior: **v1.22.1** — **Desktop: switch M/Q/H/Y da tab Trends
 alinhado à direita da linha** (`marginLeft: "auto"` no wrapper do
 `granularitySwitch`), separando-o visualmente do bloco
 category/presets/slider à esquerda. Só afeta o layout desktop (`isWide`);
@@ -1172,11 +1192,22 @@ shell de altura cheia (`#root` em `100lvh` + shell `height:100%`): só o
    (`year`/`month` continuam string única `"All"`|valor, não arrays — a
    lógica de `matchPeriod`/`heroComparisons`/`cutoffDay`/`dashboardPaceData`
    não mudou). O chip fica acima do hero e controla o período exibido.
-   O chip de categoria do bloco "by Category" também foi restilizado no PR
-   #161: o antigo `<select>` nativo virou **`SingleCategoryFilter`**
-   (chip-button + Popover, comportamento rádio — clicar seleciona e fecha),
-   sem alterar `catFilter` (segue string única). O PR #161 também corrigiu um
-   bug de fonte: os popovers usam `createPortal` para `document.body` (fora
+   **Desde a v1.23.0**, o conteúdo do popover do `SinglePeriodFilter` deixou
+   de ter duas seções separadas ("Year" / "Month") e virou uma **árvore
+   única ano → mês, Excel-style** (mesmo padrão do `DateHeaderFilter` da
+   Transactions): cada ano tem um botão "+" que expande para revelar os
+   meses; clicar no ano seleciona o ano inteiro (`month = "All"`), clicar num
+   mês dentro do ano expandido seleciona só aquele mês — sempre
+   single-select (nunca vira array como na Transactions), fecha o popover ao
+   escolher. O chip de categoria do bloco "by Category" também foi
+   restilizado no PR #161: o antigo `<select>` nativo virou
+   **`SingleCategoryFilter`** (chip-button + Popover, comportamento rádio —
+   clicar seleciona e fecha), sem alterar `catFilter` (segue string única).
+   **Desde a v1.23.0**, esse chip fica alinhado à esquerda ao lado do chip de
+   data (`justifyContent: "flex-start"` no wrapper, antes era
+   `"space-between"`, que empurrava a categoria para a ponta direita). O PR
+   #161 também corrigiu um bug de fonte: os popovers usam `createPortal` para
+   `document.body` (fora
    da árvore `.app`) e não herdavam a fonte do app; nova constante de módulo
    `FONT_STACK` foi aplicada em `S.headerPop` e nos inputs de data do
    `DateHeaderFilter` da Transactions (que tinham `fontFamily: "inherit"`
@@ -1828,6 +1859,14 @@ O app inicia com array vazio quando não há dados salvos (sem SEED).
   em `S.headerPop` e nos inputs de data do `DateHeaderFilter` da
   Transactions. Só `src/App.jsx` alterado; sem mudança de API/Redis/modelo
   de transação
+- [x] Home: chip de data em árvore Excel-style + alinhamento do chip de
+  categoria (v1.23.0): popover do `SinglePeriodFilter` trocou as duas seções
+  "Year"/"Month" por uma árvore única ano → mês (botão "+" expande o ano,
+  clique no ano seleciona o ano inteiro, clique num mês dentro do ano
+  expandido seleciona só aquele mês — sempre single-select, nunca vira
+  array); `SingleCategoryFilter` passou a ficar alinhado à esquerda ao lado
+  do chip de data (`justifyContent: "flex-start"`, antes `"space-between"`).
+  Só `src/App.jsx` alterado; sem mudança de API/Redis/modelo de transação
 - [ ] Multiusuário / household compartilhado
 - [ ] PWA offline-first
 - [~] Integrações de import (bancos, cartões) — exportador Credit Karma para

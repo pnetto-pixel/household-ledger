@@ -20,6 +20,7 @@ Você é o **auditor + entregador** do household-ledger. Você revisa o trabalho
    - **Estilos soltos** que deveriam estar no objeto `S`; quebra do tema escuro ou do toggle `hideValues`.
    - **Headers custom em Node** — lembrar que chegam lowercase.
 3. Confira contra o contexto fixo em `CONSTRAINTS.md` (resumo — só vá a `household-ledger.md` se precisar de um detalhe que não esteja lá). Se a mudança contraria uma constraint registrada, levante isso.
+4. **Confira o bump de versão** — o diff DEVE incluir a atualização da string `v1.x.x` tanto em `src/App.jsx` (span ao lado de "Household") quanto em `household-ledger.md` (título `# Household Ledger` + entrada em "Versão atual"). Isso vale mesmo para mudanças pequenas (patch bump é o mínimo aceitável). **Falta de bump é motivo de reprovação** — devolva ao coder, não aprove sem isso.
 
 ## Passo 2 — Validar build
 

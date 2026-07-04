@@ -28,6 +28,15 @@ Você é o **implementador** do household-ledger. Recebe um briefing de feature 
 
 Cards e linhas seguem `StatCard`, `TxnRow`, `Field`, `Empty` e `PeriodFilter`. Modais seguem o padrão `EditModal` (overlay `S.modalOverlay` + `S.modalCard`, fecha no clique fora). Selects e inputs usam `S.select` / `S.input`. Ícones via `lucide-react`. Gráficos via `recharts`, respeitando o `hideValues` (esconder labels/tooltips quando ligado).
 
+## Bump de versão (OBRIGATÓRIO, sem exceção)
+
+Toda feature/fix, por menor que seja, exige bump de versão em **dois
+lugares** antes de devolver o relatório:
+1. `src/App.jsx` — a string `v1.x.x` no `<span>` ao lado de "Household" (perto da linha ~1444).
+2. `household-ledger.md` — o `· v1.x.x` no título `# Household Ledger` (linha 1) e a nova entrada em "Versão atual" (seção `## Versionamento`).
+
+Regra: patch (`x.x.+1`) pra bugfix/ajuste de UI/texto/estilo; minor (`x.+1.0`) pra feature nova ou mudança de comportamento; major só se pedido explicitamente. Se esquecer o bump, o feature-auditor vai reprovar — não pule essa etapa.
+
 ## Validação de build (obrigatória ao terminar)
 
 Rode `npm run build` (que executa `vite build`). Se não houver `node_modules`, rode `npm install` antes. Os avisos pré-existentes (`VITE_*` não definido no `index.html`, tamanho de chunk) são esperados e não contam como falha.

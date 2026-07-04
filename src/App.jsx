@@ -1441,7 +1441,7 @@ function Header({ hideValues, onToggleHide, onLogout, saving, savedAt, dirty, sa
             <Wallet size={14} color="#fff" />
           </div>
           <span style={{ fontWeight: 700, fontSize: 15, letterSpacing: -0.5, color: "#e5e7eb" }}>Household</span>
-          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.22.1</span>
+          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.23.0</span>
         </div>
         <SaveIndicator saving={saving} dirty={dirty} savedAt={savedAt} saveError={saveError} />
       </div>
@@ -1583,8 +1583,13 @@ function periodLabel(year, month) {
 // clicking an option selects it AND closes the popover (radio, not
 // checkbox), matching the Dashboard's single-value year/month/category
 // semantics (matchPeriod expects "All"|"YYYY" and "All"|"MM" strings).
+// Excel-style year/month tree, single-select (radio semantics): clicking a
+// year selects the whole year ("All months"); "+" expands the year to pick
+// one specific month instead. Mirrors DateHeaderFilter's tree layout, but
+// picking closes the popover and never multi-selects.
 function SinglePeriodFilter({ year, month, setYear, setMonth, years }) {
   const [open, setOpen] = useState(false);
+  const [expandedYears, setExpandedYears] = useState([]);
   const anchorRef = useRef(null);
   // Always include the currently-selected year so the control stays valid even
   // if the only matching transaction was just filtered/edited away.
@@ -1596,6 +1601,8 @@ function SinglePeriodFilter({ year, month, setYear, setMonth, years }) {
     setMonth(m);
     setOpen(false);
   };
+  const toggleExpand = (y) =>
+    setExpandedYears((arr) => (arr.includes(y) ? arr.filter((x) => x !== y) : [...arr, y]));
   return (
     <div ref={anchorRef} style={{ position: "relative" }}>
       <button onClick={() => setOpen((o) => !o)} style={S.chipBtn(active)} title="Filter by period">
@@ -1604,30 +1611,45 @@ function SinglePeriodFilter({ year, month, setYear, setMonth, years }) {
       </button>
       <Popover open={open} setOpen={setOpen} anchorRef={anchorRef} style={{ display: "flex", flexDirection: "column", gap: 8, minWidth: 220 }}>
         <div>
-          <div style={S.popHead}>Year</div>
+          <div style={S.popHead}>Year / Month</div>
           <button onClick={() => pick("All", "All")} style={S.popItem(year === "All")}>
             <span style={{ display: "inline-block", width: 14 }}>{year === "All" ? "✓" : ""}</span>
             All years
           </button>
-          {yearOpts.map((y) => (
-            <button key={y} onClick={() => pick(y, month)} style={S.popItem(year === y)}>
-              <span style={{ display: "inline-block", width: 14 }}>{year === y ? "✓" : ""}</span>
-              {y}
-            </button>
-          ))}
-        </div>
-        <div>
-          <div style={S.popHead}>Month</div>
-          <button onClick={() => pick(year, "All")} style={S.popItem(month === "All")}>
-            <span style={{ display: "inline-block", width: 14 }}>{month === "All" ? "✓" : ""}</span>
-            All months
-          </button>
-          {MONTHS.map((m) => (
-            <button key={m.v} onClick={() => pick(year, m.v)} style={S.popItem(month === m.v)}>
-              <span style={{ display: "inline-block", width: 14 }}>{month === m.v ? "✓" : ""}</span>
-              {m.l}
-            </button>
-          ))}
+          {yearOpts.map((y) => {
+            const expanded = expandedYears.includes(y);
+            const yearSelected = year === y && month === "All";
+            return (
+              <div key={y}>
+                <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                  <button
+                    onClick={() => toggleExpand(y)}
+                    style={{ ...S.deleteBtn, width: 20, height: 20, padding: 0, flexShrink: 0 }}
+                    title={expanded ? "Collapse" : "Expand months"}
+                  >
+                    {expanded ? "−" : "+"}
+                  </button>
+                  <button onClick={() => pick(y, "All")} style={{ ...S.popItem(yearSelected), flex: 1, textAlign: "left" }}>
+                    <span style={{ display: "inline-block", width: 14 }}>{yearSelected ? "✓" : ""}</span>
+                    {y}
+                  </button>
+                </div>
+                {expanded && (
+                  <div style={{ paddingLeft: 24 }}>
+                    {MONTHS.map((m) => {
+                      const sel = year === y && month === m.v;
+                      return (
+                        <button key={m.v} onClick={() => pick(y, m.v)} style={S.popItem(sel)}>
+                          <span style={{ display: "inline-block", width: 14 }}>{sel ? "✓" : ""}</span>
+                          {m.l}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
       </Popover>
     </div>
@@ -1894,7 +1916,7 @@ function Dashboard({ transactions, money, hideValues }) {
   return (
     <div style={S.col}>
       {/* Hero balance card — shows the SELECTED period */}
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-start", flexWrap: "wrap", gap: 8 }}>
         <SinglePeriodFilter year={year} month={month} setYear={setYear} setMonth={setMonth} years={years} />
         <SingleCategoryFilter value={catFilter} options={availableCats} setValue={setCatFilter} />
       </div>
