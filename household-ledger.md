@@ -412,11 +412,12 @@ escapar da exclusão de totais (invariante de `Transfer` quebrada). Sem
 `ckCategory` presente (import CSV genérico), o comportamento é inalterado:
 usa a `category` que já vinha do arquivo.
 
-A seção **Category mapping**, na tab Audit, edita esse mapa por token
-(dropdown das categorias correntes + `Transfer` + `Other Income`) — sem
-preview de impacto e sem cascata retroativa: a mudança só afeta **novos
-imports** a partir de então (decisão confirmada com o usuário; ver UI e
-Roadmap Fase 5).
+A seção **Category mapping**, na tab **Settings** (antiga Audit; desde a
+v1.17.0/PR #128 movida para o final da tab, com menos destaque), edita esse
+mapa por token (dropdown das categorias correntes + `Transfer` + `Other
+Income`) — sem preview de impacto e sem cascata retroativa: a mudança só
+afeta **novos imports** a partir de então (decisão confirmada com o
+usuário; ver UI e Roadmap Fase 5).
 
 ### Regras de categoria por descrição/provider (PR #117, v1.14.0)
 
@@ -450,12 +451,13 @@ suma: a regra por descrição serve para o caso "o mapa CK errou, minha regra
 corrige" — vale para não-Transfer, nunca sobrepõe uma exclusão de Transfer.
 O sinal do `amount` nunca é tocado por essa regra.
 
-A seção **Description rules**, na tab Audit, permite add / edição inline /
-delete com confirmação em 2 cliques / reordenar (↑/↓, já que a ordem é
-semântica); o select de categoria de destino não lista `Transfer`; um aviso
-explica a precedência sobre o mapa CK (exceto Transfer). **Sem preview de
-impacto e sem cascata retroativa** — só afeta novos imports a partir da
-mudança (mesmo padrão das demais seções de regra da tab Audit).
+A seção **Description rules**, na tab **Settings** (antiga Audit), permite
+add / edição inline / delete com confirmação em 2 cliques / reordenar (↑/↓,
+já que a ordem é semântica); o select de categoria de destino não lista
+`Transfer`; um aviso explica a precedência sobre o mapa CK (exceto
+Transfer). **Sem preview de impacto e sem cascata retroativa** — só afeta
+novos imports a partir da mudança (mesmo padrão das demais seções de regra
+da tab).
 
 **Fatia 2 (PR #119, v1.15.0) — concluída.** Detecção automática de
 "correções manuais" recorrentes ("double check"): nova função pura
@@ -585,8 +587,10 @@ Venture X`.
 `matchAccountWithAliases(rawValue, aliasesArray)` faz o match (assinatura de
 `matchAccount`/`classifyAccount` inalterada). Editável pela seção **Account
 aliases** (`AccountAliasesSection`/`AccountAliasRow`), que desde o PR #107
-(v1.9.0) vive na tab dedicada **Audit** (antes ficava dentro do
-`SettingsModal`, logo abaixo de `AccountMapSection`): chips de fragmento
+(v1.9.0) vive na tab dedicada Audit (antes ficava dentro do `SettingsModal`,
+logo abaixo de `AccountMapSection`) e, desde o PR #128 (v1.17.0), nessa
+mesma tab renomeada **Settings** (a antiga Audit foi consolidada com o
+`SettingsModal`, que deixou de existir — ver UI): chips de fragmento
 por conta (add/remove) e fluxo **Preview impact** (mostra até 50 transações
 afetadas + contador, client-side via `computeAliasImpact`) → **Confirm &
 apply** (persiste via PUT e reclassifica em cascata as transações existentes
@@ -605,11 +609,12 @@ mapeadas por URN não são afetadas por mudanças de alias.
 A tabela de/para por URN existe porque o Credit Karma rotula vários cartões
 com o mesmo nome genérico (cinco Chase como `"CREDIT CARD"`); o URN os
 separa, e o último-4 (`last4`, extraído de `accountTypeAndNumberDisplay`) é
-o rótulo legível. A UI fica na seção **Card mapping** dentro de Settings
-(engrenagem no header → `AccountMapSection`): lista os cartões vistos
-(emissor · ••últimos-4 · contagem), você atribui uma conta a cada um, e ao
-**Save & apply** aplica nas transações existentes (por URN) e em todos os
-imports futuros.
+o rótulo legível. A UI fica na seção **Card mapping** (`AccountMapSection`)
+dentro da tab **Settings** — desde o PR #128 (v1.17.0) não há mais
+engrenagem/modal, a seção é renderizada diretamente na tab: lista os
+cartões vistos (emissor · ••últimos-4 · contagem), você atribui uma conta a
+cada um, e ao **Save & apply** aplica nas transações existentes (por URN) e
+em todos os imports futuros.
 
 ---
 
@@ -1484,6 +1489,20 @@ O app inicia com array vazio quando não há dados salvos (sem SEED).
   **sempre visível** com estado vazio explicativo (inclui nota de que o
   grupo "Manual category corrections" é forward-only). Badge do card só
   aparece com itens (>0).
+- [x] **Consolidação da tab Audit + modal Settings numa única tab "Settings"**
+  (PR #128, SHA 86ddbc1d3bd081d065f3edac43ca5ea9be829ff4, squash merge,
+  v1.17.0) — `AuditTab` renomeado para `SettingsTab`; a antiga tab **Audit**
+  passou a ser a 5ª e última tab **Settings** (ícone `Settings`/cog no lugar
+  de `ShieldCheck`), incorporando todo o conteúdo do antigo `SettingsModal`
+  (Card mapping + as 3 `ManagedList`), que junto com a engrenagem no header
+  **foi removido por completo** — não há mais atalho de configuração
+  separado da tab bar. Nova ordem das seções: Suggested rules → Account
+  aliases → Card mapping → Accounts → Expense categories → Income
+  categories → Apple Daily Cash rule → Description rules → **Category
+  mapping** (movida para o final, com menos destaque, colapsável e fechada
+  por padrão). Único arquivo alterado: `src/App.jsx`. Nenhuma mudança de
+  contrato de API, formato Redis ou modelo de transação — puramente
+  reorganização de composição de UI React.
 - [x] **Auditoria de classificação de categorias** — área no app onde o
   usuário pode ver e editar as regras de auto-classificação que o app usa. A
   decisão de layout (tab dedicada **Audit**, em vez de dentro do
@@ -1526,6 +1545,12 @@ O app inicia com array vazio quando não há dados salvos (sem SEED).
   #115) — este item da Fase 5 está **completo**. O objetivo era transformar
   a auto-classificação de uma caixa-preta em um algoritmo auditável e
   refinável ao longo do tempo pelo usuário; alcançado.
+
+  **Nota (PR #128, v1.17.0)**: as referências acima à "tab Audit" descrevem o
+  estado histórico até essa versão. Desde o PR #128, a tab foi renomeada
+  para **Settings** e consolidada com o antigo `SettingsModal` (que deixou de
+  existir) — ver item "Consolidação da tab Audit + modal Settings" acima e a
+  seção UI para o estado atual.
 
   **Nota**: a Fase 5 como um todo **não** está completa — restam pendentes
   os três itens abaixo ("Trends", "Budgets", "Recurrents" — reavaliar
