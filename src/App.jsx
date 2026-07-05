@@ -1441,7 +1441,7 @@ function Header({ hideValues, onToggleHide, onLogout, saving, savedAt, dirty, sa
             <Wallet size={14} color="#fff" />
           </div>
           <span style={{ fontWeight: 700, fontSize: 15, letterSpacing: -0.5, color: "#e5e7eb" }}>Household</span>
-          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.23.3</span>
+          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.24.0</span>
         </div>
         <SaveIndicator saving={saving} dirty={dirty} savedAt={savedAt} saveError={saveError} />
       </div>
@@ -2504,6 +2504,41 @@ function MonthlyAvgByCategoryCard({ scopedAllYears, hideValues, fmtK, fmtKFull }
       })
       .sort((a, b) => a.bucket.localeCompare(b.bucket));
 
+    // L12M — trailing 12 full months, excluding the current (partial) month.
+    // E.g. today 2026-07-05 → window is 2025-07 through 2026-06. Divisor is
+    // always 12 (fixed, unlike the current-year YTD bar). Appended explicitly
+    // after the sort above so it always renders last, regardless of its key.
+    const pad2 = n => String(n).padStart(2, "0");
+    const l12mEndExclusive = new Date(now.getFullYear(), now.getMonth(), 1); // 1st of current month
+    const l12mStart = new Date(l12mEndExclusive.getFullYear(), l12mEndExclusive.getMonth() - 12, 1);
+    const l12mStartKey = `${l12mStart.getFullYear()}-${pad2(l12mStart.getMonth() + 1)}`;
+    const l12mEndKey = `${l12mEndExclusive.getFullYear()}-${pad2(l12mEndExclusive.getMonth() + 1)}`; // exclusive
+
+    const l12mCatTotals = {};
+    for (const t of scopedAllYears) {
+      if (isTransfer(t.category)) continue;
+      if (mode === "expense") {
+        if (isIncome(t.category)) continue;
+      } else {
+        if (!isIncome(t.category)) continue;
+      }
+      const mk = t.date ? t.date.slice(0, 7) : null;
+      if (!mk || mk < l12mStartKey || mk >= l12mEndKey) continue;
+      const val = Number(t.amount) || 0; // signed: refunds/clawbacks net out
+      l12mCatTotals[t.category] = (l12mCatTotals[t.category] || 0) + val;
+    }
+    if (Object.keys(l12mCatTotals).length > 0) {
+      const l12mRow = { bucket: "L12M" };
+      let l12mTotal = 0;
+      for (const [cat, v] of Object.entries(l12mCatTotals)) {
+        const absV = Math.abs(v) / 12;
+        l12mRow[cat] = absV;
+        l12mTotal += absV;
+      }
+      l12mRow._total = l12mTotal;
+      rows.push(l12mRow);
+    }
+
     const cats = Object.keys(catTotals).sort((a, b) => {
       const ia = CATEGORY_ORDER.indexOf(a);
       const ib = CATEGORY_ORDER.indexOf(b);
@@ -2541,7 +2576,7 @@ function MonthlyAvgByCategoryCard({ scopedAllYears, hideValues, fmtK, fmtKFull }
             <CartesianGrid vertical={false} stroke="rgba(255,255,255,0.05)" />
             <XAxis
               dataKey="bucket"
-              tickFormatter={bk => bucketLabel(bk)}
+              tickFormatter={bk => (bk === "L12M" ? "L12M" : bucketLabel(bk))}
               tick={{ fill: "#6b7280", fontSize: 10 }}
               tickLine={false}
               axisLine={false}
@@ -2556,7 +2591,7 @@ function MonthlyAvgByCategoryCard({ scopedAllYears, hideValues, fmtK, fmtKFull }
             {!hideValues && (
               <Tooltip
                 formatter={(val, name) => [fmtKFull(val), name]}
-                labelFormatter={(bk) => bucketLabel(bk)}
+                labelFormatter={(bk) => (bk === "L12M" ? "L12M" : bucketLabel(bk))}
                 contentStyle={{ background: "#1e2329", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 14, fontSize: 12, boxShadow: "0 8px 24px rgba(0,0,0,0.4)" }}
                 itemStyle={{ color: "#e5e7eb" }}
                 labelStyle={{ color: "#8b94a3" }}
