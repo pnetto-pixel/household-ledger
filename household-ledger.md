@@ -1,4 +1,4 @@
-# Household Ledger · v1.23.2
+# Household Ledger · v1.23.3
 
 Aplicativo mobile-first de controle financeiro doméstico. Registra
 transações da casa (despesas e receitas) por categoria e conta, com
@@ -31,7 +31,16 @@ O `feature-auditor` deve conferir, como parte da checklist de auditoria, que
 o diff inclui o bump nos dois arquivos antes de aprovar — se faltar, isso é
 motivo de reprovação (devolver ao coder), não um detalhe opcional.
 
-Versão atual: **v1.23.2** — fix de dois bugs introduzidos na v1.23.1: (1) o
+Versão atual: **v1.23.3** — a detecção de overflow por `ResizeObserver`
+(v1.23.1/v1.23.2) continuava falhando em dispositivos reais (testado em
+iPhone 16 Pro), então foi substituída por uma regra fixa e determinística:
+`useShortFormat` agora é `true` sempre que `|income|`, `|expenses|` ou
+`|net|` atingir 8 dígitos (>= $100.000,00 contando os 2 decimais) — sem
+medição de layout, sem `ResizeObserver`, sem clone invisível. O
+`summaryBarRef`/`summaryMeasureRef`/`S.summaryBarProbe` foram removidos por
+não serem mais necessários.
+
+Versão anterior: **v1.23.2** — fix de dois bugs introduzidos na v1.23.1: (1) o
 estilo visual do container (background/border/blur do pill) tinha sido
 atribuído por engano ao clone invisível de medição em vez do container
 visível, fazendo a barra "flutuar" sem fundo; (2) a detecção de overflow
@@ -1388,17 +1397,16 @@ shell de altura cheia (`#root` em `100lvh` + shell `height:100%`): só o
    quando reembolsos superam as despesas do período (`summary.expenses >= 0`),
    exibe a magnitude com `↑` e cor verde (`#34d399`). O NET é calculado como
    `income + expenses` (soma dos fluxos sinalizados) — fica positivo quando os
-   reembolsos dominam o período. **Desde a v1.23.1 (PR #165)**, quando os 4
-   pills da barra de resumo (`{n} txns` / income / expenses / net) não cabem
-   em 1 linha no mobile, os 3 valores monetários passam a usar o formato
-   abreviado `moneyShortK` (ex. `$1.23K` / `-$1.23K`, 2 casas decimais, sinal
-   antes do `$`) — tudo ou nada, nunca mistura formato completo com
-   abreviado na mesma linha; a contagem de transações nunca abrevia. A
-   detecção de overflow usa `ResizeObserver` comparando um clone invisível
-   sempre em formato completo contra a largura do container visível
-   (evita oscilação entre os dois formatos). `S.summaryBar.flexWrap` passou
-   de `"wrap"` para `"nowrap"` (a abreviação é o que agora evita a quebra em
-   2 linhas). A lista é **agrupada por data**
+   reembolsos dominam o período. **Desde a v1.23.3**, quando `|income|`,
+   `|expenses|` ou `|net|` atinge 8 dígitos (>= $100.000,00 com os 2
+   decimais), os 3 valores monetários passam a usar o formato abreviado
+   `moneyShortK` (ex. `$1.23K` / `-$1.23K`, 2 casas decimais, sinal antes do
+   `$`) — tudo ou nada, nunca mistura formato completo com abreviado na
+   mesma linha; a contagem de transações nunca abrevia. É uma regra fixa por
+   dígitos, não uma medição de layout — as tentativas anteriores (v1.23.1/
+   v1.23.2) com `ResizeObserver` não funcionavam de forma confiável em
+   dispositivos reais. `S.summaryBar.flexWrap` é `"nowrap"` (a abreviação é o
+   que evita a quebra em 2 linhas). A lista é **agrupada por data**
    com headers (`Today` / `Yesterday` / `Jun 25, 2026` via `formatDateHeader`)
    e a data saiu de dentro de cada linha (liberou espaço para a descrição). O
    filtro de conta inclui um chip **"Unassigned"**. A aba **flui e rola como um
