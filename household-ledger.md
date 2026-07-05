@@ -1,4 +1,4 @@
-# Household Ledger · v1.23.0
+# Household Ledger · v1.23.1
 
 Aplicativo mobile-first de controle financeiro doméstico. Registra
 transações da casa (despesas e receitas) por categoria e conta, com
@@ -31,7 +31,20 @@ O `feature-auditor` deve conferir, como parte da checklist de auditoria, que
 o diff inclui o bump nos dois arquivos antes de aprovar — se faltar, isso é
 motivo de reprovação (devolver ao coder), não um detalhe opcional.
 
-Versão atual: **v1.23.0** — **Home: chip de data em árvore Excel-style
+Versão atual: **v1.23.1** — **Transactions: audit summary bar abrevia
+valores quando não cabem em 1 linha**. A barra de resumo (`{n} txns` / `↑`
+income / expenses / `= net`) agora mede se os 4 pills cabem na largura
+disponível (via `ResizeObserver` comparando um clone invisível sempre em
+formato completo contra a largura do container visível — evita oscilação
+entre os dois formatos). Quando não cabem, os 3 valores monetários passam a
+usar o novo helper `moneyShortK` (ex.: `$1.23K` / `-$1.23K`, 2 casas
+decimais, sinal antes do `$`), que respeita o toggle do olho (`hideValues`)
+igual ao `money`. A contagem de transações nunca abrevia. `S.summaryBar`
+passou de `flexWrap: "wrap"` para `"nowrap"` (a abreviação evita a quebra de
+linha agora). Só `src/App.jsx` alterado; sem mudança de API/Redis/modelo de
+transação, e sem tocar em `fmtK`/`moneyShort`/Dashboard.
+
+Versão anterior: **v1.23.0** — **Home: chip de data em árvore Excel-style
 (single-select) + alinhamento do chip de categoria**. O chip de período do
 Dashboard (`SinglePeriodFilter`) trocou o layout de duas seções separadas
 ("Year" / "Month") por uma árvore única ano → mês (mesmo padrão visual do
