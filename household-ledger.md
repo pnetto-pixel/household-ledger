@@ -1,4 +1,4 @@
-# Household Ledger · v1.23.3
+# Household Ledger · v1.24.0
 
 Aplicativo mobile-first de controle financeiro doméstico. Registra
 transações da casa (despesas e receitas) por categoria e conta, com
@@ -31,7 +31,18 @@ O `feature-auditor` deve conferir, como parte da checklist de auditoria, que
 o diff inclui o bump nos dois arquivos antes de aprovar — se faltar, isso é
 motivo de reprovação (devolver ao coder), não um detalhe opcional.
 
-Versão atual: **v1.23.3** — a detecção de overflow por `ResizeObserver`
+Versão atual: **v1.24.0** — o card "Monthly Avg by Category" (Charts) ganhou
+uma barra extra ao final, `L12M`, com a média mensal dos últimos 12 meses
+fechados (excluindo o mês corrente parcial). Divisor fixo em 12, igual às
+barras de anos passados — não usa o divisor variável (`currentMonth`) da
+barra do ano corrente/YTD. A janela é calculada dinamicamente a partir da
+data atual (hoje 2026-07-05 → 2025-07 a 2026-06) e a barra é anexada
+explicitamente após o sort das demais, para sempre ficar por último
+independente da ordenação lexicográfica das chaves de bucket. O rótulo
+"L12M" é tratado localmente no `tickFormatter`/`labelFormatter` do card,
+sem alterar a função global `bucketLabel`.
+
+Versão anterior: **v1.23.3** — a detecção de overflow por `ResizeObserver`
 (v1.23.1/v1.23.2) continuava falhando em dispositivos reais (testado em
 iPhone 16 Pro), então foi substituída por uma regra fixa e determinística:
 `useShortFormat` agora é `true` sempre que `|income|`, `|expenses|` ou
