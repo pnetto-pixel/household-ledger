@@ -2647,6 +2647,12 @@ O app inicia com array vazio quando não há dados salvos (sem SEED).
   ÷ 12 para anos completos, total ÷ mês corrente para o ano em andamento).
   `Transfer` continua excluído. 100% front-end (`src/App.jsx`), sem mudança
   de API/Redis/modelo de transação.
+
+  **Follow-up (PR #168, v1.24.0)**: adicionada barra extra "L12M" (últimos
+  12 meses fechados, janela dinâmica a partir da data atual, divisor fixo
+  em 12, netting por categoria antes do `Math.abs`), sempre anexada por
+  último no gráfico para comparar com o ano corrente. 100% front-end,
+  `Transfer` continua excluído.
 - [ ] **Recurrents (recorrentes / assinaturas) — reavaliar formato**
   *(removido do Analyze no PR #104)*: antes vivia como detecção client-side
   de transações com a mesma descrição em ≥2 meses e valor dentro de ±10% da
