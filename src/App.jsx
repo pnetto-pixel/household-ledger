@@ -1441,7 +1441,7 @@ function Header({ hideValues, onToggleHide, onLogout, saving, savedAt, dirty, sa
             <Wallet size={14} color="#fff" />
           </div>
           <span style={{ fontWeight: 700, fontSize: 15, letterSpacing: -0.5, color: "#e5e7eb" }}>Household</span>
-          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.23.0</span>
+          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.23.1</span>
         </div>
         <SaveIndicator saving={saving} dirty={dirty} savedAt={savedAt} saveError={saveError} />
       </div>
@@ -3242,6 +3242,43 @@ function Transactions({ transactions, money, hideValues, isWide, onDelete, onUpd
 
   const net = summary.income + summary.expenses;
 
+  // Abbreviated money format for the audit summary bar when the full
+  // format doesn't fit on one line, e.g. "$1.23K" / "-$1.23K". Respects
+  // the hideValues eye toggle the same way `money` does.
+  const moneyShortK = useCallback(
+    (n) => {
+      if (hideValues) return "•••••";
+      const v = n || 0;
+      const sign = v < 0 ? "-" : "";
+      return `${sign}$${(Math.abs(v) / 1000).toFixed(2)}K`;
+    },
+    [hideValues]
+  );
+
+  // Audit summary bar overflow detection: when the 4 spans in full money
+  // format don't fit on one line, switch the 3 monetary values to the
+  // abbreviated `moneyShortK` format. We measure a hidden clone that is
+  // ALWAYS rendered in full format (never affected by the short-format
+  // switch itself) against the visible container's stable width — this
+  // avoids an oscillation where switching to short format makes the
+  // measured content fit, flipping back to full, overflowing again, etc.
+  const summaryBarRef = useRef(null);
+  const summaryMeasureRef = useRef(null);
+  const [useShortFormat, setUseShortFormat] = useState(false);
+
+  useEffect(() => {
+    const container = summaryBarRef.current;
+    const probe = summaryMeasureRef.current;
+    if (!container || !probe) return;
+    const measure = () => {
+      setUseShortFormat(probe.scrollWidth > container.clientWidth + 1);
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(container);
+    return () => ro.disconnect();
+  }, [summary, net, filtered.length]);
+
   return (
     <div style={S.txnTab}>
       {/* Fixed controls (capped at half the height, scroll internally if
@@ -3275,11 +3312,20 @@ function Transactions({ transactions, money, hideValues, isWide, onDelete, onUpd
       )}
 
       {/* Audit summary — colored pills */}
-      <div style={S.summaryBar}>
+      <div ref={summaryBarRef} style={S.summaryBar}>
         <span style={{ fontSize: 11, color: "#636366" }}>{filtered.length} txns</span>
-        <span style={{ fontSize: 11, color: "#34d399", background: "rgba(52,211,153,0.1)", borderRadius: 6, padding: "2px 8px" }}>↑ {money(summary.income)}</span>
-        <span style={{ fontSize: 11, color: summary.expenses < 0 ? "#f87171" : "#34d399", background: summary.expenses < 0 ? "rgba(248,113,113,0.1)" : "rgba(52,211,153,0.1)", borderRadius: 6, padding: "2px 8px" }}>{summary.expenses < 0 ? `↓ ${money(Math.abs(summary.expenses))}` : `↑ ${money(Math.abs(summary.expenses))}`}</span>
-        <span style={{ fontSize: 11, color: net >= 0 ? "#34d399" : "#f87171", background: "rgba(255,255,255,0.05)", borderRadius: 6, padding: "2px 8px" }}>= {money(net)}</span>
+        <span style={{ fontSize: 11, color: "#34d399", background: "rgba(52,211,153,0.1)", borderRadius: 6, padding: "2px 8px" }}>↑ {useShortFormat ? moneyShortK(summary.income) : money(summary.income)}</span>
+        <span style={{ fontSize: 11, color: summary.expenses < 0 ? "#f87171" : "#34d399", background: summary.expenses < 0 ? "rgba(248,113,113,0.1)" : "rgba(52,211,153,0.1)", borderRadius: 6, padding: "2px 8px" }}>{summary.expenses < 0 ? `↓ ${useShortFormat ? moneyShortK(Math.abs(summary.expenses)) : money(Math.abs(summary.expenses))}` : `↑ ${useShortFormat ? moneyShortK(Math.abs(summary.expenses)) : money(Math.abs(summary.expenses))}`}</span>
+        <span style={{ fontSize: 11, color: net >= 0 ? "#34d399" : "#f87171", background: "rgba(255,255,255,0.05)", borderRadius: 6, padding: "2px 8px" }}>= {useShortFormat ? moneyShortK(net) : money(net)}</span>
+      </div>
+      {/* Hidden probe: always renders the full-format text so we can measure
+          its natural width regardless of whether the short format is
+          currently active — prevents the measurement from oscillating. */}
+      <div ref={summaryMeasureRef} aria-hidden="true" style={S.summaryBarProbe}>
+        <span style={{ fontSize: 11 }}>{filtered.length} txns</span>
+        <span style={{ fontSize: 11 }}>↑ {money(summary.income)}</span>
+        <span style={{ fontSize: 11 }}>{summary.expenses < 0 ? `↓ ${money(Math.abs(summary.expenses))}` : `↑ ${money(Math.abs(summary.expenses))}`}</span>
+        <span style={{ fontSize: 11 }}>= {money(net)}</span>
       </div>
 
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
@@ -6831,10 +6877,21 @@ const S = {
   summaryBar: {
     display: "flex",
     gap: 8,
-    flexWrap: "wrap",
+    flexWrap: "nowrap",
+    overflow: "hidden",
     alignItems: "center",
     fontSize: 12,
     padding: "6px 10px",
+  },
+  summaryBarProbe: {
+    display: "flex",
+    gap: 8,
+    flexWrap: "nowrap",
+    position: "absolute",
+    visibility: "hidden",
+    height: 0,
+    overflow: "hidden",
+    pointerEvents: "none",
     background: "rgba(22,26,32,0.7)",
     border: "1px solid rgba(255,255,255,0.08)",
     borderRadius: 14,
