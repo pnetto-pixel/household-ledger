@@ -1441,7 +1441,7 @@ function Header({ hideValues, onToggleHide, onLogout, saving, savedAt, dirty, sa
             <Wallet size={14} color="#fff" />
           </div>
           <span style={{ fontWeight: 700, fontSize: 15, letterSpacing: -0.5, color: "#e5e7eb" }}>Household</span>
-          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.23.1</span>
+          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.23.2</span>
         </div>
         <SaveIndicator saving={saving} dirty={dirty} savedAt={savedAt} saveError={saveError} />
       </div>
@@ -6880,8 +6880,14 @@ const S = {
     flexWrap: "nowrap",
     overflow: "hidden",
     alignItems: "center",
+    minWidth: 0,
     fontSize: 12,
     padding: "6px 10px",
+    background: "rgba(22,26,32,0.7)",
+    border: "1px solid rgba(255,255,255,0.08)",
+    borderRadius: 14,
+    backdropFilter: "blur(16px) saturate(160%)",
+    WebkitBackdropFilter: "blur(16px) saturate(160%)",
   },
   summaryBarProbe: {
     display: "flex",
@@ -6892,11 +6898,6 @@ const S = {
     height: 0,
     overflow: "hidden",
     pointerEvents: "none",
-    background: "rgba(22,26,32,0.7)",
-    border: "1px solid rgba(255,255,255,0.08)",
-    borderRadius: 14,
-    backdropFilter: "blur(16px) saturate(160%)",
-    WebkitBackdropFilter: "blur(16px) saturate(160%)",
   },
   swipeAction: {
     border: "none",
