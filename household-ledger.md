@@ -1,4 +1,4 @@
-# Household Ledger · v1.24.0
+# Household Ledger · v1.24.1
 
 Aplicativo mobile-first de controle financeiro doméstico. Registra
 transações da casa (despesas e receitas) por categoria e conta, com
@@ -31,7 +31,17 @@ O `feature-auditor` deve conferir, como parte da checklist de auditoria, que
 o diff inclui o bump nos dois arquivos antes de aprovar — se faltar, isso é
 motivo de reprovação (devolver ao coder), não um detalhe opcional.
 
-Versão atual: **v1.24.0** — o card "Monthly Avg by Category" (Charts) ganhou
+Versão atual: **v1.24.1** — o filtro de período da Home (`SinglePeriodFilter`)
+trocou o popover em árvore Excel-style por um seletor "wheel picker" estilo
+iOS: duas colunas roláveis (Mês / Ano) com `scroll-snap`, linha central em
+destaque (fonte maior/negrito) e linhas adjacentes esmaecidas por distância.
+"All" virou uma linha normal no topo de cada coluna (em vez de um item
+separado "All years"), permitindo combinações independentes de mês/ano (ex:
+"todo julho, todos os anos"), já suportadas por `matchPeriod`. O botão-chip
+gatilho e o `Popover` continuam os mesmos; só o conteúdo interno mudou. Novos
+tokens de estilo: `S.wheelCol`/`S.wheelItem`.
+
+Versão anterior: **v1.24.0** — o card "Monthly Avg by Category" (Charts) ganhou
 uma barra extra ao final, `L12M`, com a média mensal dos últimos 12 meses
 fechados (excluindo o mês corrente parcial). Divisor fixo em 12, igual às
 barras de anos passados — não usa o divisor variável (`currentMonth`) da
