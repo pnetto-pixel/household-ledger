@@ -1,4 +1,4 @@
-# Household Ledger · v1.25.2
+# Household Ledger · v1.26.0
 
 Aplicativo mobile-first de controle financeiro doméstico. Registra
 transações da casa (despesas e receitas) por categoria e conta, com
@@ -31,7 +31,19 @@ O `feature-auditor` deve conferir, como parte da checklist de auditoria, que
 o diff inclui o bump nos dois arquivos antes de aprovar — se faltar, isso é
 motivo de reprovação (devolver ao coder), não um detalhe opcional.
 
-Versão atual: **v1.25.2** — corrigido bug no `SinglePeriodFilter` em que o
+Versão atual: **v1.26.0** — fix de compatibilidade iOS no `SinglePeriodFilter`
+(Home): Safari (iOS/iPadOS) não suporta `<input type="month">` nativamente
+(cai para texto simples, sem picker, e `showPicker()` não abre nada útil lá).
+Detectamos iOS/iPadOS (`/iPad|iPhone|iPod/` no `userAgent`, com fallback para
+`navigator.platform === "MacIntel" && maxTouchPoints > 1` cobrindo iPadOS 13+)
+e, quando é iOS, renderizamos dois `<select>` nativos (Mês/Ano, novo estilo
+`S.periodSelect`) no lugar do input de mês; nos demais navegadores o
+comportamento existente (`input type="month"` + `showPicker()`) é mantido
+inalterado. O range de anos do select vem do mesmo `minMonth`/`maxMonth`
+(`monthRange`) já calculado no `Dashboard`. O botão de reset (`resetToToday`)
+funciona igual em ambos os casos.
+
+Versão anterior: **v1.25.2** — corrigido bug no `SinglePeriodFilter` em que o
 `<input type="month">` transparente sobreposto ao chip interceptava o clique
 (o clique focava o input mas não abria o picker nativo no Chrome/Edge, que só
 abre via `.showPicker()` ou clique no ícone de calendário). Fix: o input

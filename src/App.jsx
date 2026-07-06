@@ -1441,7 +1441,7 @@ function Header({ hideValues, onToggleHide, onLogout, saving, savedAt, dirty, sa
             <Wallet size={14} color="#fff" />
           </div>
           <span style={{ fontWeight: 700, fontSize: 15, letterSpacing: -0.5, color: "#e5e7eb" }}>Household</span>
-          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.25.2</span>
+          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.26.0</span>
         </div>
         <SaveIndicator saving={saving} dirty={dirty} savedAt={savedAt} saveError={saveError} />
       </div>
@@ -1584,6 +1584,18 @@ function periodLabel(year, month) {
 // layer in between. `years` is accepted for API compatibility but unused
 // (the native picker has no notion of a bounded year list). A small "reset"
 // button next to the chip snaps the filter back to the current month/year.
+// iOS (incl. iPadOS, which reports as "Mac" with touch support) doesn't
+// support <input type="month"> natively — it falls back to a plain text
+// field with no picker UI, and showPicker() doesn't help there either. We
+// detect iOS once and render two native <select> (Month/Year) instead.
+const isIOSDevice = (() => {
+  if (typeof navigator === "undefined") return false;
+  const ua = navigator.userAgent || "";
+  if (/iPad|iPhone|iPod/.test(ua)) return true;
+  // iPadOS 13+ identifies as "MacIntel" but has touch support.
+  return navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1;
+})();
+
 function SinglePeriodFilter({ year, month, setYear, setMonth, years, minMonth, maxMonth }) {
   const inputRef = useRef(null);
   const inputValue = `${year}-${month}`;
@@ -1617,33 +1629,56 @@ function SinglePeriodFilter({ year, month, setYear, setMonth, years, minMonth, m
     setMonth(todayMonth.slice(5, 7));
   };
 
+  const yearOptions = useMemo(() => {
+    const minY = parseInt((minMonth || inputValue).slice(0, 4), 10);
+    const maxY = parseInt((maxMonth || inputValue).slice(0, 4), 10);
+    const out = [];
+    for (let y = maxY; y >= minY; y--) out.push(String(y));
+    return out;
+  }, [minMonth, maxMonth, inputValue]);
+
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-      <div style={{ position: "relative" }}>
-        <button onClick={openPicker} style={S.chipBtn(true)} title="Filter by period">
-          <span>{periodLabel(year, month)}</span>
-          <span style={{ fontSize: 9, opacity: 0.7 }}>▼</span>
-        </button>
-        <input
-          ref={inputRef}
-          type="month"
-          value={inputValue}
-          onChange={handleInputChange}
-          min={minMonth}
-          max={maxMonth}
-          style={{
-            position: "absolute",
-            inset: 0,
-            width: "100%",
-            height: "100%",
-            opacity: 0,
-            border: 0,
-            padding: 0,
-            cursor: "pointer",
-            pointerEvents: "none",
-          }}
-        />
-      </div>
+      {isIOSDevice ? (
+        <div style={{ display: "flex", gap: 4 }}>
+          <select value={month} onChange={(e) => setMonth(e.target.value)} style={S.periodSelect}>
+            {MONTHS.map((m) => (
+              <option key={m.v} value={m.v}>{m.l}</option>
+            ))}
+          </select>
+          <select value={year} onChange={(e) => setYear(e.target.value)} style={S.periodSelect}>
+            {yearOptions.map((y) => (
+              <option key={y} value={y}>{y}</option>
+            ))}
+          </select>
+        </div>
+      ) : (
+        <div style={{ position: "relative" }}>
+          <button onClick={openPicker} style={S.chipBtn(true)} title="Filter by period">
+            <span>{periodLabel(year, month)}</span>
+            <span style={{ fontSize: 9, opacity: 0.7 }}>▼</span>
+          </button>
+          <input
+            ref={inputRef}
+            type="month"
+            value={inputValue}
+            onChange={handleInputChange}
+            min={minMonth}
+            max={maxMonth}
+            style={{
+              position: "absolute",
+              inset: 0,
+              width: "100%",
+              height: "100%",
+              opacity: 0,
+              border: 0,
+              padding: 0,
+              cursor: "pointer",
+              pointerEvents: "none",
+            }}
+          />
+        </div>
+      )}
       {!isCurrent && (
         <button onClick={resetToToday} style={{ ...S.deleteBtn, width: 26, height: 26, padding: 0 }} title="Reset to current month">
           ⟲
@@ -6688,6 +6723,19 @@ const S = {
     padding: "10px 12px",
     color: "#e5e7eb",
     fontSize: 14,
+    boxShadow: "inset 0 1px 2px rgba(0,0,0,0.2)",
+  },
+  // iOS fallback for SinglePeriodFilter (no native <input type="month"> support there):
+  // compact Month/Year <select> pair styled to match the chip pattern instead of
+  // the default browser white select.
+  periodSelect: {
+    background: "rgba(15,18,22,0.92)",
+    border: "1px solid rgba(255,255,255,0.08)",
+    borderRadius: 999,
+    padding: "6px 8px",
+    color: "#e5e7eb",
+    fontSize: 12,
+    fontWeight: 600,
     boxShadow: "inset 0 1px 2px rgba(0,0,0,0.2)",
   },
   // Description rule card (Settings → Description rules). Default state uses the
