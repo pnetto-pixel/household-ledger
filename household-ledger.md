@@ -1,4 +1,4 @@
-# Household Ledger · v1.28.0
+# Household Ledger · v1.28.1
 
 Aplicativo mobile-first de controle financeiro doméstico. Registra
 transações da casa (despesas e receitas) por categoria e conta, com
@@ -31,7 +31,16 @@ O `feature-auditor` deve conferir, como parte da checklist de auditoria, que
 o diff inclui o bump nos dois arquivos antes de aprovar — se faltar, isso é
 motivo de reprovação (devolver ao coder), não um detalhe opcional.
 
-Versão atual: **v1.28.0** — no desktop, o chip de filtro de categoria
+Versão atual: **v1.28.1** — fix de estilo: o `<input type="month">`
+(`SinglePeriodFilter`) e o `<select>` (`SingleCategoryFilter`, desktop,
+`S.chipSelect`) passam a declarar `colorScheme: "dark"` (CSS `color-scheme:
+dark`), fazendo o popup nativo do calendário e a lista de `<option>` abrirem
+com o chrome escuro do SO/browser em vez do tema claro padrão. Sem mudança de
+comportamento/lógica — apenas 2 linhas de CSS. Limitação conhecida e aceita:
+suporte parcial no Safari, e as cores exatas do popup nativo (controladas
+pelo SO, não pelo CSS do app) não ficam 100% idênticas à paleta do projeto.
+
+Versão anterior: **v1.28.0** — no desktop, o chip de filtro de categoria
 (`SingleCategoryFilter`, tab Home/Dashboard) passa a usar um `<select>` HTML5
 nativo em vez do botão-chip + `Popover` customizado, deixando o filtro mais
 rápido de operar com teclado/mouse e mais consistente com o padrão nativo já
