@@ -2113,7 +2113,7 @@ O app inicia com array vazio quando não há dados salvos (sem SEED).
   removido por ficar sem uso; novos tokens `S.wheelCol`/`S.wheelItem`. Só
   `src/App.jsx` alterado; sem mudança de API/Redis/modelo de transação
 - [x] Home: `<select>` HTML5 nativo no `SingleCategoryFilter` para desktop
-  (v1.28.0) — quando `isWide` (`useMediaWide(900)`), o chip de categoria
+  (PR #176, v1.28.0) — quando `isWide` (`useMediaWide(900)`), o chip de categoria
   passa a usar um `<select>` nativo estilizado (`S.chipSelect(active)` +
   seta `S.chipSelectArrow`) em vez do chip-button + `Popover`; no mobile
   mantém o `Popover` original, inalterado. `catFilter` continua string
