@@ -1,4 +1,4 @@
-# Household Ledger · v1.25.0
+# Household Ledger · v1.25.1
 
 Aplicativo mobile-first de controle financeiro doméstico. Registra
 transações da casa (despesas e receitas) por categoria e conta, com
@@ -31,16 +31,17 @@ O `feature-auditor` deve conferir, como parte da checklist de auditoria, que
 o diff inclui o bump nos dois arquivos antes de aprovar — se faltar, isso é
 motivo de reprovação (devolver ao coder), não um detalhe opcional.
 
-Versão atual: **v1.25.0** — o "wheel picker" iOS-style do filtro de período da
-Home (`SinglePeriodFilter`) foi substituído por um `<input type="month">`
-nativo do HTML5 (não funcionava bem com mouse/scroll no desktop). O popover
-agora mostra o input nativo (com `colorScheme: "dark"` inline para o picker do
-sistema renderizar em modo escuro) mais dois chips "All months"/"All years"
-para voltar ao estado "All" de cada eixo — que o input nativo não tem como
-representar sozinho. `setYear`/`setMonth` continuam recebendo strings
-("YYYY"/"MM"), como o resto do app (`matchPeriod`, `availableYears`). O
-componente `WheelColumn` e os tokens `S.wheelCol`/`S.wheelItem` foram
-removidos por não terem mais uso.
+Versão atual: **v1.25.1** — o filtro de período da Home
+(`SinglePeriodFilter`) não abre mais um `Popover` intermediário: o clique no
+chip aciona diretamente o picker nativo do `<input type="month">` (via
+`showPicker()`, com fallback para `.focus()`), que fica posicionado
+transparente sobre o próprio chip. Os chips extras "All months"/"All years"
+foram removidos — a Home sempre opera sobre um mês/ano concreto (nunca
+"All"). Um botão de reset (⟲) aparece ao lado do chip quando o período
+selecionado difere do mês atual, voltando direto pro mês/ano de hoje.
+`setYear`/`setMonth` continuam recebendo strings ("YYYY"/"MM"), como o resto
+do app. O suporte a `"All"` em `matchPeriod`/`periodLabel` foi mantido, pois
+ainda é usado pelo filtro de período do Ledger.
 
 Versão anterior: **v1.24.1** — o filtro de período da Home (`SinglePeriodFilter`)
 trocou o popover em árvore Excel-style por um seletor "wheel picker" estilo
@@ -1270,13 +1271,19 @@ shell de altura cheia (`#root` em `100lvh` + shell `height:100%`): só o
    data (`justifyContent: "flex-start"` no wrapper, antes era
    `"space-between"`, que empurrava a categoria para a ponta direita).
    **Desde a v1.24.1** (PR #170), o conteúdo do popover do
-   `SinglePeriodFilter` deixou de ser a árvore Excel-style e virou um "wheel
-   picker" estilo iOS: duas colunas roláveis (Mês / Ano) com `scroll-snap`,
-   item central em destaque (fonte maior/negrito) e linhas adjacentes
-   esmaecidas por distância; "All" é uma linha normal no topo de cada
-   coluna (em vez de item separado "All years"), permitindo combinações
-   independentes como "todo julho, todos os anos". Implementação nativa
-   (sem `@ionic/react`); novos tokens `S.wheelCol`/`S.wheelItem`. O PR
+   `SinglePeriodFilter` deixou de ser a árvore Excel-style e virou (por um
+   tempo) um "wheel picker" estilo iOS: duas colunas roláveis (Mês / Ano)
+   com `scroll-snap`, item central em destaque (fonte maior/negrito) e
+   linhas adjacentes esmaecidas por distância. **Desde a v1.25.0** (PR
+   #171), esse wheel picker foi substituído por um `<input type="month">`
+   nativo do HTML5 (o wheel picker não funcionava bem com mouse/scroll no
+   desktop), dentro do mesmo chip-button/`Popover`; `colorScheme: "dark"`
+   inline garante que o picker do sistema renderize em modo escuro. Como o
+   input nativo não representa o conceito de "All", dois chips extras
+   "All months"/"All years" ficam ao lado do input para voltar a esse
+   estado em cada eixo — mantendo as combinações independentes de mês/ano
+   já suportadas por `matchPeriod`. O componente `WheelColumn` e os tokens
+   `S.wheelCol`/`S.wheelItem` foram removidos por não terem mais uso. O PR
    #161 também corrigiu um bug de fonte: os popovers usam `createPortal` para
    `document.body` (fora
    da árvore `.app`) e não herdavam a fonte do app; nova constante de módulo
@@ -1955,6 +1962,13 @@ O app inicia com array vazio quando não há dados salvos (sem SEED).
   Implementação nativa em React/CSS (sem `@ionic/react`, que não é
   dependência do projeto); novos tokens `S.wheelCol`/`S.wheelItem`. Só
   `src/App.jsx` alterado; sem mudança de API/Redis/modelo de transação
+- [x] Home: chip de data (`SinglePeriodFilter`) — wheel picker trocado por
+  `<input type="month">` nativo (PR #171, v1.25.0), pois o wheel picker do
+  PR #170 não funcionava bem com mouse/scroll no desktop; chips extras
+  "All months"/"All years" cobrem o caso "All" que o input nativo não
+  representa; `colorScheme: "dark"` para o tema escuro; `WheelColumn` e
+  `S.wheelCol`/`S.wheelItem` removidos. Só `src/App.jsx` alterado; sem
+  mudança de API/Redis/modelo de transação
 - [ ] Multiusuário / household compartilhado
 - [ ] PWA offline-first
 - [~] Integrações de import (bancos, cartões) — exportador Credit Karma para
