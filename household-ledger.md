@@ -1997,6 +1997,15 @@ O app inicia com array vazio quando não há dados salvos (sem SEED).
   visível só quando o período selecionado difere do mês/ano atual,
   restaurando para o mês corrente. Só `src/App.jsx` alterado; sem mudança
   de API/Redis/modelo de transação
+- [x] Home: fix no `SinglePeriodFilter` (PR #173, v1.25.2) — o
+  `<input type="month">` transparente sobre o chip tinha `pointerEvents:
+  "none"` adicionado, deixando o clique passar para o `<button>` que chama
+  `showPicker()` (antes o clique era capturado pelo input e o picker nativo
+  não abria no Chrome/Edge desktop). Adicionados `min`/`max` ao input,
+  calculados via `useMemo` `monthRange` no `Dashboard` a partir do
+  menor/maior `date.slice(0,7)` em `transactions`, restringindo a seleção ao
+  intervalo de meses com dados reais. Só `src/App.jsx` alterado; sem
+  mudança de API/Redis/modelo de transação
 - [ ] Multiusuário / household compartilhado
 - [ ] PWA offline-first
 - [~] Integrações de import (bancos, cartões) — exportador Credit Karma para
