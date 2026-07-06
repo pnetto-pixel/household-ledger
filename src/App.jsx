@@ -1441,7 +1441,7 @@ function Header({ hideValues, onToggleHide, onLogout, saving, savedAt, dirty, sa
             <Wallet size={14} color="#fff" />
           </div>
           <span style={{ fontWeight: 700, fontSize: 15, letterSpacing: -0.5, color: "#e5e7eb" }}>Household</span>
-          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.25.1</span>
+          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.25.2</span>
         </div>
         <SaveIndicator saving={saving} dirty={dirty} savedAt={savedAt} saveError={saveError} />
       </div>
@@ -1584,7 +1584,7 @@ function periodLabel(year, month) {
 // layer in between. `years` is accepted for API compatibility but unused
 // (the native picker has no notion of a bounded year list). A small "reset"
 // button next to the chip snaps the filter back to the current month/year.
-function SinglePeriodFilter({ year, month, setYear, setMonth, years }) {
+function SinglePeriodFilter({ year, month, setYear, setMonth, years, minMonth, maxMonth }) {
   const inputRef = useRef(null);
   const inputValue = `${year}-${month}`;
   const todayMonth = todayISO().slice(0, 7);
@@ -1629,6 +1629,8 @@ function SinglePeriodFilter({ year, month, setYear, setMonth, years }) {
           type="month"
           value={inputValue}
           onChange={handleInputChange}
+          min={minMonth}
+          max={maxMonth}
           style={{
             position: "absolute",
             inset: 0,
@@ -1638,6 +1640,7 @@ function SinglePeriodFilter({ year, month, setYear, setMonth, years }) {
             border: 0,
             padding: 0,
             cursor: "pointer",
+            pointerEvents: "none",
           }}
         />
       </div>
@@ -1697,6 +1700,18 @@ function Dashboard({ transactions, money, hideValues }) {
     catFilter === "All" ? transactions : transactions.filter((t) => t.category === catFilter)
   ), [transactions, catFilter]);
   const years = useMemo(() => availableYears(transactions), [transactions]);
+  // Bound the native month picker to the range of months with actual data.
+  const monthRange = useMemo(() => {
+    let min = null;
+    let max = null;
+    for (const t of transactions) {
+      const ym = (t.date || "").slice(0, 7);
+      if (!ym) continue;
+      if (!min || ym < min) min = ym;
+      if (!max || ym > max) max = ym;
+    }
+    return { min, max };
+  }, [transactions]);
   // No-cents money for the tight 3-up stat card row.
   const moneyShort = (n) => (hideValues ? "•••••" : usd0.format(n || 0));
 
@@ -1911,7 +1926,7 @@ function Dashboard({ transactions, money, hideValues }) {
     <div style={S.col}>
       {/* Hero balance card — shows the SELECTED period */}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-start", flexWrap: "wrap", gap: 8 }}>
-        <SinglePeriodFilter year={year} month={month} setYear={setYear} setMonth={setMonth} years={years} />
+        <SinglePeriodFilter year={year} month={month} setYear={setYear} setMonth={setMonth} years={years} minMonth={monthRange.min} maxMonth={monthRange.max} />
         <SingleCategoryFilter value={catFilter} options={availableCats} setValue={setCatFilter} />
       </div>
 
