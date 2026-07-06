@@ -1441,7 +1441,7 @@ function Header({ hideValues, onToggleHide, onLogout, saving, savedAt, dirty, sa
             <Wallet size={14} color="#fff" />
           </div>
           <span style={{ fontWeight: 700, fontSize: 15, letterSpacing: -0.5, color: "#e5e7eb" }}>Household</span>
-          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.24.1</span>
+          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.25.0</span>
         </div>
         <SaveIndicator saving={saving} dirty={dirty} savedAt={savedAt} saveError={saveError} />
       </div>
@@ -1578,110 +1578,63 @@ function periodLabel(year, month) {
   return m ? `${m.l} ${year}` : year;
 }
 
-// iOS-style wheel picker column: a vertically scrolling list with
-// scroll-snap where the centered item is the "selected" value. Options is
-// [{v, l}, ...] and must include an "All" entry when applicable. Padding
-// rows above/below let the first/last real option reach the centered slot.
-const WHEEL_ITEM_H = 34;
-const WHEEL_VISIBLE = 5; // odd, so there's a single centered row
-const WHEEL_PAD = Math.floor(WHEEL_VISIBLE / 2);
-
-function WheelColumn({ options, value, onChange }) {
-  const ref = useRef(null);
-  const settleTimer = useRef(null);
-  const idx = Math.max(0, options.findIndex((o) => o.v === value));
-
-  // Keep the scroll position in sync when the selected value changes from
-  // outside this column (e.g. popover just opened, or "All" reset).
-  useEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-    el.scrollTop = idx * WHEEL_ITEM_H;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [value, options.length]);
-
-  const handleScroll = () => {
-    const el = ref.current;
-    if (!el) return;
-    if (settleTimer.current) clearTimeout(settleTimer.current);
-    settleTimer.current = setTimeout(() => {
-      const i = Math.round(el.scrollTop / WHEEL_ITEM_H);
-      const clamped = Math.min(Math.max(i, 0), options.length - 1);
-      el.scrollTo({ top: clamped * WHEEL_ITEM_H, behavior: "smooth" });
-      const opt = options[clamped];
-      if (opt && opt.v !== value) onChange(opt.v);
-    }, 120);
-  };
-
-  const handleClick = (i) => {
-    const el = ref.current;
-    if (!el) return;
-    el.scrollTo({ top: i * WHEEL_ITEM_H, behavior: "smooth" });
-  };
-
-  return (
-    <div ref={ref} onScroll={handleScroll} style={S.wheelCol}>
-      <div style={{ height: WHEEL_PAD * WHEEL_ITEM_H }} />
-      {options.map((o, i) => {
-        const dist = Math.abs(i - idx);
-        return (
-          <div key={o.v} onClick={() => handleClick(i)} style={S.wheelItem(dist)}>
-            {o.l}
-          </div>
-        );
-      })}
-      <div style={{ height: WHEEL_PAD * WHEEL_ITEM_H }} />
-    </div>
-  );
-}
-
 // Single-select chip + Popover, same trigger visual language as the other
-// Dashboard filters (S.chipBtn + Popover), but the popover body is an
-// iOS-style wheel picker: two scroll-snapped columns (Month / Year), the
-// centered row is the active selection, rows fade out with distance. "All"
-// is a regular row at the top of each column so both "all months" and "all
-// years" stay reachable (and independently combinable, per matchPeriod).
+// Dashboard filters (S.chipBtn + Popover). The popover body is a native
+// HTML5 <input type="month">, which gives every platform (desktop mouse,
+// touch, keyboard) its own well-tested picker UI for free — no custom
+// scroll/wheel interaction to maintain. "All months" / "All years" (both
+// independently combinable, per matchPeriod) are exposed as small toggle
+// chips next to the input since the native control has no such concept.
 function SinglePeriodFilter({ year, month, setYear, setMonth, years }) {
   const [open, setOpen] = useState(false);
   const anchorRef = useRef(null);
-  // Always include the currently-selected year so the control stays valid even
-  // if the only matching transaction was just filtered/edited away.
-  const yearOpts =
-    year !== "All" && !years.includes(year) ? [year, ...years] : years;
   const active = year !== "All" || month !== "All";
-  const monthOptions = [{ v: "All", l: "All" }, ...MONTHS];
-  const yearOptions = [{ v: "All", l: "All" }, ...yearOpts.map((y) => ({ v: y, l: y }))];
+  // Native <input type="month"> needs a valid "YYYY-MM"; fall back to the
+  // current month when either half is "All" so the picker always shows a
+  // sensible starting point.
+  const fallback = todayISO().slice(0, 7);
+  const inputValue = year !== "All" && month !== "All" ? `${year}-${month}` : fallback;
+
+  const handleInputChange = (e) => {
+    const v = e.target.value; // "YYYY-MM"
+    if (!v) return;
+    const [y, m] = v.split("-");
+    setYear(y);
+    setMonth(m);
+  };
+
   return (
     <div ref={anchorRef} style={{ position: "relative" }}>
       <button onClick={() => setOpen((o) => !o)} style={S.chipBtn(active)} title="Filter by period">
         <span>{periodLabel(year, month)}</span>
         <span style={{ fontSize: 9, opacity: 0.7 }}>▼</span>
       </button>
-      <Popover open={open} setOpen={setOpen} anchorRef={anchorRef} style={{ display: "flex", flexDirection: "column", gap: 6, minWidth: 220 }}>
+      <Popover open={open} setOpen={setOpen} anchorRef={anchorRef} style={{ display: "flex", flexDirection: "column", gap: 8, minWidth: 220 }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
           <div style={S.popHead}>Month / Year</div>
           <button onClick={() => setOpen(false)} style={{ ...S.deleteBtn, width: 20, height: 20, padding: 0 }} title="Close">
             ✕
           </button>
         </div>
-        <div style={{ position: "relative" }}>
-          {/* Center-row highlight band, purely decorative (non-interactive). */}
-          <div
-            style={{
-              position: "absolute",
-              left: 0,
-              right: 0,
-              top: WHEEL_PAD * WHEEL_ITEM_H,
-              height: WHEEL_ITEM_H,
-              borderTop: "1px solid rgba(255,255,255,0.15)",
-              borderBottom: "1px solid rgba(255,255,255,0.15)",
-              pointerEvents: "none",
-            }}
-          />
-          <div style={{ display: "flex", gap: 4 }}>
-            <WheelColumn options={monthOptions} value={month} onChange={setMonth} />
-            <WheelColumn options={yearOptions} value={year} onChange={setYear} />
-          </div>
+        <input
+          type="month"
+          value={inputValue}
+          onChange={handleInputChange}
+          style={{ ...S.input, colorScheme: "dark" }}
+        />
+        <div style={{ display: "flex", gap: 6 }}>
+          <button
+            onClick={() => setMonth("All")}
+            style={S.chipBtn(month === "All")}
+          >
+            All months
+          </button>
+          <button
+            onClick={() => setYear("All")}
+            style={S.chipBtn(year === "All")}
+          >
+            All years
+          </button>
         </div>
       </Popover>
     </div>
@@ -7068,28 +7021,6 @@ const S = {
     color: "#4b5563",
     padding: "8px 0 4px",
   },
-  // iOS-style wheel picker column (SinglePeriodFilter). Scroll-snap keeps the
-  // centered row aligned; rows fade/shrink with distance from center.
-  wheelCol: {
-    flex: 1,
-    height: WHEEL_VISIBLE * WHEEL_ITEM_H,
-    overflowY: "scroll",
-    scrollSnapType: "y mandatory",
-    scrollbarWidth: "none",
-    WebkitOverflowScrolling: "touch",
-  },
-  wheelItem: (dist) => ({
-    height: WHEEL_ITEM_H,
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    scrollSnapAlign: "center",
-    fontSize: dist === 0 ? 16 : 13,
-    fontWeight: dist === 0 ? 700 : 400,
-    color: dist === 0 ? "#f4f6f8" : dist === 1 ? "#8b94a3" : "#4b5563",
-    cursor: "pointer",
-    userSelect: "none",
-  }),
   chipBtn: (active) => ({
     display: "inline-flex",
     alignItems: "center",

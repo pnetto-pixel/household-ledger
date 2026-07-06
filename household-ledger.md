@@ -1,4 +1,4 @@
-# Household Ledger · v1.24.1
+# Household Ledger · v1.25.0
 
 Aplicativo mobile-first de controle financeiro doméstico. Registra
 transações da casa (despesas e receitas) por categoria e conta, com
@@ -31,7 +31,18 @@ O `feature-auditor` deve conferir, como parte da checklist de auditoria, que
 o diff inclui o bump nos dois arquivos antes de aprovar — se faltar, isso é
 motivo de reprovação (devolver ao coder), não um detalhe opcional.
 
-Versão atual: **v1.24.1** — o filtro de período da Home (`SinglePeriodFilter`)
+Versão atual: **v1.25.0** — o "wheel picker" iOS-style do filtro de período da
+Home (`SinglePeriodFilter`) foi substituído por um `<input type="month">`
+nativo do HTML5 (não funcionava bem com mouse/scroll no desktop). O popover
+agora mostra o input nativo (com `colorScheme: "dark"` inline para o picker do
+sistema renderizar em modo escuro) mais dois chips "All months"/"All years"
+para voltar ao estado "All" de cada eixo — que o input nativo não tem como
+representar sozinho. `setYear`/`setMonth` continuam recebendo strings
+("YYYY"/"MM"), como o resto do app (`matchPeriod`, `availableYears`). O
+componente `WheelColumn` e os tokens `S.wheelCol`/`S.wheelItem` foram
+removidos por não terem mais uso.
+
+Versão anterior: **v1.24.1** — o filtro de período da Home (`SinglePeriodFilter`)
 trocou o popover em árvore Excel-style por um seletor "wheel picker" estilo
 iOS: duas colunas roláveis (Mês / Ano) com `scroll-snap`, linha central em
 destaque (fonte maior/negrito) e linhas adjacentes esmaecidas por distância.
@@ -1257,7 +1268,15 @@ shell de altura cheia (`#root` em `100lvh` + shell `height:100%`): só o
    clicar seleciona e fecha), sem alterar `catFilter` (segue string única).
    **Desde a v1.23.0**, esse chip fica alinhado à esquerda ao lado do chip de
    data (`justifyContent: "flex-start"` no wrapper, antes era
-   `"space-between"`, que empurrava a categoria para a ponta direita). O PR
+   `"space-between"`, que empurrava a categoria para a ponta direita).
+   **Desde a v1.24.1** (PR #170), o conteúdo do popover do
+   `SinglePeriodFilter` deixou de ser a árvore Excel-style e virou um "wheel
+   picker" estilo iOS: duas colunas roláveis (Mês / Ano) com `scroll-snap`,
+   item central em destaque (fonte maior/negrito) e linhas adjacentes
+   esmaecidas por distância; "All" é uma linha normal no topo de cada
+   coluna (em vez de item separado "All years"), permitindo combinações
+   independentes como "todo julho, todos os anos". Implementação nativa
+   (sem `@ionic/react`); novos tokens `S.wheelCol`/`S.wheelItem`. O PR
    #161 também corrigiu um bug de fonte: os popovers usam `createPortal` para
    `document.body` (fora
    da árvore `.app`) e não herdavam a fonte do app; nova constante de módulo
@@ -1928,6 +1947,14 @@ O app inicia com array vazio quando não há dados salvos (sem SEED).
   array); `SingleCategoryFilter` passou a ficar alinhado à esquerda ao lado
   do chip de data (`justifyContent: "flex-start"`, antes `"space-between"`).
   Só `src/App.jsx` alterado; sem mudança de API/Redis/modelo de transação
+- [x] Home: chip de data (`SinglePeriodFilter`) trocado de árvore Excel-style
+  para "wheel picker" estilo iOS (PR #170, v1.24.1): duas colunas roláveis
+  (Mês / Ano) com `scroll-snap`, item central em destaque tipográfico (sem
+  checkmark) e "All" como linha no topo de cada coluna, permitindo
+  combinações independentes de mês/ano (já suportadas por `matchPeriod`).
+  Implementação nativa em React/CSS (sem `@ionic/react`, que não é
+  dependência do projeto); novos tokens `S.wheelCol`/`S.wheelItem`. Só
+  `src/App.jsx` alterado; sem mudança de API/Redis/modelo de transação
 - [ ] Multiusuário / household compartilhado
 - [ ] PWA offline-first
 - [~] Integrações de import (bancos, cartões) — exportador Credit Karma para
