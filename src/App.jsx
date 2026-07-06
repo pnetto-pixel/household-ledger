@@ -1441,7 +1441,7 @@ function Header({ hideValues, onToggleHide, onLogout, saving, savedAt, dirty, sa
             <Wallet size={14} color="#fff" />
           </div>
           <span style={{ fontWeight: 700, fontSize: 15, letterSpacing: -0.5, color: "#e5e7eb" }}>Household</span>
-          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.26.0</span>
+          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.27.0</span>
         </div>
         <SaveIndicator saving={saving} dirty={dirty} savedAt={savedAt} saveError={saveError} />
       </div>
@@ -1596,8 +1596,70 @@ const isIOSDevice = (() => {
   return navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1;
 })();
 
+// iOS-style wheel picker column: a vertically scrolling list with
+// scroll-snap where the centered item is the "selected" value. Options is
+// [{v, l}, ...]. Padding rows above/below let the first/last real option
+// reach the centered slot. Mobile/iOS only (see SinglePeriodFilter) —
+// desktop keeps the native <input type="month"> untouched, since a prior
+// attempt at using this same pattern for both (v1.24.1) was reverted
+// (v1.25.0) for not working well with mouse/scroll on desktop.
+const WHEEL_ITEM_H = 34;
+const WHEEL_VISIBLE = 5; // odd, so there's a single centered row
+const WHEEL_PAD = Math.floor(WHEEL_VISIBLE / 2);
+
+function WheelColumn({ options, value, onChange }) {
+  const ref = useRef(null);
+  const settleTimer = useRef(null);
+  const idx = Math.max(0, options.findIndex((o) => o.v === value));
+
+  // Keep the scroll position in sync when the selected value changes from
+  // outside this column (e.g. popover just opened, or "reset to today").
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    el.scrollTop = idx * WHEEL_ITEM_H;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [value, options.length]);
+
+  const handleScroll = () => {
+    const el = ref.current;
+    if (!el) return;
+    if (settleTimer.current) clearTimeout(settleTimer.current);
+    settleTimer.current = setTimeout(() => {
+      const i = Math.round(el.scrollTop / WHEEL_ITEM_H);
+      const clamped = Math.min(Math.max(i, 0), options.length - 1);
+      el.scrollTo({ top: clamped * WHEEL_ITEM_H, behavior: "smooth" });
+      const opt = options[clamped];
+      if (opt && opt.v !== value) onChange(opt.v);
+    }, 120);
+  };
+
+  const handleClick = (i) => {
+    const el = ref.current;
+    if (!el) return;
+    el.scrollTo({ top: i * WHEEL_ITEM_H, behavior: "smooth" });
+  };
+
+  return (
+    <div ref={ref} onScroll={handleScroll} style={S.wheelCol}>
+      <div style={{ height: WHEEL_PAD * WHEEL_ITEM_H }} />
+      {options.map((o, i) => {
+        const dist = Math.abs(i - idx);
+        return (
+          <div key={o.v} onClick={() => handleClick(i)} style={S.wheelItem(dist)}>
+            {o.l}
+          </div>
+        );
+      })}
+      <div style={{ height: WHEEL_PAD * WHEEL_ITEM_H }} />
+    </div>
+  );
+}
+
 function SinglePeriodFilter({ year, month, setYear, setMonth, years, minMonth, maxMonth }) {
   const inputRef = useRef(null);
+  const anchorRef = useRef(null);
+  const [wheelOpen, setWheelOpen] = useState(false);
   const inputValue = `${year}-${month}`;
   const todayMonth = todayISO().slice(0, 7);
   const isCurrent = inputValue === todayMonth;
@@ -1640,17 +1702,41 @@ function SinglePeriodFilter({ year, month, setYear, setMonth, years, minMonth, m
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
       {isIOSDevice ? (
-        <div style={{ display: "flex", gap: 4 }}>
-          <select value={month} onChange={(e) => setMonth(e.target.value)} style={S.periodSelect}>
-            {MONTHS.map((m) => (
-              <option key={m.v} value={m.v}>{m.l}</option>
-            ))}
-          </select>
-          <select value={year} onChange={(e) => setYear(e.target.value)} style={S.periodSelect}>
-            {yearOptions.map((y) => (
-              <option key={y} value={y}>{y}</option>
-            ))}
-          </select>
+        <div ref={anchorRef} style={{ position: "relative" }}>
+          <button onClick={() => setWheelOpen((o) => !o)} style={S.chipBtn(true)} title="Filter by period">
+            <span>{periodLabel(year, month)}</span>
+            <span style={{ fontSize: 9, opacity: 0.7 }}>▼</span>
+          </button>
+          <Popover
+            open={wheelOpen}
+            setOpen={setWheelOpen}
+            anchorRef={anchorRef}
+            style={{ display: "flex", flexDirection: "column", gap: 6, minWidth: 160 }}
+          >
+            <div style={{ position: "relative" }}>
+              {/* Center-row highlight band, purely decorative (non-interactive). */}
+              <div
+                style={{
+                  position: "absolute",
+                  left: 0,
+                  right: 0,
+                  top: WHEEL_PAD * WHEEL_ITEM_H,
+                  height: WHEEL_ITEM_H,
+                  borderTop: "1px solid rgba(255,255,255,0.15)",
+                  borderBottom: "1px solid rgba(255,255,255,0.15)",
+                  pointerEvents: "none",
+                }}
+              />
+              <div style={{ display: "flex", gap: 4 }}>
+                <WheelColumn options={MONTHS} value={month} onChange={setMonth} />
+                <WheelColumn
+                  options={yearOptions.map((y) => ({ v: y, l: y }))}
+                  value={year}
+                  onChange={setYear}
+                />
+              </div>
+            </div>
+          </Popover>
         </div>
       ) : (
         <div style={{ position: "relative" }}>
@@ -6725,19 +6811,28 @@ const S = {
     fontSize: 14,
     boxShadow: "inset 0 1px 2px rgba(0,0,0,0.2)",
   },
-  // iOS fallback for SinglePeriodFilter (no native <input type="month"> support there):
-  // compact Month/Year <select> pair styled to match the chip pattern instead of
-  // the default browser white select.
-  periodSelect: {
-    background: "rgba(15,18,22,0.92)",
-    border: "1px solid rgba(255,255,255,0.08)",
-    borderRadius: 999,
-    padding: "6px 8px",
-    color: "#e5e7eb",
-    fontSize: 12,
-    fontWeight: 600,
-    boxShadow: "inset 0 1px 2px rgba(0,0,0,0.2)",
+  // iOS-style wheel picker column (SinglePeriodFilter, mobile/iOS only). Scroll-snap
+  // keeps the centered row aligned; rows fade/shrink with distance from center.
+  wheelCol: {
+    flex: 1,
+    height: WHEEL_VISIBLE * WHEEL_ITEM_H,
+    overflowY: "scroll",
+    scrollSnapType: "y mandatory",
+    scrollbarWidth: "none",
+    WebkitOverflowScrolling: "touch",
   },
+  wheelItem: (dist) => ({
+    height: WHEEL_ITEM_H,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    scrollSnapAlign: "center",
+    fontSize: dist === 0 ? 16 : 13,
+    fontWeight: dist === 0 ? 700 : 400,
+    color: dist === 0 ? "#f4f6f8" : dist === 1 ? "#8b94a3" : "#4b5563",
+    cursor: "pointer",
+    userSelect: "none",
+  }),
   // Description rule card (Settings → Description rules). Default state uses the
   // muted surface/border; `overrideRuleCard` swaps to an amber accent while the
   // rule has the special "Allow removing from Transfer" power turned on.
