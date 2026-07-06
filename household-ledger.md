@@ -1,4 +1,4 @@
-# Household Ledger · v1.27.0
+# Household Ledger · v1.28.0
 
 Aplicativo mobile-first de controle financeiro doméstico. Registra
 transações da casa (despesas e receitas) por categoria e conta, com
@@ -31,7 +31,23 @@ O `feature-auditor` deve conferir, como parte da checklist de auditoria, que
 o diff inclui o bump nos dois arquivos antes de aprovar — se faltar, isso é
 motivo de reprovação (devolver ao coder), não um detalhe opcional.
 
-Versão atual: **v1.27.0** — substitui o fallback iOS de dois `<select>`
+Versão atual: **v1.28.0** — no desktop, o chip de filtro de categoria
+(`SingleCategoryFilter`, tab Home/Dashboard) passa a usar um `<select>` HTML5
+nativo em vez do botão-chip + `Popover` customizado, deixando o filtro mais
+rápido de operar com teclado/mouse e mais consistente com o padrão nativo já
+usado pelo `SinglePeriodFilter` no desktop (`input type="month"`). O
+`<select>` é estilizado com `appearance: "none"` reaproveitando as cores/
+bordas/fonte do `S.chipBtn` (novo token `S.chipSelect`), com uma seta `▼`
+sobreposta via `span` `pointerEvents: "none"` (`S.chipSelectArrow`) para não
+interceptar cliques. No mobile (`isWide === false`), o comportamento não
+muda: chip + `Popover` customizado, igual antes. `isWide` (já calculado na
+raiz do `App` via `useMediaWide(900)`) passou a ser propagado para
+`Dashboard` e, de lá, para `SingleCategoryFilter`. Nenhuma mudança no branch
+iOS/mobile do `SinglePeriodFilter` nem no contrato de dados
+(`year`/`month`/`catFilter` continuam string única). Só `src/App.jsx`
+alterado; sem mudança de API/Redis/modelo de transação.
+
+Versão anterior: **v1.27.0** — substitui o fallback iOS de dois `<select>`
 (Mês/Ano) do `SinglePeriodFilter` (Home) por um wheel picker estilo iOS
 nativo, em React puro + CSS scroll-snap (sem libs novas). No branch
 `isIOSDevice`, o chip agora abre um `Popover` (mesmo componente já usado nos
@@ -1363,7 +1379,14 @@ shell de altura cheia (`#root` em `100lvh` + shell `height:100%`): só o
    inalterado. Continua sem opção "All" no wheel picker mobile (já era
    assim desde a v1.25.1 — não é regressão). Estilos novos: `S.wheelCol`,
    `S.wheelItem`; `S.periodSelect` (dos dois `<select>` da v1.26.0) foi
-   removido por ficar sem uso. O PR
+   removido por ficar sem uso. **Desde a v1.28.0**, no desktop
+   (`isWide === true`) o `SingleCategoryFilter` passou a usar um `<select>`
+   HTML5 nativo (novo token `S.chipSelect(active)` + seta `▼` sobreposta via
+   `S.chipSelectArrow`, `pointerEvents: "none"`) em vez do chip-button +
+   `Popover`; no mobile o comportamento não mudou. `isWide` (já calculado na
+   raiz do `App` via `useMediaWide(900)`) passou a ser propagado para
+   `Dashboard` e daí para `SingleCategoryFilter`. Não afeta o
+   `SinglePeriodFilter` nem o branch iOS descrito acima. O PR
    #161 também corrigiu um bug de fonte: os popovers usam `createPortal` para
    `document.body` (fora
    da árvore `.app`) e não herdavam a fonte do app; nova constante de módulo
@@ -2089,6 +2112,13 @@ O app inicia com array vazio quando não há dados salvos (sem SEED).
   `input type="month"` + `showPicker()`, inalterado. `S.periodSelect`
   removido por ficar sem uso; novos tokens `S.wheelCol`/`S.wheelItem`. Só
   `src/App.jsx` alterado; sem mudança de API/Redis/modelo de transação
+- [x] Home: `<select>` HTML5 nativo no `SingleCategoryFilter` para desktop
+  (v1.28.0) — quando `isWide` (`useMediaWide(900)`), o chip de categoria
+  passa a usar um `<select>` nativo estilizado (`S.chipSelect(active)` +
+  seta `S.chipSelectArrow`) em vez do chip-button + `Popover`; no mobile
+  mantém o `Popover` original, inalterado. `catFilter` continua string
+  única. Só `src/App.jsx` alterado; sem mudança de API/Redis/modelo de
+  transação
 - [ ] Multiusuário / household compartilhado
 - [ ] PWA offline-first
 - [~] Integrações de import (bancos, cartões) — exportador Credit Karma para
