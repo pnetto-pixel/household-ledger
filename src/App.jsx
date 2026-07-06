@@ -1228,7 +1228,7 @@ export default function App() {
         {loading ? (
           <div style={S.center}>Loading…</div>
         ) : tab === "home" ? (
-          <Dashboard transactions={transactions} money={money} hideValues={hideValues} />
+          <Dashboard transactions={transactions} money={money} hideValues={hideValues} isWide={isWide} />
         ) : tab === "transactions" ? (
           <Transactions
             transactions={transactions}
@@ -1441,7 +1441,7 @@ function Header({ hideValues, onToggleHide, onLogout, saving, savedAt, dirty, sa
             <Wallet size={14} color="#fff" />
           </div>
           <span style={{ fontWeight: 700, fontSize: 15, letterSpacing: -0.5, color: "#e5e7eb" }}>Household</span>
-          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.27.0</span>
+          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.28.0</span>
         </div>
         <SaveIndicator saving={saving} dirty={dirty} savedAt={savedAt} saveError={saveError} />
       </div>
@@ -1777,7 +1777,7 @@ function SinglePeriodFilter({ year, month, setYear, setMonth, years, minMonth, m
 // Single-select category chip + Popover for the Dashboard (radio semantics —
 // picking an option selects it and closes the popover). Mirrors
 // SinglePeriodFilter's pattern; `value` is "All" or a single category string.
-function SingleCategoryFilter({ value, options, setValue }) {
+function SingleCategoryFilter({ value, options, setValue, isWide }) {
   const [open, setOpen] = useState(false);
   const anchorRef = useRef(null);
   const active = value !== "All";
@@ -1785,6 +1785,28 @@ function SingleCategoryFilter({ value, options, setValue }) {
     setValue(v);
     setOpen(false);
   };
+
+  if (isWide) {
+    // Desktop: native <select> styled to match the chip look (S.chipBtn),
+    // with a custom arrow overlay (pointerEvents: none so it doesn't block clicks).
+    return (
+      <div style={{ position: "relative", display: "inline-flex" }}>
+        <select
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          title="Filter by category"
+          style={S.chipSelect(active)}
+        >
+          <option value="All">All categories</option>
+          {options.map((o) => (
+            <option key={o} value={o}>{o}</option>
+          ))}
+        </select>
+        <span style={S.chipSelectArrow}>▼</span>
+      </div>
+    );
+  }
+
   return (
     <div ref={anchorRef} style={{ position: "relative" }}>
       <button onClick={() => setOpen((o) => !o)} style={S.chipBtn(active)} title="Filter by category">
@@ -1811,7 +1833,7 @@ function SingleCategoryFilter({ value, options, setValue }) {
 // Dashboard
 // ===========================================================================
 
-function Dashboard({ transactions, money, hideValues }) {
+function Dashboard({ transactions, money, hideValues, isWide }) {
   // Default the period to the current month.
   const [year, setYear] = useState(() => todayISO().slice(0, 4));
   const [month, setMonth] = useState(() => todayISO().slice(5, 7));
@@ -2048,7 +2070,7 @@ function Dashboard({ transactions, money, hideValues }) {
       {/* Hero balance card — shows the SELECTED period */}
       <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-start", flexWrap: "wrap", gap: 8 }}>
         <SinglePeriodFilter year={year} month={month} setYear={setYear} setMonth={setMonth} years={years} minMonth={monthRange.min} maxMonth={monthRange.max} />
-        <SingleCategoryFilter value={catFilter} options={availableCats} setValue={setCatFilter} />
+        <SingleCategoryFilter value={catFilter} options={availableCats} setValue={setCatFilter} isWide={isWide} />
       </div>
 
       <div style={{
@@ -7201,6 +7223,33 @@ const S = {
     fontWeight: active ? 600 : 400,
     cursor: "pointer",
   }),
+  // Native <select> styled to look like chipBtn (desktop SingleCategoryFilter).
+  // appearance: "none" hides the browser's default arrow; chipSelectArrow draws ours.
+  chipSelect: (active) => ({
+    appearance: "none",
+    WebkitAppearance: "none",
+    MozAppearance: "none",
+    display: "inline-flex",
+    alignItems: "center",
+    background: active ? "rgba(30,58,95,0.75)" : "rgba(30,35,40,0.7)",
+    border: active ? "1px solid #3b82f6" : "1px solid #3a3f4a",
+    color: active ? "#93c5fd" : "#cbd5e1",
+    borderRadius: 999,
+    padding: "7px 26px 7px 14px",
+    fontSize: 13,
+    fontWeight: active ? 600 : 400,
+    cursor: "pointer",
+    fontFamily: "inherit",
+  }),
+  chipSelectArrow: {
+    position: "absolute",
+    right: 10,
+    top: "50%",
+    transform: "translateY(-50%)",
+    fontSize: 9,
+    opacity: 0.7,
+    pointerEvents: "none",
+  },
   // Toggle pill used in MonthlyBarCard (Income / Expense selector)
   togglePill: (active) => ({
     background: active ? "rgba(10,132,255,0.75)" : "transparent",
