@@ -1441,7 +1441,7 @@ function Header({ hideValues, onToggleHide, onLogout, saving, savedAt, dirty, sa
             <Wallet size={14} color="#fff" />
           </div>
           <span style={{ fontWeight: 700, fontSize: 15, letterSpacing: -0.5, color: "#e5e7eb" }}>Household</span>
-          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.28.0</span>
+          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.28.1</span>
         </div>
         <SaveIndicator saving={saving} dirty={dirty} savedAt={savedAt} saveError={saveError} />
       </div>
@@ -1761,6 +1761,7 @@ function SinglePeriodFilter({ year, month, setYear, setMonth, years, minMonth, m
               padding: 0,
               cursor: "pointer",
               pointerEvents: "none",
+              colorScheme: "dark",
             }}
           />
         </div>
@@ -7240,6 +7241,7 @@ const S = {
     fontWeight: active ? 600 : 400,
     cursor: "pointer",
     fontFamily: "inherit",
+    colorScheme: "dark",
   }),
   chipSelectArrow: {
     position: "absolute",
