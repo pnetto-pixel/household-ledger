@@ -1346,7 +1346,24 @@ shell de altura cheia (`#root` em `100lvh` + shell `height:100%`): só o
    `<input type="month">` + `showPicker()` continuam sendo usados sem
    alteração. Os anos disponíveis no select de iOS também são limitados por
    `minMonth`/`maxMonth` (mesmo `monthRange`), e o botão de reset funciona
-   igual em ambos os casos. O PR
+   igual em ambos os casos. **Desde a v1.27.0** (PR #175), no branch iOS os
+   dois `<select>` (Mês/Ano) da v1.26.0 foram substituídos por um wheel
+   picker estilo iOS nativo em React puro + CSS scroll-snap (sem libs
+   novas): o chip abre o mesmo `Popover` já usado nos demais filtros,
+   contendo duas colunas `WheelColumn` (Mês | Ano) com scroll vertical
+   (`scroll-snap-type: y mandatory`); a linha central é o valor selecionado,
+   destacada por peso/tamanho de fonte (`S.wheelItem(dist)`, `dist` =
+   distância até o centro); ao parar o scroll (debounce de 120 ms), calcula
+   o item mais próximo do centro, aplica snap suave e chama
+   `setMonth`/`setYear`. Essa mesma abordagem (wheel picker) já tinha sido
+   tentada para ambas as plataformas na v1.24.1 e revertida na v1.25.0 por
+   não funcionar bem com mouse/scroll no desktop — desta vez fica restrita
+   ao branch iOS/iPadOS (`isIOSDevice`), onde esse problema não existe; o
+   branch desktop/Android (`input type="month"` + `showPicker()`) permanece
+   inalterado. Continua sem opção "All" no wheel picker mobile (já era
+   assim desde a v1.25.1 — não é regressão). Estilos novos: `S.wheelCol`,
+   `S.wheelItem`; `S.periodSelect` (dos dois `<select>` da v1.26.0) foi
+   removido por ficar sem uso. O PR
    #161 também corrigiu um bug de fonte: os popovers usam `createPortal` para
    `document.body` (fora
    da árvore `.app`) e não herdavam a fonte do app; nova constante de módulo
@@ -2061,6 +2078,17 @@ O app inicia com array vazio quando não há dados salvos (sem SEED).
   seguem usando o input nativo. Anos do select limitados ao mesmo
   `minMonth`/`maxMonth` (`monthRange`) da v1.25.2. Só `src/App.jsx`
   alterado; sem mudança de API/Redis/modelo de transação
+- [x] Home: wheel picker estilo iOS no `SinglePeriodFilter` (PR #175,
+  v1.27.0) — no branch `isIOSDevice`, os dois `<select>` (Mês/Ano) da
+  v1.26.0 foram substituídos por um wheel picker nativo em React puro +
+  CSS scroll-snap (sem libs novas): duas colunas roláveis (Mês | Ano),
+  linha central em destaque, snap por debounce de 120 ms. Mesma abordagem
+  tentada para ambas as plataformas na v1.24.1 e revertida na v1.25.0 por
+  problemas de mouse/scroll no desktop — desta vez escopada só ao branch
+  iOS/iPadOS, evitando repetir o problema; desktop/Android seguem com
+  `input type="month"` + `showPicker()`, inalterado. `S.periodSelect`
+  removido por ficar sem uso; novos tokens `S.wheelCol`/`S.wheelItem`. Só
+  `src/App.jsx` alterado; sem mudança de API/Redis/modelo de transação
 - [ ] Multiusuário / household compartilhado
 - [ ] PWA offline-first
 - [~] Integrações de import (bancos, cartões) — exportador Credit Karma para
