@@ -1,4 +1,4 @@
-# Household Ledger · v1.26.0
+# Household Ledger · v1.27.0
 
 Aplicativo mobile-first de controle financeiro doméstico. Registra
 transações da casa (despesas e receitas) por categoria e conta, com
@@ -31,17 +31,23 @@ O `feature-auditor` deve conferir, como parte da checklist de auditoria, que
 o diff inclui o bump nos dois arquivos antes de aprovar — se faltar, isso é
 motivo de reprovação (devolver ao coder), não um detalhe opcional.
 
-Versão atual: **v1.26.0** — fix de compatibilidade iOS no `SinglePeriodFilter`
-(Home): Safari (iOS/iPadOS) não suporta `<input type="month">` nativamente
-(cai para texto simples, sem picker, e `showPicker()` não abre nada útil lá).
-Detectamos iOS/iPadOS (`/iPad|iPhone|iPod/` no `userAgent`, com fallback para
-`navigator.platform === "MacIntel" && maxTouchPoints > 1` cobrindo iPadOS 13+)
-e, quando é iOS, renderizamos dois `<select>` nativos (Mês/Ano, novo estilo
-`S.periodSelect`) no lugar do input de mês; nos demais navegadores o
-comportamento existente (`input type="month"` + `showPicker()`) é mantido
-inalterado. O range de anos do select vem do mesmo `minMonth`/`maxMonth`
-(`monthRange`) já calculado no `Dashboard`. O botão de reset (`resetToToday`)
-funciona igual em ambos os casos.
+Versão atual: **v1.27.0** — substitui o fallback iOS de dois `<select>`
+(Mês/Ano) do `SinglePeriodFilter` (Home) por um wheel picker estilo iOS
+nativo, em React puro + CSS scroll-snap (sem libs novas). No branch
+`isIOSDevice`, o chip agora abre um `Popover` (mesmo componente já usado nos
+demais filtros) contendo duas colunas `WheelColumn` (Mês | Ano) com scroll
+vertical `scroll-snap-type: y mandatory`; a linha centralizada é o valor
+selecionado, destacada por peso/tamanho de fonte (`S.wheelItem(dist)`, onde
+`dist` é a distância até o centro). Ao parar o scroll (debounce de 120ms),
+calcula o item mais próximo do centro, aplica snap suave e chama
+`setMonth`/`setYear`; ao montar ou quando o valor muda externamente (ex.
+"reset to today"), a coluna re-centraliza via `scrollTop` direto. O branch
+desktop (`input type="month"` + `showPicker()`) permanece inalterado. Essa
+mesma abordagem já tinha sido implementada para ambas as plataformas em
+v1.24.1 e revertida em v1.25.0 por não funcionar bem com mouse/scroll no
+desktop — desta vez fica restrita ao branch iOS/iPadOS, onde não há esse
+problema. Estilos novos: `S.wheelCol`, `S.wheelItem`; `S.periodSelect` (dos
+dois `<select>` antigos) foi removido por ficar sem uso.
 
 Versão anterior: **v1.25.2** — corrigido bug no `SinglePeriodFilter` em que o
 `<input type="month">` transparente sobreposto ao chip interceptava o clique
@@ -1313,7 +1319,22 @@ shell de altura cheia (`#root` em `100lvh` + shell `height:100%`): só o
    foi mantido só para o filtro de período do Ledger). Em troca, um botão
    de reset (glifo ⟲) aparece ao lado do chip sempre que o período
    selecionado for diferente do mês/ano atual, restaurando para o mês
-   corrente ao ser clicado. O PR
+   corrente ao ser clicado. **Desde a v1.25.2** (PR #173), o `<input
+   type="month">` tem `pointerEvents: "none"` (o clique chega ao `<button>`
+   que chama `showPicker()`, em vez de ser capturado pelo input), e ganhou
+   `min`/`max` calculados via `useMemo` `monthRange` no `Dashboard` a partir
+   do menor/maior `date.slice(0,7)` em `transactions`, restringindo a
+   seleção ao intervalo de meses com dados reais. **Desde a v1.26.0** (PR
+   #174), como Safari iOS não abre `showPicker()`/não suporta `<input
+   type="month">` de forma utilizável, o componente detecta iOS/iPadOS
+   (`isIOSDevice`, via `userAgent` com heurística extra para iPadOS 13+:
+   `navigator.platform === "MacIntel" && maxTouchPoints > 1`) e, nesse caso,
+   renderiza dois `<select>` nativos (Mês / Ano, estilo `S.periodSelect`) no
+   lugar do input; nos demais navegadores (desktop, Android) o
+   `<input type="month">` + `showPicker()` continuam sendo usados sem
+   alteração. Os anos disponíveis no select de iOS também são limitados por
+   `minMonth`/`maxMonth` (mesmo `monthRange`), e o botão de reset funciona
+   igual em ambos os casos. O PR
    #161 também corrigiu um bug de fonte: os popovers usam `createPortal` para
    `document.body` (fora
    da árvore `.app`) e não herdavam a fonte do app; nova constante de módulo
@@ -2018,6 +2039,16 @@ O app inicia com array vazio quando não há dados salvos (sem SEED).
   menor/maior `date.slice(0,7)` em `transactions`, restringindo a seleção ao
   intervalo de meses com dados reais. Só `src/App.jsx` alterado; sem
   mudança de API/Redis/modelo de transação
+- [x] Home: fix de compatibilidade iOS no `SinglePeriodFilter` (PR #174,
+  v1.26.0) — Safari iOS não abre `showPicker()`/não renderiza
+  `<input type="month">` de forma utilizável mesmo após o fix de clique da
+  v1.25.2. Detecção de iOS/iPadOS via `isIOSDevice` (`userAgent` +
+  fallback `navigator.platform === "MacIntel" && maxTouchPoints > 1` para
+  iPadOS 13+); quando é iOS, renderiza dois `<select>` nativos (Mês/Ano,
+  novo token de estilo `S.periodSelect`) em vez do input; desktop/Android
+  seguem usando o input nativo. Anos do select limitados ao mesmo
+  `minMonth`/`maxMonth` (`monthRange`) da v1.25.2. Só `src/App.jsx`
+  alterado; sem mudança de API/Redis/modelo de transação
 - [ ] Multiusuário / household compartilhado
 - [ ] PWA offline-first
 - [~] Integrações de import (bancos, cartões) — exportador Credit Karma para
