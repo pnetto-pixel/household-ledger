@@ -1,4 +1,4 @@
-# Household Ledger · v1.25.1
+# Household Ledger · v1.25.2
 
 Aplicativo mobile-first de controle financeiro doméstico. Registra
 transações da casa (despesas e receitas) por categoria e conta, com
@@ -31,7 +31,18 @@ O `feature-auditor` deve conferir, como parte da checklist de auditoria, que
 o diff inclui o bump nos dois arquivos antes de aprovar — se faltar, isso é
 motivo de reprovação (devolver ao coder), não um detalhe opcional.
 
-Versão atual: **v1.25.1** — o filtro de período da Home
+Versão atual: **v1.25.2** — corrigido bug no `SinglePeriodFilter` em que o
+`<input type="month">` transparente sobreposto ao chip interceptava o clique
+(o clique focava o input mas não abria o picker nativo no Chrome/Edge, que só
+abre via `.showPicker()` ou clique no ícone de calendário). Fix: o input
+agora tem `pointerEvents: "none"`, então o clique chega ao `<button>` e
+`openPicker()` chama `el.showPicker()` normalmente; o `onChange` do input
+continua funcionando via interação com o picker nativo aberto por JS. Também
+foram adicionados `min`/`max` ao input (formato `"YYYY-MM"`), calculados no
+`Dashboard` a partir do menor/maior `date.slice(0,7)` em `transactions`, para
+restringir a seleção ao intervalo de meses com dados reais.
+
+Versão anterior: **v1.25.1** — o filtro de período da Home
 (`SinglePeriodFilter`) não abre mais um `Popover` intermediário: o clique no
 chip aciona diretamente o picker nativo do `<input type="month">` (via
 `showPicker()`, com fallback para `.focus()`), que fica posicionado
@@ -1277,13 +1288,20 @@ shell de altura cheia (`#root` em `100lvh` + shell `height:100%`): só o
    linhas adjacentes esmaecidas por distância. **Desde a v1.25.0** (PR
    #171), esse wheel picker foi substituído por um `<input type="month">`
    nativo do HTML5 (o wheel picker não funcionava bem com mouse/scroll no
-   desktop), dentro do mesmo chip-button/`Popover`; `colorScheme: "dark"`
-   inline garante que o picker do sistema renderize em modo escuro. Como o
-   input nativo não representa o conceito de "All", dois chips extras
-   "All months"/"All years" ficam ao lado do input para voltar a esse
-   estado em cada eixo — mantendo as combinações independentes de mês/ano
-   já suportadas por `matchPeriod`. O componente `WheelColumn` e os tokens
-   `S.wheelCol`/`S.wheelItem` foram removidos por não terem mais uso. O PR
+   desktop), ainda dentro do mesmo chip-button/`Popover`; `colorScheme:
+   "dark"` inline garante que o picker do sistema renderize em modo escuro.
+   O componente `WheelColumn` e os tokens `S.wheelCol`/`S.wheelItem` foram
+   removidos por não terem mais uso. **Desde a v1.25.1** (PR #172), o
+   `Popover` intermediário foi removido: o clique no chip principal aciona
+   diretamente o picker nativo do `<input type="month">` (via
+   `showPicker()`, com fallback `.focus()`), com o input posicionado de
+   forma transparente sobre o próprio chip. Os chips extras "All
+   months"/"All years" também foram removidos — a Home sempre opera sobre
+   um mês/ano concreto (o suporte a `"All"` em `matchPeriod`/`periodLabel`
+   foi mantido só para o filtro de período do Ledger). Em troca, um botão
+   de reset (glifo ⟲) aparece ao lado do chip sempre que o período
+   selecionado for diferente do mês/ano atual, restaurando para o mês
+   corrente ao ser clicado. O PR
    #161 também corrigiu um bug de fonte: os popovers usam `createPortal` para
    `document.body` (fora
    da árvore `.app`) e não herdavam a fonte do app; nova constante de módulo
@@ -1968,6 +1986,25 @@ O app inicia com array vazio quando não há dados salvos (sem SEED).
   "All months"/"All years" cobrem o caso "All" que o input nativo não
   representa; `colorScheme: "dark"` para o tema escuro; `WheelColumn` e
   `S.wheelCol`/`S.wheelItem` removidos. Só `src/App.jsx` alterado; sem
+  mudança de API/Redis/modelo de transação
+- [x] Home: chip de data (`SinglePeriodFilter`) — removido o `Popover`
+  intermediário; clique no chip abre direto o picker nativo do
+  `<input type="month">` (via `showPicker()`, fallback `.focus()`),
+  posicionado transparente sobre o próprio chip (PR #172, v1.25.1). Chips
+  extras "All months"/"All years" removidos (a Home sempre opera sobre
+  mês/ano concreto); suporte a `"All"` em `matchPeriod`/`periodLabel`
+  mantido só para o Ledger. Adicionado botão de reset (⟲) ao lado do chip,
+  visível só quando o período selecionado difere do mês/ano atual,
+  restaurando para o mês corrente. Só `src/App.jsx` alterado; sem mudança
+  de API/Redis/modelo de transação
+- [x] Home: fix no `SinglePeriodFilter` (PR #173, v1.25.2) — o
+  `<input type="month">` transparente sobre o chip tinha `pointerEvents:
+  "none"` adicionado, deixando o clique passar para o `<button>` que chama
+  `showPicker()` (antes o clique era capturado pelo input e o picker nativo
+  não abria no Chrome/Edge desktop). Adicionados `min`/`max` ao input,
+  calculados via `useMemo` `monthRange` no `Dashboard` a partir do
+  menor/maior `date.slice(0,7)` em `transactions`, restringindo a seleção ao
+  intervalo de meses com dados reais. Só `src/App.jsx` alterado; sem
   mudança de API/Redis/modelo de transação
 - [ ] Multiusuário / household compartilhado
 - [ ] PWA offline-first
