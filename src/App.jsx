@@ -1441,7 +1441,7 @@ function Header({ hideValues, onToggleHide, onLogout, saving, savedAt, dirty, sa
             <Wallet size={14} color="#fff" />
           </div>
           <span style={{ fontWeight: 700, fontSize: 15, letterSpacing: -0.5, color: "#e5e7eb" }}>Household</span>
-          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.25.0</span>
+          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.25.1</span>
         </div>
         <SaveIndicator saving={saving} dirty={dirty} savedAt={savedAt} saveError={saveError} />
       </div>
@@ -1578,22 +1578,17 @@ function periodLabel(year, month) {
   return m ? `${m.l} ${year}` : year;
 }
 
-// Single-select chip + Popover, same trigger visual language as the other
-// Dashboard filters (S.chipBtn + Popover). The popover body is a native
-// HTML5 <input type="month">, which gives every platform (desktop mouse,
-// touch, keyboard) its own well-tested picker UI for free — no custom
-// scroll/wheel interaction to maintain. "All months" / "All years" (both
-// independently combinable, per matchPeriod) are exposed as small toggle
-// chips next to the input since the native control has no such concept.
+// Single-select chip that IS the trigger for a native <input type="month">,
+// stacked transparently on top of the chip. Clicking the chip opens the
+// platform's own month/year picker directly — no custom popover/dropdown
+// layer in between. `years` is accepted for API compatibility but unused
+// (the native picker has no notion of a bounded year list). A small "reset"
+// button next to the chip snaps the filter back to the current month/year.
 function SinglePeriodFilter({ year, month, setYear, setMonth, years }) {
-  const [open, setOpen] = useState(false);
-  const anchorRef = useRef(null);
-  const active = year !== "All" || month !== "All";
-  // Native <input type="month"> needs a valid "YYYY-MM"; fall back to the
-  // current month when either half is "All" so the picker always shows a
-  // sensible starting point.
-  const fallback = todayISO().slice(0, 7);
-  const inputValue = year !== "All" && month !== "All" ? `${year}-${month}` : fallback;
+  const inputRef = useRef(null);
+  const inputValue = `${year}-${month}`;
+  const todayMonth = todayISO().slice(0, 7);
+  const isCurrent = inputValue === todayMonth;
 
   const handleInputChange = (e) => {
     const v = e.target.value; // "YYYY-MM"
@@ -1603,40 +1598,54 @@ function SinglePeriodFilter({ year, month, setYear, setMonth, years }) {
     setMonth(m);
   };
 
+  const openPicker = () => {
+    const el = inputRef.current;
+    if (!el) return;
+    if (typeof el.showPicker === "function") {
+      try {
+        el.showPicker();
+        return;
+      } catch {
+        // fall through to focus() below
+      }
+    }
+    el.focus();
+  };
+
+  const resetToToday = () => {
+    setYear(todayMonth.slice(0, 4));
+    setMonth(todayMonth.slice(5, 7));
+  };
+
   return (
-    <div ref={anchorRef} style={{ position: "relative" }}>
-      <button onClick={() => setOpen((o) => !o)} style={S.chipBtn(active)} title="Filter by period">
-        <span>{periodLabel(year, month)}</span>
-        <span style={{ fontSize: 9, opacity: 0.7 }}>▼</span>
-      </button>
-      <Popover open={open} setOpen={setOpen} anchorRef={anchorRef} style={{ display: "flex", flexDirection: "column", gap: 8, minWidth: 220 }}>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-          <div style={S.popHead}>Month / Year</div>
-          <button onClick={() => setOpen(false)} style={{ ...S.deleteBtn, width: 20, height: 20, padding: 0 }} title="Close">
-            ✕
-          </button>
-        </div>
+    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+      <div style={{ position: "relative" }}>
+        <button onClick={openPicker} style={S.chipBtn(true)} title="Filter by period">
+          <span>{periodLabel(year, month)}</span>
+          <span style={{ fontSize: 9, opacity: 0.7 }}>▼</span>
+        </button>
         <input
+          ref={inputRef}
           type="month"
           value={inputValue}
           onChange={handleInputChange}
-          style={{ ...S.input, colorScheme: "dark" }}
+          style={{
+            position: "absolute",
+            inset: 0,
+            width: "100%",
+            height: "100%",
+            opacity: 0,
+            border: 0,
+            padding: 0,
+            cursor: "pointer",
+          }}
         />
-        <div style={{ display: "flex", gap: 6 }}>
-          <button
-            onClick={() => setMonth("All")}
-            style={S.chipBtn(month === "All")}
-          >
-            All months
-          </button>
-          <button
-            onClick={() => setYear("All")}
-            style={S.chipBtn(year === "All")}
-          >
-            All years
-          </button>
-        </div>
-      </Popover>
+      </div>
+      {!isCurrent && (
+        <button onClick={resetToToday} style={{ ...S.deleteBtn, width: 26, height: 26, padding: 0 }} title="Reset to current month">
+          ⟲
+        </button>
+      )}
     </div>
   );
 }
