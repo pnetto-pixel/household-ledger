@@ -1,4 +1,4 @@
-# Household Ledger · v1.29.0
+# Household Ledger · v1.28.1
 
 Aplicativo mobile-first de controle financeiro doméstico. Registra
 transações da casa (despesas e receitas) por categoria e conta, com
@@ -31,24 +31,7 @@ O `feature-auditor` deve conferir, como parte da checklist de auditoria, que
 o diff inclui o bump nos dois arquivos antes de aprovar — se faltar, isso é
 motivo de reprovação (devolver ao coder), não um detalhe opcional.
 
-Versão atual: **v1.29.0** — unifica a interação de filtro de data da tab
-Transactions (`DateHeaderFilter`) com o padrão da Home (`SinglePeriodFilter`),
-preservando a multi-seleção de anos/meses. No mobile iOS/iPadOS, ao expandir
-um ano na árvore de checkboxes, os meses passam a ser escolhidos por um
-`WheelColumn` (o mesmo componente de wheel iOS-like da Home), agora com um
-modo `multiSelect` (prop opcional, com `selectedValues`/`onToggle`) em que
-cada item vira um toggle independente em vez de substituir um valor único —
-`SinglePeriodFilter` continua usando o modo single-value original, sem
-mudança de comportamento. Em não-iOS (desktop e Android), foi adicionado um
-atalho "+ Month" ao lado do cabeçalho "Year / Month" que abre o
-`<input type="month">` nativo do SO via `showPicker()` (mesmo padrão da
-Home) para adicionar rapidamente um mês à seleção; a árvore de checkboxes
-existente continua intacta como via principal de multi-seleção/visualização
-do que está selecionado, e o range From/To não foi alterado. Novo estilo
-`S.wheelItemMulti` (linhas do wheel coloridas por estado selecionado, não por
-distância do centro) e `S.miniAddBtn` (botão do atalho "+ Month").
-
-Versão anterior: **v1.28.1** — fix de estilo: o `<input type="month">`
+Versão atual: **v1.28.1** — fix de estilo: o `<input type="month">`
 (`SinglePeriodFilter`) e o `<select>` (`SingleCategoryFilter`, desktop,
 `S.chipSelect`) passam a declarar `colorScheme: "dark"` (CSS `color-scheme:
 dark`), fazendo o popup nativo do calendário e a lista de `<option>` abrirem

@@ -1441,7 +1441,7 @@ function Header({ hideValues, onToggleHide, onLogout, saving, savedAt, dirty, sa
             <Wallet size={14} color="#fff" />
           </div>
           <span style={{ fontWeight: 700, fontSize: 15, letterSpacing: -0.5, color: "#e5e7eb" }}>Household</span>
-          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.29.0</span>
+          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.28.1</span>
         </div>
         <SaveIndicator saving={saving} dirty={dirty} savedAt={savedAt} saveError={saveError} />
       </div>
@@ -1607,28 +1607,21 @@ const WHEEL_ITEM_H = 34;
 const WHEEL_VISIBLE = 5; // odd, so there's a single centered row
 const WHEEL_PAD = Math.floor(WHEEL_VISIBLE / 2);
 
-// `multiSelect` turns the wheel into a toggle list (used by DateHeaderFilter
-// on iOS to multi-pick months within a year): tapping an item adds/removes it
-// from `selectedValues` via `onToggle`, instead of the single-value
-// scroll-to-select behavior used by SinglePeriodFilter. Scroll-snap is kept
-// for the same tactile feel, but settling no longer drives selection.
-function WheelColumn({ options, value, onChange, multiSelect, selectedValues, onToggle }) {
+function WheelColumn({ options, value, onChange }) {
   const ref = useRef(null);
   const settleTimer = useRef(null);
-  const idx = multiSelect ? -1 : Math.max(0, options.findIndex((o) => o.v === value));
+  const idx = Math.max(0, options.findIndex((o) => o.v === value));
 
   // Keep the scroll position in sync when the selected value changes from
   // outside this column (e.g. popover just opened, or "reset to today").
   useEffect(() => {
-    if (multiSelect) return;
     const el = ref.current;
     if (!el) return;
     el.scrollTop = idx * WHEEL_ITEM_H;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [value, options.length, multiSelect]);
+  }, [value, options.length]);
 
   const handleScroll = () => {
-    if (multiSelect) return;
     const el = ref.current;
     if (!el) return;
     if (settleTimer.current) clearTimeout(settleTimer.current);
@@ -1643,11 +1636,6 @@ function WheelColumn({ options, value, onChange, multiSelect, selectedValues, on
 
   const handleClick = (i) => {
     const el = ref.current;
-    if (multiSelect) {
-      onToggle(options[i].v);
-      if (el) el.scrollTo({ top: i * WHEEL_ITEM_H, behavior: "smooth" });
-      return;
-    }
     if (!el) return;
     el.scrollTo({ top: i * WHEEL_ITEM_H, behavior: "smooth" });
   };
@@ -1656,15 +1644,6 @@ function WheelColumn({ options, value, onChange, multiSelect, selectedValues, on
     <div ref={ref} onScroll={handleScroll} style={S.wheelCol}>
       <div style={{ height: WHEEL_PAD * WHEEL_ITEM_H }} />
       {options.map((o, i) => {
-        if (multiSelect) {
-          const selected = (selectedValues || []).includes(o.v);
-          return (
-            <div key={o.v} onClick={() => handleClick(i)} style={S.wheelItemMulti(selected)}>
-              <span style={{ display: "inline-block", width: 14 }}>{selected ? "✓" : ""}</span>
-              {o.l}
-            </div>
-          );
-        }
         const dist = Math.abs(i - idx);
         return (
           <div key={o.v} onClick={() => handleClick(i)} style={S.wheelItem(dist)}>
@@ -3791,7 +3770,6 @@ function DateHeaderFilter({ years, dateYears, setDateYears, dateMonths, setDateM
   const [open, setOpen] = useState(false);
   const [expandedYears, setExpandedYears] = useState([]);
   const anchorRef = useRef(null);
-  const addMonthInputRef = useRef(null);
   const hasRange = !!(from || to);
   const active = dateYears.length > 0 || dateMonths.length > 0 || hasRange;
   const toggle = (arr, set, v) =>
@@ -3822,39 +3800,6 @@ function DateHeaderFilter({ years, dateYears, setDateYears, dateMonths, setDateM
     const allSelected = keys.every((kk) => nextMonths.includes(kk));
     setDateYears(allSelected ? (dateYears.includes(y) ? dateYears : [...dateYears, y]) : dateYears.filter((x) => x !== y));
   };
-  // Quick-add via the platform's native month picker (non-iOS only — see
-  // isIOSDevice/openAddMonthPicker below): adds one "YYYY-MM" to the
-  // selection without touching any month already selected. No-op if that
-  // month is already selected (idempotent "add", not a toggle).
-  const addMonthQuick = (ym) => {
-    if (!ym) return;
-    const [y, m] = ym.split("-");
-    const k = monthKey(y, m);
-    if (dateMonths.includes(k)) return;
-    const keys = yearMonthKeys(y);
-    const nextMonths = [...dateMonths, k];
-    setDateMonths(nextMonths);
-    const allSelected = keys.every((kk) => nextMonths.includes(kk));
-    if (allSelected && !dateYears.includes(y)) setDateYears([...dateYears, y]);
-    setExpandedYears((arr) => (arr.includes(y) ? arr : [...arr, y]));
-  };
-  const openAddMonthPicker = () => {
-    const el = addMonthInputRef.current;
-    if (!el) return;
-    if (typeof el.showPicker === "function") {
-      try {
-        el.showPicker();
-        return;
-      } catch {
-        // fall through to focus() below
-      }
-    }
-    el.focus();
-  };
-  const handleAddMonthInputChange = (e) => {
-    addMonthQuick(e.target.value);
-    e.target.value = ""; // allow re-adding the same month later after removal
-  };
   const labelText = !active
     ? "Date"
     : hasRange && dateYears.length === 0 && dateMonths.length === 0
@@ -3884,34 +3829,7 @@ function DateHeaderFilter({ years, dateYears, setDateYears, dateMonths, setDateM
             </div>
           )}
           <div>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
-              <div style={S.popHead}>Year / Month</div>
-              {!isIOSDevice && (
-                <div style={{ position: "relative", marginRight: 6 }}>
-                  <button onClick={openAddMonthPicker} style={S.miniAddBtn} title="Add a month">
-                    + Month
-                  </button>
-                  <input
-                    ref={addMonthInputRef}
-                    type="month"
-                    defaultValue=""
-                    onChange={handleAddMonthInputChange}
-                    style={{
-                      position: "absolute",
-                      inset: 0,
-                      width: "100%",
-                      height: "100%",
-                      opacity: 0,
-                      border: 0,
-                      padding: 0,
-                      cursor: "pointer",
-                      pointerEvents: "none",
-                      colorScheme: "dark",
-                    }}
-                  />
-                </div>
-              )}
-            </div>
+            <div style={S.popHead}>Year / Month</div>
             {years.length === 0 ? <div style={{ ...S.popItem(false), color: "#6b7280" }}>—</div> : null}
             {years.map((y) => {
               const keys = yearMonthKeys(y);
@@ -3933,16 +3851,7 @@ function DateHeaderFilter({ years, dateYears, setDateYears, dateMonths, setDateM
                       {y}
                     </button>
                   </div>
-                  {expanded && isIOSDevice ? (
-                    <div style={{ paddingLeft: 20, paddingTop: 2, paddingBottom: 2 }}>
-                      <WheelColumn
-                        options={MONTHS}
-                        multiSelect
-                        selectedValues={MONTHS.filter((m) => dateMonths.includes(monthKey(y, m.v))).map((m) => m.v)}
-                        onToggle={(m) => toggleMonth(y, m)}
-                      />
-                    </div>
-                  ) : expanded ? (
+                  {expanded && (
                     <div style={{ paddingLeft: 24 }}>
                       {MONTHS.map((m) => {
                         const k = monthKey(y, m.v);
@@ -3955,7 +3864,7 @@ function DateHeaderFilter({ years, dateYears, setDateYears, dateMonths, setDateM
                         );
                       })}
                     </div>
-                  ) : null}
+                  )}
                 </div>
               );
             })}
@@ -6947,21 +6856,6 @@ const S = {
     cursor: "pointer",
     userSelect: "none",
   }),
-  // Multi-select wheel row (DateHeaderFilter, iOS): unlike wheelItem, fading
-  // is driven by selection state (checked/unchecked), not scroll distance,
-  // since several rows can be "on" at once.
-  wheelItemMulti: (selected) => ({
-    height: WHEEL_ITEM_H,
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    scrollSnapAlign: "center",
-    fontSize: 14,
-    fontWeight: selected ? 700 : 400,
-    color: selected ? "#93c5fd" : "#8b94a3",
-    cursor: "pointer",
-    userSelect: "none",
-  }),
   // Description rule card (Settings → Description rules). Default state uses the
   // muted surface/border; `overrideRuleCard` swaps to an amber accent while the
   // rule has the special "Allow removing from Transfer" power turned on.
@@ -7316,22 +7210,6 @@ const S = {
     fontSize: 11,
     color: "#4b5563",
     padding: "8px 0 4px",
-  },
-  // Small "+ Month" quick-add trigger (DateHeaderFilter, non-iOS): opens the
-  // platform's native <input type="month"> via showPicker(), same pattern as
-  // SinglePeriodFilter, to add one month at a time to the multi-selection.
-  miniAddBtn: {
-    display: "inline-flex",
-    alignItems: "center",
-    gap: 4,
-    background: "rgba(30,35,40,0.7)",
-    border: "1px solid #3a3f4a",
-    color: "#93c5fd",
-    borderRadius: 999,
-    padding: "3px 9px",
-    fontSize: 11,
-    fontWeight: 600,
-    cursor: "pointer",
   },
   chipBtn: (active) => ({
     display: "inline-flex",
