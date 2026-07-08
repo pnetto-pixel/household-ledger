@@ -1589,6 +1589,17 @@ shell de altura cheia (`#root` em `100lvh` + shell `height:100%`): só o
    bloco só** dentro do `<main>` (`txnTab`/`txnControls`/`txnListScroll` sem
    mais as travas de `height:100%`/`maxHeight:50%`/scroll interno, que ficavam
    estranhas no layout full-screen).
+   **Desde a v1.29.0 (PR #178)**, dentro do chip **Date**, ao expandir um ano
+   na árvore de checkboxes (multi-seleção de anos/meses), a escolha dos meses
+   no branch iOS/iPadOS passou a usar um `WheelColumn` (mesmo componente de
+   wheel da Home) em modo `multiSelect` — cada item é um toggle independente
+   em vez de substituir um valor único. Em desktop/Android, um atalho
+   **"+ Month"** ao lado do cabeçalho "Year / Month" abre o
+   `<input type="month">` nativo via `showPicker()` para adicionar
+   rapidamente um mês à seleção sem remover os já escolhidos. A árvore de
+   checkboxes continua sendo a via principal de multi-seleção/visualização,
+   e o range From/To não foi alterado.
+
    No mobile, **swipe da linha para a esquerda** revela os chips **Edit** (abre
    `EditModal`) e **Delete** (`TxnAuditCard`). O **botão de export CSV foi
    removido**. O botão JSON já tinha saído (PR #14).
@@ -2145,6 +2156,27 @@ O app inicia com array vazio quando não há dados salvos (sem SEED).
   mantém o `Popover` original, inalterado. `catFilter` continua string
   única. Só `src/App.jsx` alterado; sem mudança de API/Redis/modelo de
   transação
+- [x] Transactions: `DateHeaderFilter` unificado com o padrão de wheel da
+  Home (PR #178, v1.29.0, branch `claude/household-date-filter-unify`,
+  mergeado em `main`, SHA `1db3e9a`) — no branch iOS/iPadOS, ao expandir um
+  ano na árvore de checkboxes os meses passam a ser escolhidos por um
+  `WheelColumn` (mesmo componente da Home) em novo modo opcional
+  `multiSelect`/`selectedValues`/`onToggle` (cada item é um toggle
+  independente, sem substituir o valor anterior); `SinglePeriodFilter`
+  continua no modo single-value original, sem mudança de comportamento. Em
+  desktop/Android, novo atalho **"+ Month"** ao lado do cabeçalho "Year /
+  Month" abre o `<input type="month">` nativo via `showPicker()` (mesmo
+  padrão dark `color-scheme` dos PRs #175–#177) para adicionar um mês à
+  seleção sem remover os já escolhidos. A árvore de checkboxes
+  (multi-seleção de anos/meses) e o range From/To não foram alterados; sem
+  mudança de API/Redis/modelo de transação. Novos tokens `S.wheelItemMulti`
+  (linha do wheel colorida por estado selecionado, não por distância do
+  centro) e `S.miniAddBtn`.
+- [ ] Follow-up (PR #178): o `<input type="month">` do atalho "+ Month" no
+  desktop não tem `min`/`max`, diferente do `minMonth`/`maxMonth` aplicado
+  no `SinglePeriodFilter` da Home — não é bug bloqueante, mas vale avaliar
+  se o filtro de Transactions deveria limitar o range ao histórico real de
+  transações
 - [ ] Multiusuário / household compartilhado
 - [ ] PWA offline-first
 - [~] Integrações de import (bancos, cartões) — exportador Credit Karma para
