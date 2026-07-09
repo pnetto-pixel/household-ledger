@@ -1,4 +1,4 @@
-# Household Ledger · v1.28.1
+# Household Ledger · v1.28.2
 
 Aplicativo mobile-first de controle financeiro doméstico. Registra
 transações da casa (despesas e receitas) por categoria e conta, com
@@ -31,7 +31,23 @@ O `feature-auditor` deve conferir, como parte da checklist de auditoria, que
 o diff inclui o bump nos dois arquivos antes de aprovar — se faltar, isso é
 motivo de reprovação (devolver ao coder), não um detalhe opcional.
 
-Versão atual: **v1.28.1** — fix de estilo: o `<input type="month">`
+Versão atual: **v1.28.2** — fix: dismiss dos cards do painel "Suggested
+rules" (Settings) agora persiste via API/Redis (`household:*:dismissedsuggestions`,
+novo endpoint `api/dismissed-suggestions.js` clonado de `api/account-aliases.js`),
+em vez de `useState` local em `SuggestedRulesSection`. Antes, como o app troca
+de tab desmontando/remontando `SettingsTab`, qualquer sugestão dispensada
+(ex. "amazon retail", "amazon marketplace") reaparecia ao voltar pra aba —
+dismiss não sobrevivia nem à navegação, muito menos a um reload ou outro
+dispositivo. Agora o estado de dismissal é household-scoped e cross-device,
+igual account aliases/CK category map/description rules. `App` carrega
+`dismissedSuggestions` num `useEffect` gated por `authed` (mesmo padrão de
+`loadAccountAliases`) e propaga junto com um callback `onDismissSuggestion`
+via `SettingsTab` até `SuggestedRulesSection`, que faz update otimista do
+state local + `PUT` da lista completa. Nenhuma mudança na lógica de detecção
+das sugestões (`detectSuggestedAliasFragments`/`detectSuggestedCategoryTokens`/
+`detectManualCategoryCorrections`) nem no formato `household:*:transactions`.
+
+Versão anterior: **v1.28.1** — fix de estilo: o `<input type="month">`
 (`SinglePeriodFilter`) e o `<select>` (`SingleCategoryFilter`, desktop,
 `S.chipSelect`) passam a declarar `colorScheme: "dark"` (CSS `color-scheme:
 dark`), fazendo o popup nativo do calendário e a lista de `<option>` abrirem
