@@ -807,6 +807,44 @@ export default function App() {
     [accountMap, scheduleSave]
   );
 
+  // ---- Dismissed suggestions load / save -------------------------------------
+  // Which "Suggested rules" cards (Settings tab) the user has dismissed.
+  // Household-scoped, persisted via /api/dismissed-suggestions so dismissals
+  // survive tab switches / reloads / other devices (not just this session).
+  const [dismissedSuggestions, setDismissedSuggestions] = useState([]);
+
+  const loadDismissedSuggestions = useCallback(async () => {
+    try {
+      const res = await fetch("/api/dismissed-suggestions", {
+        method: "GET",
+        headers: buildAuthHeaders(),
+      });
+      if (!res.ok) return;
+      const data = await res.json();
+      if (Array.isArray(data.dismissed)) setDismissedSuggestions(data.dismissed);
+    } catch {
+      // Silently ignore — dismissals are non-critical.
+    }
+  }, []);
+
+  useEffect(() => {
+    if (authed) loadDismissedSuggestions();
+  }, [authed, loadDismissedSuggestions]);
+
+  // Optimistic local update + persist the full list.
+  const dismissSuggestion = useCallback((key) => {
+    setDismissedSuggestions((prev) => {
+      if (prev.includes(key)) return prev;
+      const next = [...prev, key];
+      fetch("/api/dismissed-suggestions", {
+        method: "PUT",
+        headers: buildAuthHeaders(),
+        body: JSON.stringify({ dismissed: next }),
+      }).catch(() => {});
+      return next;
+    });
+  }, []);
+
   // ---- CK category map load / save ------------------------------------------
   const [ckCategoryMap, setCkCategoryMap] = useState(() => currentCkCategoryMapConfig());
 
@@ -1248,6 +1286,8 @@ export default function App() {
             accountMap={accountMap}
             accountAliases={accountAliases}
             onSaveAccountAliases={saveAccountAliasesAndApply}
+            dismissedSuggestions={dismissedSuggestions}
+            onDismissSuggestion={dismissSuggestion}
             ckCategoryMap={ckCategoryMap}
             onSaveCkCategoryMap={saveCkCategoryMap}
             categoryDescriptionRules={categoryDescriptionRules}
@@ -1441,7 +1481,7 @@ function Header({ hideValues, onToggleHide, onLogout, saving, savedAt, dirty, sa
             <Wallet size={14} color="#fff" />
           </div>
           <span style={{ fontWeight: 700, fontSize: 15, letterSpacing: -0.5, color: "#e5e7eb" }}>Household</span>
-          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.28.1</span>
+          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.28.2</span>
         </div>
         <SaveIndicator saving={saving} dirty={dirty} savedAt={savedAt} saveError={saveError} />
       </div>
@@ -4882,16 +4922,17 @@ function ManagedList({ title, items, usage, onAdd, onRename, onDelete, onReorder
 // more than once). No auto-write — each action just scrolls/pre-fills the
 // existing "Account aliases" / "Category mapping" sections so the user picks
 // the destination and saves through those sections' own existing flows.
-// Dismissal here is client-side only for the current session (not persisted)
-// and simply hides an item from view until the tab/app is reloaded.
-function SuggestedRulesSection({ suggestedFragments, suggestedTokens, suggestedCorrections, onUseFragment, onReviewToken, onCreateRule }) {
-  const [dismissed, setDismissed] = useState(() => new Set());
+// Dismissal is persisted household-wide via /api/dismissed-suggestions (Redis,
+// same auth/scope as the rest of Settings), so it survives tab switches,
+// reloads and other devices — not just client-side for the current session.
+function SuggestedRulesSection({ suggestedFragments, suggestedTokens, suggestedCorrections, dismissedSuggestions, onDismissSuggestion, onUseFragment, onReviewToken, onCreateRule }) {
+  const dismissed = useMemo(() => new Set(dismissedSuggestions || []), [dismissedSuggestions]);
   const fragments = suggestedFragments.filter((f) => !dismissed.has(`frag:${f.fragment}`));
   const tokens = suggestedTokens.filter((t) => !dismissed.has(`tok:${t.token}`));
   const corrections = (suggestedCorrections || []).filter((c) => !dismissed.has(`manual:${c.key}`));
   const total = fragments.length + tokens.length + corrections.length;
 
-  const dismiss = (key) => setDismissed((prev) => new Set(prev).add(key));
+  const dismiss = (key) => onDismissSuggestion?.(key);
 
   return (
     <CollapsibleCard title="Suggested rules" badge={total > 0 ? total : undefined} defaultOpen>
@@ -4944,7 +4985,7 @@ function SuggestedRulesSection({ suggestedFragments, suggestedTokens, suggestedC
                 <button
                   type="button"
                   onClick={() => dismiss(`frag:${f.fragment}`)}
-                  title="Dismiss for this session"
+                  title="Dismiss"
                   style={{ background: "transparent", border: "1px solid #2a313c", color: "#8b94a3", borderRadius: 8, padding: "5px 10px", fontSize: 12, cursor: "pointer" }}
                 >
                   Dismiss
@@ -4986,7 +5027,7 @@ function SuggestedRulesSection({ suggestedFragments, suggestedTokens, suggestedC
                 <button
                   type="button"
                   onClick={() => dismiss(`tok:${t.token}`)}
-                  title="Dismiss for this session"
+                  title="Dismiss"
                   style={{ background: "transparent", border: "1px solid #2a313c", color: "#8b94a3", borderRadius: 8, padding: "5px 10px", fontSize: 12, cursor: "pointer" }}
                 >
                   Dismiss
@@ -5040,7 +5081,7 @@ function SuggestedRulesSection({ suggestedFragments, suggestedTokens, suggestedC
                 <button
                   type="button"
                   onClick={() => dismiss(`manual:${c.key}`)}
-                  title="Dismiss for this session"
+                  title="Dismiss"
                   style={{ background: "transparent", border: "1px solid #2a313c", color: "#8b94a3", borderRadius: 8, padding: "5px 10px", fontSize: 12, cursor: "pointer" }}
                 >
                   Dismiss
@@ -5056,6 +5097,7 @@ function SuggestedRulesSection({ suggestedFragments, suggestedTokens, suggestedC
 
 function SettingsTab({
   transactions, accountMap, accountAliases, onSaveAccountAliases,
+  dismissedSuggestions, onDismissSuggestion,
   ckCategoryMap, onSaveCkCategoryMap,
   categoryDescriptionRules, onSaveCategoryDescriptionRules,
   config,
@@ -5121,6 +5163,8 @@ function SettingsTab({
         suggestedFragments={suggestedFragments}
         suggestedTokens={suggestedTokens}
         suggestedCorrections={suggestedCorrections}
+        dismissedSuggestions={dismissedSuggestions}
+        onDismissSuggestion={onDismissSuggestion}
         onUseFragment={handleUseFragment}
         onReviewToken={handleReviewToken}
         onCreateRule={handleCreateRule}
