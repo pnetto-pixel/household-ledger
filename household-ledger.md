@@ -1,4 +1,4 @@
-# Household Ledger · v1.28.2
+# Household Ledger · v1.30.0
 
 Aplicativo mobile-first de controle financeiro doméstico. Registra
 transações da casa (despesas e receitas) por categoria e conta, com
@@ -31,7 +31,21 @@ O `feature-auditor` deve conferir, como parte da checklist de auditoria, que
 o diff inclui o bump nos dois arquivos antes de aprovar — se faltar, isso é
 motivo de reprovação (devolver ao coder), não um detalhe opcional.
 
-Versão atual: **v1.28.2** — fix: dismiss dos cards do painel "Suggested
+Versão atual: **v1.30.0** — pacote de confiabilidade de dados + remoção do
+login Google (ver item "Fase 6 — Confiabilidade de dados, fatia 1" no
+Roadmap): concorrência otimista no PUT de transactions (409 em conflito
+entre dispositivos + reload com aviso), flush de save confiável
+(`pagehide`/`visibilitychange` + `keepalive`), retry automático ao voltar
+online, snapshot diário automático no Redis (TTL 30 dias), autenticação
+somente por senha (timing-safe; Google JWT removido do client e do server),
+`todayISO()` em data local (fim do desvio de fuso à noite), cascatas
+completas de rename/delete de conta/categoria (rules, CK map, aliases,
+reatribuição de transações), validação do restore de backup, e limpezas
+(CORS wildcard removido dos endpoints, regra morta de cache `/api` do
+service worker removida, `package.json.version` sincronizado). *(v1.29.0
+foi pulada: usada e revertida no PR #178.)*
+
+Versão anterior: **v1.28.2** — fix: dismiss dos cards do painel "Suggested
 rules" (Settings) agora persiste via API/Redis (`household:*:dismissedsuggestions`,
 novo endpoint `api/dismissed-suggestions.js` clonado de `api/account-aliases.js`),
 em vez de `useState` local em `SuggestedRulesSection`. Antes, como o app troca
@@ -840,34 +854,50 @@ household-ledger/
 
 ## Autenticação e armazenamento
 
-A autenticação é idêntica à do aa-findocs (`lib/auth.js`):
+Autenticação **somente por senha de app** compartilhada entre os
+dispositivos da casa (`lib/auth.js`): header `x-app-password`, comparado
+com `APP_PASSWORD` em tempo constante (`crypto.timingSafeEqual` sobre
+digests SHA-256). O caminho de **Google JWT foi removido na v1.30.0**
+(client e server) — o household usa uma única senha em vários dispositivos,
+e o ID token do Google (validade ~1h) causava falhas silenciosas de save no
+meio da sessão.
 
-- **Google JWT** via header `x-google-token` (verificado contra os certs do
-  Google, audiência `GOOGLE_CLIENT_ID`, allowlist de e-mails).
-- **Senha de app** via header `x-app-password` (comparada com `APP_PASSWORD`).
-
-A chave de armazenamento é derivada por usuário. A `auth.storageKey` vem no
-formato `portfolio:<scope>:<hash>:holdings`; em `api/transactions.js` ela é
-reescrita para o namespace do household:
+A chave de armazenamento é derivada da senha. A `auth.storageKey` mantém o
+formato legado `portfolio:pwd:<hash>:holdings` (o hash é o mesmo de antes —
+nenhum dado muda de lugar); em `api/transactions.js` ela é reescrita para o
+namespace do household:
 
 ```
-portfolio:email:<hash>:holdings  ->  household:email:<hash>:transactions
 portfolio:pwd:<hash>:holdings    ->  household:pwd:<hash>:transactions
 ```
 
-Assim o ledger nunca colide com nenhum blob de portfolio.
+Assim o ledger nunca colide com nenhum blob de portfolio. Dados de
+households que usavam login Google seguem intactos sob
+`household:email:<hash>:*`, apenas sem caminho de acesso via UI.
+
+**Concorrência (v1.30.0)**: o PUT de `/api/transactions` é otimista — o
+client envia `expectedSavedAt` (o `savedAt` que carregou/salvou por último)
+e o server responde **409** se o valor persistido divergir (outro
+dispositivo salvou no meio). O client então recarrega do server e avisa o
+usuário para refazer a última mudança. Clientes sem o campo mantêm o
+last-write-wins antigo (back-compat).
+
+**Snapshots (v1.30.0)**: o primeiro PUT bem-sucedido de cada dia (UTC)
+grava uma cópia imutável em `household:*:transactions:snapshot:YYYY-MM-DD`
+com TTL de 30 dias (`SET NX` — só o primeiro estado do dia). Aditivo, nunca
+lido pelo app; rede de segurança contra um save/restore ruim (restauração
+manual via Redis).
 
 ### Variáveis de ambiente
 
 | Variável                 | Uso                                              |
 | ------------------------ | ------------------------------------------------ |
 | `REDIS_URL`              | conexão Redis                                    |
-| `GOOGLE_CLIENT_ID`       | validação de audiência do token Google           |
-| `ALLOWED_EMAILS`         | allowlist (csv) de e-mails permitidos            |
-| `ADMIN_EMAILS`           | e-mails admin (csv)                              |
-| `APP_PASSWORD`           | senha de app para o fallback                     |
-| `VITE_GOOGLE_CLIENT_ID`  | client id exposto ao front-end (login Google)    |
-| `VITE_ADMIN_EMAILS`      | admins expostos ao front-end                     |
+| `APP_PASSWORD`           | senha de app (única forma de autenticação)       |
+
+*(Removidas na v1.30.0 junto com o login Google: `GOOGLE_CLIENT_ID`,
+`ALLOWED_EMAILS`, `ADMIN_EMAILS`, `VITE_GOOGLE_CLIENT_ID`,
+`VITE_ADMIN_EMAILS` — podem ser apagadas do projeto na Vercel.)*
 
 ---
 
@@ -2887,3 +2917,81 @@ O app inicia com array vazio quando não há dados salvos (sem SEED).
   texto em português hardcoded (Mensal/Anual/Semanal/Irregular, "Próx.
   estimada:") que precisa ser traduzido se/quando reintroduzida. Discutir:
   manter como está, mover para a Home, ou integrar como alerta.
+
+### Fase 6 — Confiabilidade de dados
+
+Fase nascida da revisão técnica de 2026-07-10 (report completo entregue ao
+usuário na sessão), que auditou o app inteiro e concluiu que a lógica
+financeira está sólida, mas a camada de persistência/sincronização tinha
+riscos reais de perda de dados.
+
+- [x] **Fatia 1 — pacote de confiabilidade + remoção do login Google**
+  (v1.30.0; a v1.29.0 foi pulada por ter sido usada e revertida no PR #178):
+  - **Concorrência otimista** no PUT de `/api/transactions`: client envia
+    `expectedSavedAt`, server responde 409 quando outro dispositivo salvou
+    no meio; client recarrega e avisa ("please redo your last change") em
+    vez de sobrescrever silenciosamente. Back-compat com clients antigos.
+  - **Save resiliente**: flush do save pendente em
+    `visibilitychange(hidden)`/`pagehide` (eventos que disparam de verdade
+    em PWA iOS) com `fetch keepalive` (fallback para fetch normal acima de
+    ~60 KB), além do `beforeunload` de desktop; retry automático quando a
+    conexão volta (o banner offline já prometia isso, agora acontece);
+    indicador "updated elsewhere" no header para o caso de conflito.
+  - **Snapshot diário automático** no Redis
+    (`household:*:transactions:snapshot:YYYY-MM-DD`, `SET NX`, TTL 30 dias)
+    a cada primeiro save do dia.
+  - **Autenticação somente por senha** (decisão do usuário: "não estou
+    usando autenticação do Google"): Google JWT/GIS removidos do client
+    (`Login`, `buildAuthHeaders`) e do server (`lib/auth.js` reescrito,
+    password-only, comparação timing-safe); metas `google-client-id`/
+    `admin-emails` removidas do `index.html`; env vars Google obsoletas.
+    Chave de storage inalterada — nenhum dado migrou.
+  - **`todayISO()` local**: `toISOString()` (UTC) virava "amanhã" à noite
+    nos fusos dos EUA, distorcendo o período default da Home, cutoffs
+    M/M-Y/Y, a linha "Today" do Daily Pace e os headers Today/Yesterday.
+  - **Cascatas completas** em Settings: renomear categoria agora atualiza
+    também Description rules e mapa CK→ledger; deletar categoria re-bucketa
+    as transações para "Other"/"Other Income" (antes, deletar categoria de
+    income fazia as transações contarem como despesa em `computeTotals`);
+    renomear conta move os fragmentos de alias; deletar conta manda as
+    transações para Unassigned, remove entradas do card map e desativa os
+    aliases.
+  - **Validação do restore de backup** (shape mínimo date+amount por linha,
+    ids gerados quando ausentes) antes de substituir o ledger.
+  - Limpezas: CORS wildcard removido dos endpoints (app é same-origin),
+    regra morta de runtime-caching `/api` removida do `vite.config.js` (a
+    regex nunca casava com `url.href` no Workbox — e, se casasse, um GET
+    stale + PUT do array inteiro regravaria dados antigos), comentário do
+    dedup fuzzy alinhado ao código (±2 dias), aviso quando a preview do
+    import passa de 400 linhas, `package.json.version` sincronizado,
+    `sortNames` (código morto) removido, preview do import invalida ao
+    editar regras/CK map em Settings.
+- [ ] **Restore com merge/dedup** — hoje o restore substitui tudo; opção de
+  mesclar um backup com o ledger atual usando o dedup híbrido do import.
+- [ ] **UI de snapshots** — listar/restaurar os snapshots diários pelo app
+  (hoje a restauração é manual via Redis).
+- [ ] **Backup dos demais namespaces** (config, aliases, rules, CK map,
+  account map, dismissed) no arquivo de backup local e/ou nos snapshots.
+
+### Fase 7 — Extensões propostas (da revisão de 2026-07-10, ainda não iniciadas)
+
+- [ ] **Cascata retroativa opcional com preview** para Description rules e
+  mapa CK→ledger — "Apply to existing transactions" com preview de impacto,
+  reaproveitando o padrão de `computeAliasImpact` dos Account aliases.
+- [ ] **Painel "Data quality" na Settings** — transações com categoria/conta
+  fora das listas atuais, datas inválidas, possíveis duplicatas retroativas,
+  contagem de Unassigned.
+- [ ] **Alertas de anomalia de gasto na Home** — destaque quando o gasto do
+  mês numa categoria excede a média de 12 meses (a `avg12m` já é computada)
+  por um limiar; conversa com a futura reintrodução de Budgets.
+- [ ] **Scan retroativo de correções manuais ("Fatia 3" do PR #119)** — o
+  histórico pré-v1.15 não alimenta o Suggested rules.
+- [ ] **Year in Review** — resumo anual (totais por categoria, maiores
+  despesas, comparativo com ano anterior, export CSV por categoria).
+- [ ] **Suite de testes + CI** — unit tests dos helpers puros
+  (`computeTotals`, `buildRow`, `mapCkCategory`, `markDuplicates`,
+  `matchAccountWithAliases`, `descriptionRuleMatches`) com Vitest; os
+  invariantes de sinal/Transfer já quebraram uma vez (v1.5.10) e hoje só a
+  auditoria humana os protege.
+- [ ] **Code-splitting** — lazy-load do recharts (bundle único passa de
+  500 KB minificado); avaliar migração para recharts v3 (2.x deprecado).

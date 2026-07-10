@@ -1,7 +1,7 @@
 // api/budgets.js
 // GET: { budgets: { [category]: number } }
 // PUT { budgets: {...} }: { ok, savedAt }
-// Auth required (x-google-token or x-app-password).
+// Auth required (x-app-password).
 //
 // Storage: derives a household-scoped key from auth.storageKey, same pattern
 // as api/transactions.js but with the ":budgets" suffix.
@@ -37,14 +37,6 @@ export default async function handler(req, res) {
 
   // CORS headers (same approach as transactions.js — Vercel handles OPTIONS at
   // the routing level, but we set them defensively here too).
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, PUT, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, x-google-token, x-app-password');
-
-  if (req.method === 'OPTIONS') {
-    return res.status(204).end();
-  }
-
   try {
     if (req.method === 'GET') {
       const raw = await redis.get(storageKey);

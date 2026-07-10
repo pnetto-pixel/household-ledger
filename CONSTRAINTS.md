@@ -8,7 +8,8 @@
 ## Stack
 React 18 + Vite (front) · recharts (gráficos) · papaparse (CSV) ·
 lucide-react (ícones) · funções serverless Vercel (`/api/*`) · Redis via
-`ioredis` · Auth Google JWT + senha de app fallback (`lib/auth.js`).
+`ioredis` · Auth somente por senha de app (`lib/auth.js`; Google JWT
+removido na v1.30.0).
 
 ## Estrutura
 - `src/App.jsx` — app inteiro, monolito single-file (5 tabs), organizado em
@@ -38,9 +39,14 @@ lucide-react (ícones) · funções serverless Vercel (`/api/*`) · Redis via
 
 ## Contrato de API / Redis (não alterar sem necessidade explícita)
 - GET/PUT em `/api/transactions`, payload `{ transactions, savedAt }`.
+- PUT aceita `expectedSavedAt` opcional (concorrência otimista, v1.30.0):
+  responde 409 quando o `savedAt` persistido diverge; sem o campo, mantém
+  last-write-wins (back-compat).
 - Namespace `household:*:transactions` (chave derivada por usuário a partir
   de `auth.storageKey`, reescrita de `portfolio:...:holdings` para
-  `household:...:transactions`).
+  `household:...:transactions`). Snapshots diários aditivos em
+  `household:*:transactions:snapshot:YYYY-MM-DD` (TTL 30d, nunca lidos pelo
+  app).
 - Headers custom chegam lowercase no Node.
 
 ## Constraints de implementação
@@ -70,5 +76,4 @@ major só se pedido. O feature-auditor reprova PR sem bump. Ver
 `household-ledger.md` seção `## Versionamento` para o histórico.
 
 ## Env vars
-`REDIS_URL`, `GOOGLE_CLIENT_ID`, `ALLOWED_EMAILS`, `ADMIN_EMAILS`,
-`APP_PASSWORD`, `VITE_GOOGLE_CLIENT_ID`, `VITE_ADMIN_EMAILS`.
+`REDIS_URL`, `APP_PASSWORD`. (Vars do login Google removidas na v1.30.0.)

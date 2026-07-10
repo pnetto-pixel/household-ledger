@@ -1,7 +1,7 @@
 // api/category-description-rules.js
 // GET: { rules: [ { id, matchField, pattern, destinationCategory, providerPattern?, allowTransferOverride? } ], savedAt }
 // PUT { rules: [...] }: { ok, savedAt, rules }
-// Auth required (x-google-token or x-app-password).
+// Auth required (x-app-password).
 //
 // Storage: derives a household-scoped key from auth.storageKey, same pattern
 // as api/ck-category-map.js / api/apple-daily-cash-rule.js but with the
@@ -75,14 +75,6 @@ export default async function handler(req, res) {
     redis = getRedis();
   } catch (err) {
     return res.status(503).json({ error: `Storage unavailable: ${err.message}` });
-  }
-
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, PUT, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, x-google-token, x-app-password');
-
-  if (req.method === 'OPTIONS') {
-    return res.status(204).end();
   }
 
   try {
