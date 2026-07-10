@@ -549,7 +549,14 @@ function useMediaWide(px = 900) {
 const uid = () =>
   `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 
-const todayISO = () => new Date().toISOString().slice(0, 10);
+// Local-date ISO helpers. Deliberately NOT toISOString(): that returns the
+// UTC date, which in US timezones flips to "tomorrow" during the evening and
+// skewed everything derived from "today" (default Home period, M/M cutoffs,
+// the Daily Pace "Today" line, Today/Yesterday list headers).
+const localISO = (d) =>
+  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+
+const todayISO = () => localISO(new Date());
 
 const usd = new Intl.NumberFormat("en-US", {
   style: "currency",
@@ -566,22 +573,14 @@ const usd0 = new Intl.NumberFormat("en-US", {
   maximumFractionDigits: 0,
 });
 
-function getMeta(name) {
-  const el = document.querySelector(`meta[name="${name}"]`);
-  const v = el?.getAttribute("content") || "";
-  return v && !v.startsWith("%") ? v : "";
-}
-
 // ---------------------------------------------------------------------------
-// Auth headers (Google token or app password)
+// Auth headers (shared app password)
 // ---------------------------------------------------------------------------
 
 function buildAuthHeaders() {
   const headers = { "Content-Type": "application/json" };
-  const token = window.__householdGoogleToken;
   const pwd = localStorage.getItem("household_pwd");
-  if (token) headers["x-google-token"] = token;
-  else if (pwd) headers["x-app-password"] = pwd;
+  if (pwd) headers["x-app-password"] = pwd;
   return headers;
 }
 
@@ -591,7 +590,7 @@ function buildAuthHeaders() {
 
 export default function App() {
   const [authed, setAuthed] = useState(
-    () => !!localStorage.getItem("household_pwd") || !!window.__householdGoogleToken
+    () => !!localStorage.getItem("household_pwd")
   );
   const [transactions, setTransactions] = useState([]);
   const [tab, setTab] = useState("home");
@@ -668,7 +667,16 @@ export default function App() {
   }, [authed, load]);
 
   // ---- Save (debounced after mutations) ------------------------------------
-  const save = useCallback(async (next) => {
+  // savedAtRef mirrors the savedAt state so the stable `save` callback always
+  // sends the latest value as `expectedSavedAt` (optimistic concurrency): the
+  // server rejects the PUT with 409 when another device saved in between,
+  // instead of letting this whole-array write silently overwrite it.
+  const savedAtRef = useRef(null);
+  useEffect(() => {
+    savedAtRef.current = savedAt;
+  }, [savedAt]);
+
+  const save = useCallback(async (next, { keepalive = false } = {}) => {
     if (!navigator.onLine) {
       setSaveError("offline");
       return;
@@ -676,25 +684,54 @@ export default function App() {
     setDirty(false);
     setSaving(true);
     try {
+      const body = JSON.stringify({
+        transactions: next,
+        expectedSavedAt: savedAtRef.current,
+      });
       const res = await fetch("/api/transactions", {
         method: "PUT",
         headers: buildAuthHeaders(),
-        body: JSON.stringify({ transactions: next }),
+        body,
+        // keepalive lets the request outlive the page (flush on close), but
+        // browsers cap keepalive bodies at ~64 KB — fall back to a normal
+        // fetch above that and hope the page survives long enough.
+        keepalive: keepalive && body.length < 60000,
       });
+      if (res.status === 401 || res.status === 403) {
+        // Wrong/rotated password — re-authenticating is the only fix.
+        localStorage.removeItem("household_pwd");
+        setAuthed(false);
+        return;
+      }
+      if (res.status === 409) {
+        // Another device saved first. Reload its data (server wins) and tell
+        // the user their last local change was NOT saved and must be redone —
+        // the alternative (forcing this write) would silently drop the other
+        // device's changes instead.
+        setSaveError("conflict");
+        await load();
+        setError(
+          "This ledger was updated on another device. The latest data was reloaded — please redo your last change."
+        );
+        return;
+      }
       if (!res.ok) {
         const j = await res.json().catch(() => ({}));
         throw new Error(j.error || `Save failed (${res.status})`);
       }
       const data = await res.json();
-      setSavedAt(data.savedAt || new Date().toISOString());
+      const at = data.savedAt || new Date().toISOString();
+      savedAtRef.current = at;
+      setSavedAt(at);
       setSaveError(null);
+      setError("");
     } catch (err) {
       setSaveError(err.message || "Save failed");
       setTimeout(() => setSaveError(null), 5000);
     } finally {
       setSaving(false);
     }
-  }, []);
+  }, [load]);
 
   const scheduleSave = useCallback(
     (next) => {
@@ -706,18 +743,49 @@ export default function App() {
     [save]
   );
 
-  // Flush pending save before page unload.
+  // Flush a pending (debounced) save when the page is being hidden or
+  // closed. `visibilitychange`/`pagehide` are the events that actually fire
+  // on iOS PWAs — `beforeunload` often doesn't there, but is kept for
+  // desktop browsers. Refs (not deps) keep the listeners stable so no
+  // events are missed while React re-subscribes.
+  const dirtyRef = useRef(false);
+  useEffect(() => {
+    dirtyRef.current = dirty;
+  }, [dirty]);
+  const transactionsRef = useRef(transactions);
+  useEffect(() => {
+    transactionsRef.current = transactions;
+  }, [transactions]);
+
   useEffect(() => {
     const flush = () => {
       if (!navigator.onLine) return;
-      if (debounceRef.current) {
-        clearTimeout(debounceRef.current);
-        if (dirty) save(transactions);
+      if (dirtyRef.current) {
+        if (debounceRef.current) clearTimeout(debounceRef.current);
+        save(transactionsRef.current, { keepalive: true });
       }
     };
+    const onVisibility = () => {
+      if (document.visibilityState === "hidden") flush();
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    window.addEventListener("pagehide", flush);
     window.addEventListener("beforeunload", flush);
-    return () => window.removeEventListener("beforeunload", flush);
-  }, [dirty, transactions, save]);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisibility);
+      window.removeEventListener("pagehide", flush);
+      window.removeEventListener("beforeunload", flush);
+    };
+  }, [save]);
+
+  // Retry the save when connectivity comes back — the offline banner promises
+  // "changes will sync when reconnected", this is what actually does it.
+  useEffect(() => {
+    if (isOnline && dirtyRef.current) {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+      save(transactionsRef.current);
+    }
+  }, [isOnline, save]);
 
   // ---- Account map load / save ---------------------------------------------
   const loadAccountMap = useCallback(async () => {
@@ -1146,9 +1214,31 @@ export default function App() {
 
   // ---- Manage accounts / categories ----------------------------------------
   // Adds/renames/deletes cascade into existing data so nothing is orphaned:
-  // renaming an account updates its transactions and account-map values;
-  // renaming a category updates its transactions.
-  const sortNames = (arr) => [...arr].sort((a, b) => a.localeCompare(b));
+  // renaming an account updates its transactions, account-map values and
+  // alias-table entry; renaming a category updates its transactions plus any
+  // Description rule / CK-map entry targeting it; deletes re-bucket the rows
+  // still using the deleted name (an income category left dangling would be
+  // silently counted as an expense by computeTotals).
+
+  // Rewrite every Description rule / CK-map destination that targets
+  // `fromName` to `toName` — shared by rename (new name) and delete (fallback
+  // bucket). Without this, a rule pointing at a gone category makes future
+  // imports fall through to "Other" (or, worse, a ghost category via
+  // allowTransferOverride).
+  const retargetCategoryRules = useCallback((fromName, toName) => {
+    const rules = currentCategoryDescriptionRulesConfig();
+    if (rules.some((r) => r.destinationCategory === fromName)) {
+      saveCategoryDescriptionRules(
+        rules.map((r) => (r.destinationCategory === fromName ? { ...r, destinationCategory: toName } : r))
+      );
+    }
+    const ckMap = currentCkCategoryMapConfig();
+    if (Object.values(ckMap).includes(fromName)) {
+      const next = {};
+      for (const [tok, dest] of Object.entries(ckMap)) next[tok] = dest === fromName ? toName : dest;
+      saveCkCategoryMap(next);
+    }
+  }, [saveCategoryDescriptionRules, saveCkCategoryMap]);
 
   const addAccount = useCallback((name) => {
     const n = (name || "").trim();
@@ -1178,12 +1268,46 @@ export default function App() {
       }
       return prevMap;
     });
-  }, [saveConfig, scheduleSave]);
+    // Move the alias fragments to the new name. The old key is kept with an
+    // empty list (not deleted): buildAliasArray re-merges the default seed by
+    // account name, so a deleted key would resurrect the default fragments
+    // under the old (now nonexistent) account.
+    const aliasesObj = currentAliasConfig();
+    const frags = aliasesObj[oldName] || [];
+    if (frags.length) {
+      saveAccountAliasesAndApply({ ...aliasesObj, [oldName]: [], [nn]: frags });
+    }
+  }, [saveConfig, scheduleSave, saveAccountAliasesAndApply]);
 
   const deleteAccount = useCallback((name) => {
     if (!ACCOUNTS.includes(name)) return;
     saveConfig({ accounts: ACCOUNTS.filter((a) => a !== name) });
-  }, [saveConfig]);
+    // Cascade: rows fall back to Unassigned (srcAccount is kept, so they can
+    // be re-classified later), URN mappings to the account are dropped, and
+    // its alias fragments are disabled (empty list overrides the default
+    // seed) so future imports don't classify into a ghost account.
+    setTransactions((prev) => {
+      let ch = false;
+      const next = prev.map((t) => (t.account === name ? ((ch = true), { ...t, account: "" }) : t));
+      if (ch) scheduleSave(next);
+      return ch ? next : prev;
+    });
+    setAccountMap((prevMap) => {
+      let ch = false;
+      const am = {};
+      for (const [k, v] of Object.entries(prevMap)) {
+        if (v === name) { ch = true; continue; }
+        am[k] = v;
+      }
+      if (!ch) return prevMap;
+      fetch("/api/account-map", { method: "PUT", headers: buildAuthHeaders(), body: JSON.stringify({ map: am }) }).catch(() => {});
+      return am;
+    });
+    const aliasesObj = currentAliasConfig();
+    if ((aliasesObj[name] || []).length) {
+      saveAccountAliasesAndApply({ ...aliasesObj, [name]: [] });
+    }
+  }, [saveConfig, scheduleSave, saveAccountAliasesAndApply]);
 
   const addCategory = useCallback((kind, name) => {
     const n = (name || "").trim();
@@ -1206,12 +1330,27 @@ export default function App() {
       if (ch) scheduleSave(next);
       return ch ? next : prev;
     });
-  }, [saveConfig, scheduleSave]);
+    retargetCategoryRules(oldName, nn);
+  }, [saveConfig, scheduleSave, retargetCategoryRules]);
 
   const deleteCategory = useCallback((name) => {
-    if (EXPENSE_CATEGORIES.includes(name)) saveConfig({ expenseCategories: EXPENSE_CATEGORIES.filter((c) => c !== name) });
-    else if (INCOME_CATEGORIES.includes(name)) saveConfig({ incomeCategories: INCOME_CATEGORIES.filter((c) => c !== name) });
-  }, [saveConfig]);
+    let fallback;
+    if (EXPENSE_CATEGORIES.includes(name)) {
+      saveConfig({ expenseCategories: EXPENSE_CATEGORIES.filter((c) => c !== name) });
+      fallback = "Other";
+    } else if (INCOME_CATEGORIES.includes(name)) {
+      saveConfig({ incomeCategories: INCOME_CATEGORIES.filter((c) => c !== name) });
+      fallback = "Other Income"; // always present — applyConfig guarantees it
+    } else return;
+    if (name === fallback) return; // deleting the fallback itself: nothing to re-bucket into
+    setTransactions((prev) => {
+      let ch = false;
+      const next = prev.map((t) => (t.category === name ? ((ch = true), { ...t, category: fallback }) : t));
+      if (ch) scheduleSave(next);
+      return ch ? next : prev;
+    });
+    retargetCategoryRules(name, fallback);
+  }, [saveConfig, scheduleSave, retargetCategoryRules]);
 
   const reorderAccounts = useCallback((names) => saveConfig({ accounts: names }), [saveConfig]);
   const reorderCategories = useCallback((kind, names) => {
@@ -1229,7 +1368,6 @@ export default function App() {
 
   const logout = useCallback(() => {
     localStorage.removeItem("household_pwd");
-    window.__householdGoogleToken = null;
     setAuthed(false);
     setTransactions([]);
   }, []);
@@ -1279,7 +1417,14 @@ export default function App() {
             onUpdateMany={updateMany}
           />
         ) : tab === "import" ? (
-          <ImportTransactions onImport={addTransactions} accountMap={accountMap} config={config} transactions={transactions} />
+          <ImportTransactions
+            onImport={addTransactions}
+            accountMap={accountMap}
+            config={config}
+            transactions={transactions}
+            ckCategoryMap={ckCategoryMap}
+            categoryDescriptionRules={categoryDescriptionRules}
+          />
         ) : tab === "settings" ? (
           <SettingsTab
             transactions={transactions}
@@ -1322,42 +1467,6 @@ function Login({ onAuthed }) {
   const [pwd, setPwd] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
-  const clientId = getMeta("google-client-id");
-  const gBtn = useRef(null);
-
-  // Google Identity Services (optional — only if a client id is configured).
-  useEffect(() => {
-    if (!clientId) return;
-    const handle = (resp) => {
-      window.__householdGoogleToken = resp.credential;
-      onAuthed();
-    };
-    const init = () => {
-      if (!window.google?.accounts?.id) return;
-      window.google.accounts.id.initialize({
-        client_id: clientId,
-        callback: handle,
-      });
-      if (gBtn.current) {
-        window.google.accounts.id.renderButton(gBtn.current, {
-          theme: "filled_black",
-          size: "large",
-          width: 260,
-        });
-      }
-    };
-    const existing = document.getElementById("gsi-script");
-    if (existing) {
-      init();
-      return;
-    }
-    const s = document.createElement("script");
-    s.src = "https://accounts.google.com/gsi/client";
-    s.async = true;
-    s.id = "gsi-script";
-    s.onload = init;
-    document.body.appendChild(s);
-  }, [clientId, onAuthed]);
 
   const submit = async (e) => {
     e.preventDefault();
@@ -1394,8 +1503,6 @@ function Login({ onAuthed }) {
           Sign in to continue
         </p>
 
-        {clientId ? <div ref={gBtn} style={{ marginBottom: 16 }} /> : null}
-
         <form onSubmit={submit}>
           <input
             type="password"
@@ -1425,6 +1532,14 @@ function SaveIndicator({ saving, dirty, savedAt, saveError }) {
       <span style={{ fontSize: 10, color: "#fbbf24", display: "flex", alignItems: "center", gap: 3 }}>
         <span>↻</span>
         <span>Offline</span>
+      </span>
+    );
+  }
+  if (saveError === "conflict") {
+    return (
+      <span style={{ fontSize: 10, color: "#fbbf24", display: "flex", alignItems: "center", gap: 3 }}>
+        <span>⇅</span>
+        <span>updated elsewhere</span>
       </span>
     );
   }
@@ -1481,7 +1596,7 @@ function Header({ hideValues, onToggleHide, onLogout, saving, savedAt, dirty, sa
             <Wallet size={14} color="#fff" />
           </div>
           <span style={{ fontWeight: 700, fontSize: 15, letterSpacing: -0.5, color: "#e5e7eb" }}>Household</span>
-          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.28.2</span>
+          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.30.0</span>
         </div>
         <SaveIndicator saving={saving} dirty={dirty} savedAt={savedAt} saveError={saveError} />
       </div>
@@ -3706,7 +3821,7 @@ function Transactions({ transactions, money, hideValues, isWide, onDelete, onUpd
 function formatDateHeader(dateStr) {
   if (!dateStr) return "Unknown";
   const today = todayISO();
-  const yesterday = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
+  const yesterday = localISO(new Date(Date.now() - 86400000));
   if (dateStr === today) return "Today";
   if (dateStr === yesterday) return "Yesterday";
   return new Date(dateStr + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
@@ -5275,8 +5390,21 @@ function DataBackupSection({ transactions, onRestore }) {
     try {
       const text = await file.text();
       const parsed = JSON.parse(text);
-      const rows = Array.isArray(parsed) ? parsed : parsed?.transactions;
+      let rows = Array.isArray(parsed) ? parsed : parsed?.transactions;
       if (!Array.isArray(rows)) throw new Error("File does not contain a transactions array.");
+      // Shape check before wiping the ledger with arbitrary JSON: every row
+      // must at least look like a transaction (date + finite amount). Rows
+      // without an id (hand-edited files) get one assigned.
+      const invalid = rows.filter(
+        (r) =>
+          !r || typeof r !== "object" || Array.isArray(r) ||
+          !/^\d{4}-\d{2}-\d{2}/.test(String(r.date || "")) ||
+          !Number.isFinite(Number(r.amount))
+      ).length;
+      if (invalid > 0) {
+        throw new Error(`Not a valid backup: ${invalid} row${invalid === 1 ? "" : "s"} missing a date/amount.`);
+      }
+      rows = rows.map((r) => (r.id ? r : { ...r, id: uid() }));
       const confirmed = window.confirm(
         `Restore ${rows.length} transaction${rows.length === 1 ? "" : "s"} from this backup? ` +
         `This replaces all ${transactions.length} transaction${transactions.length === 1 ? "" : "s"} currently loaded.`
@@ -6015,7 +6143,7 @@ function dateToDayInt(dateStr) {
 // against earlier rows in the same batch. Hybrid key: when both sides carry a
 // source id, compare by id (so two genuinely distinct but identical-looking
 // purchases are never merged); otherwise compare by content fingerprint first,
-// then fall back to fuzzy matching (same account + same cents + ±1 day +
+// then fall back to fuzzy matching (same account + same cents + ±2 days +
 // at least 1 word in common).
 function markDuplicates(rows, existing) {
   const idSet = new Set();
@@ -6067,7 +6195,7 @@ function markDuplicates(rows, existing) {
   });
 }
 
-function ImportTransactions({ onImport, accountMap, config, transactions }) {
+function ImportTransactions({ onImport, accountMap, config, transactions, ckCategoryMap, categoryDescriptionRules }) {
   // Two methods: Credit Karma (auto-mapped, day-to-day) and CSV (manual
   // mapping, one-time history backfill).
   const [method, setMethod] = useState("ck");
@@ -6160,7 +6288,11 @@ function ImportTransactions({ onImport, accountMap, config, transactions }) {
       valid.push(row);
     }
     return { csvRows: valid, skippedCount: skipped };
-  }, [rawRows, mapping, profile, accountMap, config]);
+    // ckCategoryMap / categoryDescriptionRules aren't read directly here —
+    // buildRow reads their module-level mirrors — but they must invalidate
+    // this memo so editing a rule in Settings recomputes an already-parsed
+    // preview instead of showing stale categories.
+  }, [rawRows, mapping, profile, accountMap, config, ckCategoryMap, categoryDescriptionRules]);
 
   // Flag duplicates against existing data + within the batch.
   const dedupedRows = useMemo(() => markDuplicates(csvRows, transactions || []), [csvRows, transactions]);
@@ -6337,7 +6469,11 @@ function ImportTransactions({ onImport, accountMap, config, transactions }) {
             ) : null}
           </div>
           <div style={{ ...S.list, maxHeight: 300, overflowY: "auto" }}>
-            {displayRows.filter((t) => (dupFilter === "dup" ? t._dup : dupFilter === "new" ? !t._dup : true)).slice(0, 400).map((t) => {
+            {(() => {
+              const previewRows = displayRows.filter((t) => (dupFilter === "dup" ? t._dup : dupFilter === "new" ? !t._dup : true));
+              return (
+                <>
+            {previewRows.slice(0, 400).map((t) => {
               const checked = selected.has(t.id);
               const autoCategory = t.autoCategory ?? t.category;
               const edited = t.category !== autoCategory;
@@ -6372,6 +6508,15 @@ function ImportTransactions({ onImport, accountMap, config, transactions }) {
                 </div>
               );
             })}
+            {previewRows.length > 400 ? (
+              <div style={{ fontSize: 11, color: "#fbbf24", padding: "8px 4px", textAlign: "center" }}>
+                Preview limited to the first 400 of {previewRows.length} rows — rows beyond it are
+                not shown here but are still counted, selected and imported per the totals above.
+              </div>
+            ) : null}
+                </>
+              );
+            })()}
           </div>
           <div style={S.importActionsBar}>
             <button

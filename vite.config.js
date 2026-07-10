@@ -9,19 +9,11 @@ export default defineConfig({
       registerType: "autoUpdate",
       includeAssets: ["icon-192.png", "icon-512.png"],
       manifest: false, // usamos o manifest.json externo em /public
-      workbox: {
-        runtimeCaching: [
-          {
-            urlPattern: /^\/api\//,
-            handler: "NetworkFirst",
-            options: {
-              cacheName: "api-cache",
-              networkTimeoutSeconds: 4,
-              expiration: { maxEntries: 10, maxAgeSeconds: 86400 },
-            },
-          },
-        ],
-      },
+      // Sem runtimeCaching para /api: a regra antiga (regex ancorada em
+      // pathname) nunca casava com url.href no Workbox — e cachear o GET de
+      // transactions seria perigoso de verdade: um snapshot stale servido do
+      // cache seguido de um save (PUT do array inteiro) regravaria dados
+      // antigos por cima dos atuais.
     }),
   ],
   server: {
