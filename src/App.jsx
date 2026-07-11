@@ -1596,7 +1596,7 @@ function Header({ hideValues, onToggleHide, onLogout, saving, savedAt, dirty, sa
             <Wallet size={14} color="#fff" />
           </div>
           <span style={{ fontWeight: 700, fontSize: 15, letterSpacing: -0.5, color: "#e5e7eb" }}>Household</span>
-          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.31.1</span>
+          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.31.2</span>
         </div>
         <SaveIndicator saving={saving} dirty={dirty} savedAt={savedAt} saveError={saveError} />
       </div>
@@ -2762,15 +2762,15 @@ function CategoryStackedBarCard({ scoped, granularity, hideValues, fmtK, fmtKFul
 }
 
 // ===========================================================================
-// CompositionEvolutionCard — 100% stacked area ("Area") / streamgraph
-// ("River") of category composition over time. Bucketing follows the same
-// `granularity` (M/Q/H/Y) the masthead switch already applies to the other
-// Trends cards, so the X axis always matches what the user picked up top.
+// CompositionEvolutionCard — 100% stacked area of category composition over
+// time. Bucketing follows the same `granularity` (M/Q/H/Y) the masthead
+// switch already applies to the other Trends cards, so the X axis always
+// matches what the user picked up top. Tooltip shows each category's share
+// of the bucket (highest to lowest), not raw dollar amounts.
 // ===========================================================================
 
-function CompositionEvolutionCard({ scoped, granularity, hideValues, fmtKFull }) {
+function CompositionEvolutionCard({ scoped, granularity, hideValues }) {
   const [mode, setMode] = useState("expense");
-  const [shape, setShape] = useState("area"); // "area" (expand) | "river" (wiggle)
 
   const { rows, cats } = useMemo(() => {
     const map = new Map();
@@ -2828,20 +2828,10 @@ function CompositionEvolutionCard({ scoped, granularity, hideValues, fmtKFull })
           ))}
         </div>
       </div>
-      {/* Second control row — Area/River shape */}
-      <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 16px 0" }}>
-        <div style={S.segmented}>
-          {[{ v: "area", l: "Area" }, { v: "river", l: "River" }].map(({ v, l }) => (
-            <button key={v} onClick={() => setShape(v)} style={S.segmentedBtn(shape === v)}>
-              {l}
-            </button>
-          ))}
-        </div>
-      </div>
       {/* Chart */}
       <div style={{ height: 260, marginTop: 8 }}>
         <ResponsiveContainer width="100%" height="100%">
-          <AreaChart data={rows} stackOffset={shape === "river" ? "wiggle" : "expand"} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
+          <AreaChart data={rows} stackOffset="expand" margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
             <CartesianGrid vertical={false} stroke="rgba(255,255,255,0.05)" />
             <XAxis
               dataKey="bucket"
@@ -2851,7 +2841,7 @@ function CompositionEvolutionCard({ scoped, granularity, hideValues, fmtKFull })
               axisLine={false}
             />
             <YAxis
-              tickFormatter={shape === "area" ? (v) => (hideValues ? "" : `${Math.round(v * 100)}%`) : () => ""}
+              tickFormatter={(v) => (hideValues ? "" : `${Math.round(v * 100)}%`)}
               tick={{ fill: "#6b7280", fontSize: 10 }}
               tickLine={false}
               axisLine={false}
@@ -2859,11 +2849,24 @@ function CompositionEvolutionCard({ scoped, granularity, hideValues, fmtKFull })
             />
             {!hideValues && (
               <Tooltip
-                formatter={(val, name) => [fmtKFull(val), name]}
-                labelFormatter={(bk) => bucketLabel(bk)}
-                contentStyle={{ background: "#1e2329", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 14, fontSize: 12, boxShadow: "0 8px 24px rgba(0,0,0,0.4)" }}
-                itemStyle={{ color: "#e5e7eb" }}
-                labelStyle={{ color: "#8b94a3" }}
+                content={({ active, payload, label }) => {
+                  if (!active || !payload || payload.length === 0) return null;
+                  const total = payload.reduce((s, p) => s + (Number(p.value) || 0), 0);
+                  const sorted = [...payload]
+                    .filter((p) => Number(p.value) > 0)
+                    .sort((a, b) => (Number(b.value) || 0) - (Number(a.value) || 0));
+                  return (
+                    <div style={{ background: "#1e2329", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 14, padding: "8px 12px", fontSize: 12, boxShadow: "0 8px 24px rgba(0,0,0,0.4)" }}>
+                      <div style={{ color: "#8b94a3", marginBottom: 4 }}>{bucketLabel(label)}</div>
+                      {sorted.map((p) => (
+                        <div key={p.dataKey} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16, color: "#e5e7eb" }}>
+                          <span style={{ color: p.color }}>{p.name}</span>
+                          <span>{total ? `${Math.round((Number(p.value) / total) * 100)}%` : "0%"}</span>
+                        </div>
+                      ))}
+                    </div>
+                  );
+                }}
                 cursor={false}
               />
             )}
@@ -3402,7 +3405,13 @@ function Charts({ transactions, hideValues, config, isWide }) {
       <div
         style={{
           position: "sticky",
-          top: 0,
+          // `<main>` has 16px of top padding, which the sticky containment
+          // rectangle treats as the stick point — without this offset the
+          // bar snaps down by that 16px the instant you scroll, briefly
+          // exposing the content behind it. Negative `top` cancels it out
+          // (paired with the matching negative marginTop below) so the bar
+          // stays flush against the app header the whole time.
+          top: -16,
           zIndex: 5,
           marginLeft: -16,
           marginRight: -16,
@@ -3511,7 +3520,6 @@ function Charts({ transactions, hideValues, config, isWide }) {
         scoped={scoped}
         granularity={granularity}
         hideValues={hideValues}
-        fmtKFull={fmtKFull}
       />
     </div>
   );
