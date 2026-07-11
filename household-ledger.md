@@ -1,4 +1,4 @@
-# Household Ledger · v1.30.0
+# Household Ledger · v1.31.0
 
 Aplicativo mobile-first de controle financeiro doméstico. Registra
 transações da casa (despesas e receitas) por categoria e conta, com
@@ -31,7 +31,12 @@ O `feature-auditor` deve conferir, como parte da checklist de auditoria, que
 o diff inclui o bump nos dois arquivos antes de aprovar — se faltar, isso é
 motivo de reprovação (devolver ao coder), não um detalhe opcional.
 
-Versão atual: **v1.30.0** — pacote de confiabilidade de dados + remoção do
+Versão atual: **v1.31.0** — novo card "Composition Evolution" na tab Trends:
+stacked area (100%) / streamgraph de composição por categoria ao longo do
+tempo, com toggle Expense/Income, toggle Area/River e seletor de período
+local (1Y/2Y/5Y/All) intersectado com o escopo do masthead.
+
+Versão anterior: **v1.30.0** — pacote de confiabilidade de dados + remoção do
 login Google (ver item "Fase 6 — Confiabilidade de dados, fatia 1" no
 Roadmap): concorrência otimista no PUT de transactions (409 em conflito
 entre dispositivos + reload com aviso), flush de save confiável

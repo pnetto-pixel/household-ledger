@@ -1596,7 +1596,7 @@ function Header({ hideValues, onToggleHide, onLogout, saving, savedAt, dirty, sa
             <Wallet size={14} color="#fff" />
           </div>
           <span style={{ fontWeight: 700, fontSize: 15, letterSpacing: -0.5, color: "#e5e7eb" }}>Household</span>
-          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.30.0</span>
+          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.31.0</span>
         </div>
         <SaveIndicator saving={saving} dirty={dirty} savedAt={savedAt} saveError={saveError} />
       </div>
@@ -2762,6 +2762,187 @@ function CategoryStackedBarCard({ scoped, granularity, hideValues, fmtK, fmtKFul
 }
 
 // ===========================================================================
+// CompositionEvolutionCard — 100% stacked area ("Area") / streamgraph
+// ("River") of category composition over time, with a local 1Y/2Y/5Y/All
+// period refinement (intersected with the masthead's category/year-range
+// scope already applied to `scoped`) and adaptive M/Q/H/Y bucketing based
+// on the effective span, same spirit as the Charts granularity switch.
+// ===========================================================================
+
+const COMPOSITION_PERIODS = [
+  { v: "1y", l: "1Y", years: 1 },
+  { v: "2y", l: "2Y", years: 2 },
+  { v: "5y", l: "5Y", years: 5 },
+  { v: "all", l: "All", years: Infinity },
+];
+
+function CompositionEvolutionCard({ scoped, hideValues, fmtKFull }) {
+  const [mode, setMode] = useState("expense");
+  const [shape, setShape] = useState("area"); // "area" (expand) | "river" (wiggle)
+  const [period, setPeriod] = useState("1y");
+
+  const { rows, cats, granularity } = useMemo(() => {
+    const years = COMPOSITION_PERIODS.find((p) => p.v === period)?.years ?? 1;
+    let fromISO = null;
+    if (Number.isFinite(years)) {
+      const d = new Date();
+      d.setFullYear(d.getFullYear() - years);
+      fromISO = localISO(d);
+    }
+
+    // Local period refinement on top of the masthead-scoped transactions —
+    // intersection, never a substitution (matches the briefing's contract).
+    const filtered = fromISO ? scoped.filter((t) => t.date >= fromISO) : scoped;
+
+    // Adaptive granularity from the effective span of the filtered data
+    // (mirrors the coarser M/Y rule already used by applyYearRange in
+    // Charts, extended to the full M/Q/H/Y ladder for finer local ranges).
+    let granularity = "M";
+    let minDate = null, maxDate = null;
+    for (const t of filtered) {
+      if (!t.date) continue;
+      if (!minDate || t.date < minDate) minDate = t.date;
+      if (!maxDate || t.date > maxDate) maxDate = t.date;
+    }
+    if (minDate && maxDate) {
+      const spanYears = (new Date(maxDate) - new Date(minDate)) / (365.25 * 24 * 3600 * 1000);
+      if (spanYears > 5) granularity = "Y";
+      else if (spanYears > 2) granularity = "H";
+      else if (spanYears > 1) granularity = "Q";
+      else granularity = "M";
+    }
+
+    const map = new Map();
+    const catTotals = {};
+    for (const t of filtered) {
+      if (isTransfer(t.category)) continue;
+      if (mode === "expense") {
+        if (isIncome(t.category)) continue;
+      } else {
+        if (!isIncome(t.category)) continue;
+      }
+      const bk = bucketKey(t.date, granularity);
+      if (!bk) continue;
+      if (!map.has(bk)) map.set(bk, { bucket: bk });
+      const entry = map.get(bk);
+      const val = Number(t.amount) || 0; // signed: refunds/clawbacks net out
+      entry[t.category] = (entry[t.category] || 0) + val;
+      catTotals[t.category] = (catTotals[t.category] || 0) + val;
+    }
+
+    const rows = [...map.values()]
+      .map(({ bucket, ...cats }) => {
+        const newRow = { bucket };
+        for (const [cat, v] of Object.entries(cats)) {
+          newRow[cat] = Math.abs(v);
+        }
+        return newRow;
+      })
+      .sort((a, b) => (a.bucket < b.bucket ? -1 : 1));
+
+    const cats = Object.keys(catTotals).sort((a, b) => {
+      const ia = CATEGORY_ORDER.indexOf(a);
+      const ib = CATEGORY_ORDER.indexOf(b);
+      if (ia === -1 && ib === -1) return a.localeCompare(b);
+      if (ia === -1) return 1;
+      if (ib === -1) return -1;
+      return ia - ib;
+    });
+
+    return { rows, cats, granularity };
+  }, [scoped, mode, period]);
+
+  if (rows.length === 0) return null;
+
+  return (
+    <div style={{ ...S.card, padding: 0, overflow: "visible" }}>
+      {/* Header — title + Expense/Income toggle */}
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 16px 0" }}>
+        <h3 style={{ ...S.sectionTitle, margin: 0 }}>Composition Evolution</h3>
+        <div style={{ display: "flex", gap: 4 }}>
+          {["expense", "income"].map((m) => (
+            <button key={m} onClick={() => setMode(m)} style={S.togglePill(mode === m)}>
+              {m === "income" ? "Income" : "Expense"}
+            </button>
+          ))}
+        </div>
+      </div>
+      {/* Second control row — Area/River shape + local 1Y/2Y/5Y/All period */}
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, flexWrap: "wrap", padding: "8px 16px 0" }}>
+        <div style={S.segmented}>
+          {[{ v: "area", l: "Area" }, { v: "river", l: "River" }].map(({ v, l }) => (
+            <button key={v} onClick={() => setShape(v)} style={S.segmentedBtn(shape === v)}>
+              {l}
+            </button>
+          ))}
+        </div>
+        <div style={S.segmented}>
+          {COMPOSITION_PERIODS.map(({ v, l }) => (
+            <button key={v} onClick={() => setPeriod(v)} style={S.segmentedBtn(period === v)}>
+              {l}
+            </button>
+          ))}
+        </div>
+      </div>
+      {/* Chart */}
+      <div style={{ height: 260, marginTop: 8 }}>
+        <ResponsiveContainer width="100%" height="100%">
+          <AreaChart data={rows} stackOffset={shape === "river" ? "wiggle" : "expand"} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
+            <CartesianGrid vertical={false} stroke="rgba(255,255,255,0.05)" />
+            <XAxis
+              dataKey="bucket"
+              tickFormatter={(bk) => bucketLabel(bk)}
+              tick={{ fill: "#6b7280", fontSize: 10 }}
+              tickLine={false}
+              axisLine={false}
+            />
+            <YAxis
+              tickFormatter={shape === "area" ? (v) => (hideValues ? "" : `${Math.round(v * 100)}%`) : () => ""}
+              tick={{ fill: "#6b7280", fontSize: 10 }}
+              tickLine={false}
+              axisLine={false}
+              width={40}
+            />
+            {!hideValues && (
+              <Tooltip
+                formatter={(val, name) => [fmtKFull(val), name]}
+                labelFormatter={(bk) => bucketLabel(bk)}
+                contentStyle={{ background: "#1e2329", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 14, fontSize: 12, boxShadow: "0 8px 24px rgba(0,0,0,0.4)" }}
+                itemStyle={{ color: "#e5e7eb" }}
+                labelStyle={{ color: "#8b94a3" }}
+                cursor={false}
+              />
+            )}
+            {cats.map((cat) => (
+              <Area
+                key={cat}
+                type="monotone"
+                dataKey={cat}
+                name={cat}
+                stackId="comp"
+                stroke={getCategoryColor(cat)}
+                fill={getCategoryColor(cat)}
+                fillOpacity={0.75}
+                strokeWidth={1}
+              />
+            ))}
+          </AreaChart>
+        </ResponsiveContainer>
+      </div>
+      {/* Legend — below chart, only categories present in the current period */}
+      <div style={{ display: "flex", flexWrap: "wrap", gap: "6px 12px", padding: "8px 16px 14px", justifyContent: "center" }}>
+        {cats.map((cat) => (
+          <span key={cat} style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 10, color: "#6b7280" }}>
+            <span style={{ display: "inline-block", width: 10, height: 10, borderRadius: 2, background: getCategoryColor(cat) }} />
+            {cat}
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ===========================================================================
 // MonthlyAvgByCategoryCard — stacked bar chart of yearly totals divided into
 // a monthly average (always Y granularity, always ALL years, ignoring the
 // Charts year-range filter — see `scopedAllYears` in Charts).
@@ -3338,6 +3519,12 @@ function Charts({ transactions, hideValues, config, isWide }) {
         granularity={granularity}
         hideValues={hideValues}
         fmtK={fmtK}
+        fmtKFull={fmtKFull}
+      />
+
+      <CompositionEvolutionCard
+        scoped={scoped}
+        hideValues={hideValues}
         fmtKFull={fmtKFull}
       />
 
