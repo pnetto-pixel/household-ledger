@@ -1596,7 +1596,7 @@ function Header({ hideValues, onToggleHide, onLogout, saving, savedAt, dirty, sa
             <Wallet size={14} color="#fff" />
           </div>
           <span style={{ fontWeight: 700, fontSize: 15, letterSpacing: -0.5, color: "#e5e7eb" }}>Household</span>
-          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.31.3</span>
+          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.31.4</span>
         </div>
         <SaveIndicator saving={saving} dirty={dirty} savedAt={savedAt} saveError={saveError} />
       </div>
@@ -2446,11 +2446,7 @@ function MonthlyBarCard({ byBucket, hideValues, fmtK, fmtKTooltip, fmtBucketLabe
               {!hideValues && (
                 <Tooltip
                   cursor={false}
-                  formatter={(v) => (fmtKTooltip || fmtK)(v)}
-                  labelFormatter={(v) => fmtBucketLabel(v)}
-                  contentStyle={{ background: "#161a20", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 14, fontSize: 12, boxShadow: "0 8px 24px rgba(0,0,0,0.4)" }}
-                  itemStyle={{ color: "#e5e7eb" }}
-                  labelStyle={{ color: "#8b94a3" }}
+                  content={<ChartTooltip fmtValue={fmtKTooltip || fmtK} formatLabel={fmtBucketLabel} />}
                 />
               )}
               <Bar dataKey={dataKey} name={isInc ? "Income" : "Expenses"} fill={barColor} radius={[4, 4, 0, 0]} activeBar={{ fill: barColor, opacity: 0.75 }}>
@@ -2513,6 +2509,54 @@ function bucketLabel(key) {
   const mo = parseInt(rest, 10);
   const names = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
   return `${names[mo - 1] || rest}/${yy}`;
+}
+
+// ===========================================================================
+// ChartTooltip — shared tooltip for every Trends chart: sorts series highest
+// to lowest, colors each by its own series color, and caps its own size
+// (font first, then internal scroll) so it never grows past the card's own
+// box. That containment matters because every card uses `backdropFilter`
+// (the "Liquid Glass" look), which creates a CSS stacking context — an
+// overflowing tooltip isn't clipped, it just gets painted over by the next
+// card down, since sibling stacking contexts paint in DOM order.
+// `mode: "percent"` shows each series' share of the bucket (Composition
+// Evolution); `mode: "currency"` (default) shows `fmtValue(value)`.
+// ===========================================================================
+function ChartTooltip({ active, payload, label, mode = "currency", fmtValue, formatLabel }) {
+  if (!active || !payload || payload.length === 0) return null;
+  const total = mode === "percent" ? payload.reduce((s, p) => s + (Number(p.value) || 0), 0) : 0;
+  const sorted = [...payload]
+    .filter((p) => Number(p.value) > 0)
+    .sort((a, b) => (Number(b.value) || 0) - (Number(a.value) || 0));
+  if (sorted.length === 0) return null;
+  const labelText = formatLabel ? formatLabel(label) : label;
+  return (
+    <div
+      style={{
+        background: "#1e2329",
+        border: "1px solid rgba(255,255,255,0.12)",
+        borderRadius: 14,
+        padding: "6px 10px",
+        boxShadow: "0 8px 24px rgba(0,0,0,0.4)",
+        maxHeight: 220,
+        maxWidth: 200,
+        overflowY: "auto",
+      }}
+    >
+      <div style={{ color: "#8b94a3", marginBottom: 3, fontSize: 11 }}>{labelText}</div>
+      {sorted.map((p) => (
+        <div
+          key={p.dataKey ?? p.name}
+          style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 14, color: "#e5e7eb", fontSize: 10, lineHeight: "16px" }}
+        >
+          <span style={{ color: p.color, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{p.name}</span>
+          <span style={{ flexShrink: 0 }}>
+            {mode === "percent" ? (total ? `${Math.round((Number(p.value) / total) * 100)}%` : "0%") : fmtValue(p.value)}
+          </span>
+        </div>
+      ))}
+    </div>
+  );
 }
 
 // ===========================================================================
@@ -2706,11 +2750,7 @@ function CategoryStackedBarCard({ scoped, granularity, hideValues, fmtK, fmtKFul
             />
             {!hideValues && (
               <Tooltip
-                formatter={(val, name) => [fmtKFull(val), name]}
-                labelFormatter={(bk) => bucketLabel(bk)}
-                contentStyle={{ background: "#1e2329", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 14, fontSize: 12, boxShadow: "0 8px 24px rgba(0,0,0,0.4)" }}
-                itemStyle={{ color: "#e5e7eb" }}
-                labelStyle={{ color: "#8b94a3" }}
+                content={<ChartTooltip fmtValue={fmtKFull} formatLabel={(bk) => bucketLabel(bk)} />}
                 cursor={false}
               />
             )}
@@ -2853,24 +2893,7 @@ function CompositionEvolutionCard({ scoped, granularity, hideValues }) {
             />
             {!hideValues && (
               <Tooltip
-                content={({ active, payload, label }) => {
-                  if (!active || !payload || payload.length === 0) return null;
-                  const total = payload.reduce((s, p) => s + (Number(p.value) || 0), 0);
-                  const sorted = [...payload]
-                    .filter((p) => Number(p.value) > 0)
-                    .sort((a, b) => (Number(b.value) || 0) - (Number(a.value) || 0));
-                  return (
-                    <div style={{ background: "#1e2329", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 14, padding: "8px 12px", fontSize: 12, boxShadow: "0 8px 24px rgba(0,0,0,0.4)" }}>
-                      <div style={{ color: "#8b94a3", marginBottom: 4 }}>{bucketLabel(label)}</div>
-                      {sorted.map((p) => (
-                        <div key={p.dataKey} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16, color: "#e5e7eb" }}>
-                          <span style={{ color: p.color }}>{p.name}</span>
-                          <span>{total ? `${Math.round((Number(p.value) / total) * 100)}%` : "0%"}</span>
-                        </div>
-                      ))}
-                    </div>
-                  );
-                }}
+                content={<ChartTooltip mode="percent" formatLabel={(bk) => bucketLabel(bk)} />}
                 cursor={false}
               />
             )}
@@ -3040,11 +3063,7 @@ function MonthlyAvgByCategoryCard({ scopedAllYears, hideValues, fmtK, fmtKFull }
             />
             {!hideValues && (
               <Tooltip
-                formatter={(val, name) => [fmtKFull(val), name]}
-                labelFormatter={(bk) => (bk === "L12M" ? "L12M" : bucketLabel(bk))}
-                contentStyle={{ background: "#1e2329", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 14, fontSize: 12, boxShadow: "0 8px 24px rgba(0,0,0,0.4)" }}
-                itemStyle={{ color: "#e5e7eb" }}
-                labelStyle={{ color: "#8b94a3" }}
+                content={<ChartTooltip fmtValue={fmtKFull} formatLabel={(bk) => (bk === "L12M" ? "L12M" : bucketLabel(bk))} />}
                 cursor={false}
               />
             )}
@@ -3482,11 +3501,7 @@ function Charts({ transactions, hideValues, config, isWide }) {
                 {!hideValues && (
                   <Tooltip
                     cursor={false}
-                    formatter={(v) => fmtKFull(v)}
-                    labelFormatter={(v) => bucketLabel(v)}
-                    contentStyle={{ background: "#161a20", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 14, fontSize: 12, boxShadow: "0 8px 24px rgba(0,0,0,0.4)" }}
-                    itemStyle={{ color: "#e5e7eb" }}
-                    labelStyle={{ color: "#8b94a3" }}
+                    content={<ChartTooltip fmtValue={fmtKFull} formatLabel={(v) => bucketLabel(v)} />}
                   />
                 )}
                 <Bar dataKey="income" name="Income" fill="#06B6D4" radius={[4, 4, 0, 0]} activeBar={{ fill: "#06B6D4", opacity: 0.75 }} />
