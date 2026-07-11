@@ -1596,7 +1596,7 @@ function Header({ hideValues, onToggleHide, onLogout, saving, savedAt, dirty, sa
             <Wallet size={14} color="#fff" />
           </div>
           <span style={{ fontWeight: 700, fontSize: 15, letterSpacing: -0.5, color: "#e5e7eb" }}>Household</span>
-          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.31.2</span>
+          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.31.3</span>
         </div>
         <SaveIndicator saving={saving} dirty={dirty} savedAt={savedAt} saveError={saveError} />
       </div>
@@ -2791,16 +2791,6 @@ function CompositionEvolutionCard({ scoped, granularity, hideValues }) {
       catTotals[t.category] = (catTotals[t.category] || 0) + val;
     }
 
-    const rows = [...map.values()]
-      .map(({ bucket, ...cats }) => {
-        const newRow = { bucket };
-        for (const [cat, v] of Object.entries(cats)) {
-          newRow[cat] = Math.abs(v);
-        }
-        return newRow;
-      })
-      .sort((a, b) => (a.bucket < b.bucket ? -1 : 1));
-
     const cats = Object.keys(catTotals).sort((a, b) => {
       const ia = CATEGORY_ORDER.indexOf(a);
       const ib = CATEGORY_ORDER.indexOf(b);
@@ -2809,6 +2799,20 @@ function CompositionEvolutionCard({ scoped, granularity, hideValues }) {
       if (ib === -1) return -1;
       return ia - ib;
     });
+
+    // Every category needs an explicit 0 for buckets where it had no
+    // transactions — an absent key (vs. 0) reads as a gap to recharts'
+    // monotone-curve stacking, which tears the fill into the jagged black
+    // wedges seen when a category goes quiet for a stretch of buckets.
+    const rows = [...map.values()]
+      .map(({ bucket, ...vals }) => {
+        const newRow = { bucket };
+        for (const cat of cats) {
+          newRow[cat] = Math.abs(vals[cat] || 0);
+        }
+        return newRow;
+      })
+      .sort((a, b) => (a.bucket < b.bucket ? -1 : 1));
 
     return { rows, cats };
   }, [scoped, mode, granularity]);
