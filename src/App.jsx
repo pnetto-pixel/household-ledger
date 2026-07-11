@@ -1596,7 +1596,7 @@ function Header({ hideValues, onToggleHide, onLogout, saving, savedAt, dirty, sa
             <Wallet size={14} color="#fff" />
           </div>
           <span style={{ fontWeight: 700, fontSize: 15, letterSpacing: -0.5, color: "#e5e7eb" }}>Household</span>
-          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.31.0</span>
+          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.31.1</span>
         </div>
         <SaveIndicator saving={saving} dirty={dirty} savedAt={savedAt} saveError={saveError} />
       </div>
@@ -2763,58 +2763,19 @@ function CategoryStackedBarCard({ scoped, granularity, hideValues, fmtK, fmtKFul
 
 // ===========================================================================
 // CompositionEvolutionCard — 100% stacked area ("Area") / streamgraph
-// ("River") of category composition over time, with a local 1Y/2Y/5Y/All
-// period refinement (intersected with the masthead's category/year-range
-// scope already applied to `scoped`) and adaptive M/Q/H/Y bucketing based
-// on the effective span, same spirit as the Charts granularity switch.
+// ("River") of category composition over time. Bucketing follows the same
+// `granularity` (M/Q/H/Y) the masthead switch already applies to the other
+// Trends cards, so the X axis always matches what the user picked up top.
 // ===========================================================================
 
-const COMPOSITION_PERIODS = [
-  { v: "1y", l: "1Y", years: 1 },
-  { v: "2y", l: "2Y", years: 2 },
-  { v: "5y", l: "5Y", years: 5 },
-  { v: "all", l: "All", years: Infinity },
-];
-
-function CompositionEvolutionCard({ scoped, hideValues, fmtKFull }) {
+function CompositionEvolutionCard({ scoped, granularity, hideValues, fmtKFull }) {
   const [mode, setMode] = useState("expense");
   const [shape, setShape] = useState("area"); // "area" (expand) | "river" (wiggle)
-  const [period, setPeriod] = useState("1y");
 
-  const { rows, cats, granularity } = useMemo(() => {
-    const years = COMPOSITION_PERIODS.find((p) => p.v === period)?.years ?? 1;
-    let fromISO = null;
-    if (Number.isFinite(years)) {
-      const d = new Date();
-      d.setFullYear(d.getFullYear() - years);
-      fromISO = localISO(d);
-    }
-
-    // Local period refinement on top of the masthead-scoped transactions —
-    // intersection, never a substitution (matches the briefing's contract).
-    const filtered = fromISO ? scoped.filter((t) => t.date >= fromISO) : scoped;
-
-    // Adaptive granularity from the effective span of the filtered data
-    // (mirrors the coarser M/Y rule already used by applyYearRange in
-    // Charts, extended to the full M/Q/H/Y ladder for finer local ranges).
-    let granularity = "M";
-    let minDate = null, maxDate = null;
-    for (const t of filtered) {
-      if (!t.date) continue;
-      if (!minDate || t.date < minDate) minDate = t.date;
-      if (!maxDate || t.date > maxDate) maxDate = t.date;
-    }
-    if (minDate && maxDate) {
-      const spanYears = (new Date(maxDate) - new Date(minDate)) / (365.25 * 24 * 3600 * 1000);
-      if (spanYears > 5) granularity = "Y";
-      else if (spanYears > 2) granularity = "H";
-      else if (spanYears > 1) granularity = "Q";
-      else granularity = "M";
-    }
-
+  const { rows, cats } = useMemo(() => {
     const map = new Map();
     const catTotals = {};
-    for (const t of filtered) {
+    for (const t of scoped) {
       if (isTransfer(t.category)) continue;
       if (mode === "expense") {
         if (isIncome(t.category)) continue;
@@ -2849,8 +2810,8 @@ function CompositionEvolutionCard({ scoped, hideValues, fmtKFull }) {
       return ia - ib;
     });
 
-    return { rows, cats, granularity };
-  }, [scoped, mode, period]);
+    return { rows, cats };
+  }, [scoped, mode, granularity]);
 
   if (rows.length === 0) return null;
 
@@ -2867,18 +2828,11 @@ function CompositionEvolutionCard({ scoped, hideValues, fmtKFull }) {
           ))}
         </div>
       </div>
-      {/* Second control row — Area/River shape + local 1Y/2Y/5Y/All period */}
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, flexWrap: "wrap", padding: "8px 16px 0" }}>
+      {/* Second control row — Area/River shape */}
+      <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 16px 0" }}>
         <div style={S.segmented}>
           {[{ v: "area", l: "Area" }, { v: "river", l: "River" }].map(({ v, l }) => (
             <button key={v} onClick={() => setShape(v)} style={S.segmentedBtn(shape === v)}>
-              {l}
-            </button>
-          ))}
-        </div>
-        <div style={S.segmented}>
-          {COMPOSITION_PERIODS.map(({ v, l }) => (
-            <button key={v} onClick={() => setPeriod(v)} style={S.segmentedBtn(period === v)}>
               {l}
             </button>
           ))}
@@ -3439,29 +3393,53 @@ function Charts({ transactions, hideValues, config, isWide }) {
   return (
     <div style={S.col}>
       {/* Trends controls: category filter, range presets, year-range slider,
-          and the M/Q/H/Y granularity switch. Desktop packs everything into a
-          single row to save vertical space; mobile splits it into two rows
-          (category + granularity on top, presets + slider below) since it's
-          too tight for one line there. */}
-      {isWide ? (
-        <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-          {categoryChip}
-          {rangePresetsSwitch}
-          {yearRangeSlider}
-          <div style={{ marginLeft: "auto" }}>{granularitySwitch}</div>
-        </div>
-      ) : (
-        <>
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
-            {categoryChip}
-            {granularitySwitch}
-          </div>
+          and the M/Q/H/Y granularity switch. Sticky to the top of <main> so
+          the filters stay reachable while scrolling through the cards below
+          (same sticky-against-the-scroll-parent pattern as importActionsBar).
+          Desktop packs everything into a single row to save vertical space;
+          mobile splits it into two rows (category + granularity on top,
+          presets + slider below) since it's too tight for one line there. */}
+      <div
+        style={{
+          position: "sticky",
+          top: 0,
+          zIndex: 5,
+          marginLeft: -16,
+          marginRight: -16,
+          marginTop: -16,
+          paddingLeft: 16,
+          paddingRight: 16,
+          paddingTop: 16,
+          paddingBottom: 12,
+          background: "rgba(11,13,16,0.92)",
+          backdropFilter: "blur(20px) saturate(180%)",
+          WebkitBackdropFilter: "blur(20px) saturate(180%)",
+          borderBottom: "1px solid rgba(255,255,255,0.08)",
+          display: "flex",
+          flexDirection: "column",
+          gap: 10,
+        }}
+      >
+        {isWide ? (
           <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+            {categoryChip}
             {rangePresetsSwitch}
             {yearRangeSlider}
+            <div style={{ marginLeft: "auto" }}>{granularitySwitch}</div>
           </div>
-        </>
-      )}
+        ) : (
+          <>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
+              {categoryChip}
+              {granularitySwitch}
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+              {rangePresetsSwitch}
+              {yearRangeSlider}
+            </div>
+          </>
+        )}
+      </div>
 
       {scoped.length === 0 ? <Empty>No data for {rangeLabel}.</Empty> : null}
 
@@ -3522,16 +3500,17 @@ function Charts({ transactions, hideValues, config, isWide }) {
         fmtKFull={fmtKFull}
       />
 
-      <CompositionEvolutionCard
-        scoped={scoped}
-        hideValues={hideValues}
-        fmtKFull={fmtKFull}
-      />
-
       <MonthlyAvgByCategoryCard
         scopedAllYears={scopedAllYears}
         hideValues={hideValues}
         fmtK={fmtK}
+        fmtKFull={fmtKFull}
+      />
+
+      <CompositionEvolutionCard
+        scoped={scoped}
+        granularity={granularity}
+        hideValues={hideValues}
         fmtKFull={fmtKFull}
       />
     </div>
