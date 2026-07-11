@@ -1576,8 +1576,31 @@ shell de altura cheia (`#root` em `100lvh` + shell `height:100%`): só o
    que o tooltip não seja truncado. Altura do container: 260 px. Respeita
    `hideValues`. Retorna `null` quando não há dados no período para o modo
    selecionado.
-   Quarto card (novo, PR #143, v1.21.0): **"Monthly Avg by Category"**,
-   logo abaixo de "By Category" — visualmente idêntico a ele (mesmo
+   Quarto card (novo, PR #181, v1.31.0): **`CompositionEvolutionCard`**,
+   logo abaixo de "By Category" — mostra a **composição percentual** das
+   expenses/income por categoria ao longo do tempo via `<AreaChart>` do
+   recharts (`stackId` único, `stackOffset` do gráfico controlado pelo
+   toggle abaixo). Header com **toggle Expense | Income** (mesmo padrão
+   `S.togglePill` do `CategoryStackedBarCard`) e um **toggle Area | River**
+   (segmented control) que alterna `stackOffset` entre `"expand"` (área
+   100% empilhada, default) e `"wiggle"` (streamgraph). Tem **seletor de
+   período local** (1Y / 2Y / 5Y / All, `COMPOSITION_PERIODS`) que refina
+   por **interseção** o range já filtrado pelo masthead (não o substitui).
+   Granularidade do eixo X (M/Q/H/Y) é **adaptativa** ao span efetivo de
+   dados após todos os filtros, reaproveitando `bucketKey`/`bucketLabel`/
+   `GRANULARITIES` já existentes. Agrupamento é **fixo por `category`**
+   (não há toggle Class/Ticker — o modelo de transação atual não tem
+   campo de subcategoria/ticker; possível follow-up se esse campo vier a
+   existir). Cores via `getCategoryColor(cat)` + ordenação `CATEGORY_ORDER`
+   (mesmo padrão do `CategoryStackedBarCard`); legenda com swatches abaixo
+   do gráfico, sem paginação. Sem collapse/ícone, segue o padrão dos
+   demais cards da tab (`<div style={S.card}>` fixo, sempre aberto).
+   Controlado pelos filtros do masthead (category chip + year-range) via
+   prop `scoped`. 100% client-side sobre `transactions` já carregadas, sem
+   novo endpoint; `Transfer` excluída via `isTransfer`.
+   Quinto card (PR #143, v1.21.0): **"Monthly Avg by Category"**,
+   logo abaixo do `CompositionEvolutionCard` — visualmente idêntico ao
+   `CategoryStackedBarCard` (mesmo
    `BarChart` stacked, mesma paleta via `getCategoryColor`/
    `CATEGORY_COLOR_MAP`, mesma legenda abaixo do gráfico, mesmo toggle
    Expense/Income), mas com granularidade **travada em anual** (sem
@@ -2474,6 +2497,28 @@ O app inicia com array vazio quando não há dados salvos (sem SEED).
   **Com a Fase F, o overhaul visual "Liquid Glass" (fases A–F) está
   concluído** — todas as 6 fases (A, B, C, D, E, F) entregues (PRs
   #144–#148, v1.21.0 → v1.21.5).
+- [x] **Card "Composition Evolution" na tab Trends** (PR #181, v1.31.0):
+  novo `CompositionEvolutionCard`, inserido logo após o
+  `CategoryStackedBarCard`, mostrando a composição percentual das
+  expenses/income por categoria ao longo do tempo via `<AreaChart>` do
+  recharts. Toggle Expense/Income (`S.togglePill`, mesmo padrão dos outros
+  cards); toggle **Area/River** (segmented control) alterna `stackOffset`
+  entre `"expand"` (100% stacked area, default) e `"wiggle"`
+  (streamgraph); seletor de período local 1Y/2Y/5Y/All
+  (`COMPOSITION_PERIODS`) que refina por interseção o range já filtrado
+  pelo masthead (não o substitui); granularidade do eixo X (M/Q/H/Y)
+  adaptativa ao span efetivo de dados, reaproveitando `bucketKey`/
+  `bucketLabel`/`GRANULARITIES`; agrupamento fixo por `category` (sem
+  toggle Class/Ticker — não existe campo de subcategoria/ticker no modelo
+  de transação atual; possível follow-up se esse campo vier a existir);
+  cores via `getCategoryColor(cat)` + `CATEGORY_ORDER`, legenda com
+  swatches sem paginação; segue o padrão visual real dos demais cards da
+  tab (`<div style={S.card}>` fixo, sempre aberto, sem collapse/ícone).
+  Controlado pelos filtros do masthead (category chip + year-range) via
+  prop `scoped`, igual aos outros cards de Trends. 100% client-side a
+  partir de `transactions` já carregadas, sem novo endpoint; `Transfer`
+  continua excluída (via `isTransfer`). Só `src/App.jsx` alterado; sem
+  mudança de API/Redis/modelo de transação.
 
 ### Fase 5 — Inteligência e Auditoria
 
