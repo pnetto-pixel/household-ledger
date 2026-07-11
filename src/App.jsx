@@ -1596,7 +1596,7 @@ function Header({ hideValues, onToggleHide, onLogout, saving, savedAt, dirty, sa
             <Wallet size={14} color="#fff" />
           </div>
           <span style={{ fontWeight: 700, fontSize: 15, letterSpacing: -0.5, color: "#e5e7eb" }}>Household</span>
-          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.31.4</span>
+          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.31.5</span>
         </div>
         <SaveIndicator saving={saving} dirty={dirty} savedAt={savedAt} saveError={saveError} />
       </div>
@@ -2446,6 +2446,7 @@ function MonthlyBarCard({ byBucket, hideValues, fmtK, fmtKTooltip, fmtBucketLabe
               {!hideValues && (
                 <Tooltip
                   cursor={false}
+                  position={{ y: 0 }}
                   content={<ChartTooltip fmtValue={fmtKTooltip || fmtK} formatLabel={fmtBucketLabel} />}
                 />
               )}
@@ -2513,12 +2514,15 @@ function bucketLabel(key) {
 
 // ===========================================================================
 // ChartTooltip — shared tooltip for every Trends chart: sorts series highest
-// to lowest, colors each by its own series color, and caps its own size
-// (font first, then internal scroll) so it never grows past the card's own
-// box. That containment matters because every card uses `backdropFilter`
-// (the "Liquid Glass" look), which creates a CSS stacking context — an
-// overflowing tooltip isn't clipped, it just gets painted over by the next
-// card down, since sibling stacking contexts paint in DOM order.
+// to lowest and colors each by its own series color. Renders full-height,
+// no internal scroll — paired with the `position={{ y: 0 }}` pin on every
+// <Tooltip> below, it always grows downward from the top of the chart, so
+// it has the whole card's remaining height (chart + legend) to fit in
+// instead of racing the cursor's Y position down toward the chart's edge.
+// That room matters because every card uses `backdropFilter` (the "Liquid
+// Glass" look), which creates a CSS stacking context — a tooltip that still
+// overflows past its own card isn't clipped, it gets painted over by the
+// next card down, since sibling stacking contexts paint in DOM order.
 // `mode: "percent"` shows each series' share of the bucket (Composition
 // Evolution); `mode: "currency"` (default) shows `fmtValue(value)`.
 // ===========================================================================
@@ -2538,9 +2542,7 @@ function ChartTooltip({ active, payload, label, mode = "currency", fmtValue, for
         borderRadius: 14,
         padding: "6px 10px",
         boxShadow: "0 8px 24px rgba(0,0,0,0.4)",
-        maxHeight: 220,
         maxWidth: 200,
-        overflowY: "auto",
       }}
     >
       <div style={{ color: "#8b94a3", marginBottom: 3, fontSize: 11 }}>{labelText}</div>
@@ -2752,6 +2754,7 @@ function CategoryStackedBarCard({ scoped, granularity, hideValues, fmtK, fmtKFul
               <Tooltip
                 content={<ChartTooltip fmtValue={fmtKFull} formatLabel={(bk) => bucketLabel(bk)} />}
                 cursor={false}
+                position={{ y: 0 }}
               />
             )}
             {cats.map((cat, i) => (
@@ -2895,6 +2898,7 @@ function CompositionEvolutionCard({ scoped, granularity, hideValues }) {
               <Tooltip
                 content={<ChartTooltip mode="percent" formatLabel={(bk) => bucketLabel(bk)} />}
                 cursor={false}
+                position={{ y: 0 }}
               />
             )}
             {cats.map((cat) => (
@@ -3065,6 +3069,7 @@ function MonthlyAvgByCategoryCard({ scopedAllYears, hideValues, fmtK, fmtKFull }
               <Tooltip
                 content={<ChartTooltip fmtValue={fmtKFull} formatLabel={(bk) => (bk === "L12M" ? "L12M" : bucketLabel(bk))} />}
                 cursor={false}
+                position={{ y: 0 }}
               />
             )}
             {cats.map((cat, i) => (
@@ -3501,6 +3506,7 @@ function Charts({ transactions, hideValues, config, isWide }) {
                 {!hideValues && (
                   <Tooltip
                     cursor={false}
+                    position={{ y: 0 }}
                     content={<ChartTooltip fmtValue={fmtKFull} formatLabel={(v) => bucketLabel(v)} />}
                   />
                 )}
