@@ -1,4 +1,4 @@
-# Household Ledger · v1.31.0
+# Household Ledger · v1.32.0
 
 Aplicativo mobile-first de controle financeiro doméstico. Registra
 transações da casa (despesas e receitas) por categoria e conta, com
@@ -31,7 +31,25 @@ O `feature-auditor` deve conferir, como parte da checklist de auditoria, que
 o diff inclui o bump nos dois arquivos antes de aprovar — se faltar, isso é
 motivo de reprovação (devolver ao coder), não um detalhe opcional.
 
-Versão atual: **v1.31.0** — novo card "Composition Evolution" na tab Trends:
+Versão atual: **v1.32.0** — os KPIs M/M ("LM") e Y/Y ("LY") do card
+principal (hero) da Home passam a considerar MTD (month-to-date) em vez do
+mês/ano de referência inteiro, seguindo o mesmo padrão de corte por dia já
+usado nos badges de categoria da lista "by Category" (`catChanges`/`sumCat`).
+`heroComparisons` (`useMemo`) agora filtra `mmTxns`/`yyTxns` pelo mesmo
+`cutoffDay` já calculado no componente: `(cutoffDay === null || (t.date ||
+"").slice(8, 10) <= cutoffDay)`. Quando o período selecionado é o mês
+corrente, `cutoffDay` é o dia de hoje; quando é um mês passado, é o último
+dia daquele mês (efetivamente mês cheio, sem regressão nesse caso); quando é
+"All", `heroComparisons` já retorna `null` antes do filtro. Casos de borda
+(mês anterior mais curto, ano bissexto) são cobertos automaticamente pela
+comparação de string de 2 dígitos, sem tratamento especial. Sem mudança de
+layout, labels ("LM"/"LY" continuam) ou estilo — só o cálculo dos valores.
+Sem mudança de API/Redis/modelo de transação; `Transfer` continua excluído
+via `computeTotals`. *(nota: o header do App.jsx havia avançado até v1.31.5
+em PRs anteriores #182-#186 sem atualização correspondente deste changelog;
+este PR sincroniza a numeração a partir de v1.32.0.)*
+
+Versão anterior: **v1.31.0** — novo card "Composition Evolution" na tab Trends:
 stacked area (100%) / streamgraph de composição por categoria ao longo do
 tempo, com toggle Expense/Income, toggle Area/River e seletor de período
 local (1Y/2Y/5Y/All) intersectado com o escopo do masthead.
