@@ -32,13 +32,19 @@ o diff inclui o bump nos dois arquivos antes de aprovar — se faltar, isso é
 motivo de reprovação (devolver ao coder), não um detalhe opcional.
 
 Versão atual: **v1.44.7** — **ui: LM/LY ao lado do NET no card hero da
-Home**. No hero da Home, o valor NET ganhou um bloco LM (Last Month) / LY
-(Last Year) posicionado à direita do número (mesmo padrão visual já usado
-para Income/Expenses, porém em linha em vez de abaixo). `heroComparisons`
-(`src/App.jsx`) passou a calcular `mmPctNet`/`yyPctNet` com a mesma função
-`pct(cur, base)` usada para Income (net mais alto = melhor = verde). Guard
-`heroComparisons &&` e mascaramento via `hideValues` seguem o mesmo padrão
-do bloco já existente. Sem mudança de API/Redis/modelo de transação.
+Home** (PR #208, branch `claude/household-hero-net-lmly`, squash-merge SHA
+`c059fb5a36d1f6b726248b8602276a72d77708fc`). No hero da Home, o valor NET
+ganhou um bloco LM (Last Month) / LY (Last Year) posicionado à direita do
+número (mesmo padrão visual — tag, valor formatado, % colorido — já usado
+para Income/Expenses, porém em linha ao lado do NET em vez de abaixo dele).
+`heroComparisons` (`useMemo`, `src/App.jsx`) ganhou `mmPctNet`/`yyPctNet`,
+calculados com a mesma função `pct(cur, base)` usada para Income (net mais
+alto = melhor = verde), aplicada a `mm.net`/`yy.net`. O bloco do valor NET
+foi envolvido em um container flex-row (número + bloco LM/LY como irmãos
+lado a lado). Guard `heroComparisons &&` (não renderiza quando ano/mês =
+"All") e mascaramento via `hideValues` (`•••••`/`•••`) seguem o mesmo padrão
+do bloco já existente. Sem mudança de API/Redis/modelo de transação/regra
+de exclusão de `Transfer`.
 
 Versão anterior: **v1.44.6** — **ui: data labels no Year in Review + fix de
 formatação de valores < $1K** (PR #207, merge squash `968995a`). Duas
@@ -2984,6 +2990,15 @@ O app inicia com array vazio quando não há dados salvos (sem SEED).
   valores com `|valor| < 1000` como `$123` (inteiro, sem "K") em vez de
   `$0.1K`. Só `src/App.jsx` alterado; sem mudança de API/Redis/modelo de
   transação.
+- [x] **LM/LY ao lado do NET no card hero da Home** (PR #208, branch
+  `claude/household-hero-net-lmly`, squash SHA
+  `c059fb5a36d1f6b726248b8602276a72d77708fc`, v1.44.7): extensão do
+  padrão de KPIs M/M ("LM") e Y/Y ("LY") — já existente para Income/Expenses
+  desde o PR #187/v1.32.0 — para o valor NET do hero card. `heroComparisons`
+  ganhou `mmPctNet`/`yyPctNet` via a mesma `pct(cur, base)` do Income (net
+  mais alto = melhor = verde); layout em linha (à direita do número, não
+  abaixo, diferente do padrão vertical de Income/Expenses). Só `src/App.jsx`
+  alterado; sem mudança de API/Redis/modelo de transação.
 
 ### Fase 5 — Inteligência e Auditoria
 
