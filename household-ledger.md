@@ -1,4 +1,4 @@
-# Household Ledger · v1.36.0
+# Household Ledger · v1.37.0
 
 Aplicativo mobile-first de controle financeiro doméstico. Registra
 transações da casa (despesas e receitas) por categoria e conta, com
@@ -31,7 +31,29 @@ O `feature-auditor` deve conferir, como parte da checklist de auditoria, que
 o diff inclui o bump nos dois arquivos antes de aprovar — se faltar, isso é
 motivo de reprovação (devolver ao coder), não um detalhe opcional.
 
-Versão atual: **v1.36.0** — **pacote de features do Dashboard** (itens 4, 5 e
+Versão atual: **v1.37.0** — **pacote de dataviz** (itens 16 e 17 da análise
+de produto de 2026-07-18; o item 7 — cores de categoria consistentes — já
+estava implementado desde antes via `CATEGORY_COLOR_MAP` curado +
+`catDotColor` hash-based, nenhuma mudança necessária): (1) **Médias móveis
+3M/12M no `MonthlyBarCard`** (Trends): o card agora recebe `granularity` do
+pai e, quando `granularity === "M"`, calcula médias móveis *trailing* de 3
+e 12 meses da série ativa (Expense/Income/Net) — `null` até a janela
+completar, para as linhas começarem no 3º/12º bucket em vez de mostrar
+médias parciais enganosas. `BarChart` virou `ComposedChart` (import novo,
+junto com `Line` e `Treemap`) com duas `Line`s: 3M sólida branca
+(`#e5e7eb`), 12M tracejada roxa (`#a78bfa`), + mini-legenda no padrão do
+`DailyPaceCard`; em Q/H/Y nada muda (sem linhas). (2) **Treemap na Home**:
+a seção "by Category" ganhou um toggle **List | Map** (`S.togglePill`,
+estado local `catView`, default List): no modo Map, novo
+`CategoryTreemapCard` renderiza um `Treemap` do recharts com área ∝
+magnitude do gasto líquido da categoria no período (categorias netadas a
+≥ 0 por refunds ficam de fora), células coloridas com o mesmo
+`getCategoryColor` de todos os gráficos, labels de nome/valor (`usd0`)
+desenhados só quando a célula comporta, tooltip padrão e respeito total a
+`hideValues` (labels de valor e tooltip somem). Sem mudança de API/Redis/
+modelo de transação. (PR #193, branch `claude/dataviz-ma-treemap`.)
+
+Versão anterior: **v1.36.0** — **pacote de features do Dashboard** (itens 4, 5 e
 8 da análise de produto de 2026-07-18): (1) **Projeção de fim de mês no
 Daily Pace**: `dashboardPaceData` agora retorna `projectedTotal`
 (extrapolação linear `curRunning / todayDay × daysInCur`, só quando o mês

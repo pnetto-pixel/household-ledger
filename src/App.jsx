@@ -53,6 +53,9 @@ import {
   ReferenceLine,
   LabelList,
   Cell,
+  ComposedChart,
+  Line,
+  Treemap,
 } from "recharts";
 import Papa from "papaparse";
 
@@ -1638,7 +1641,7 @@ function Header({ hideValues, onToggleHide, onLogout, saving, savedAt, dirty, sa
             <Wallet size={14} color="#fff" />
           </div>
           <span style={{ fontWeight: 700, fontSize: 15, letterSpacing: -0.5, color: "#e5e7eb" }}>Household</span>
-          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.36.0</span>
+          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.37.0</span>
         </div>
         <SaveIndicator saving={saving} dirty={dirty} savedAt={savedAt} saveError={saveError} />
       </div>
@@ -2208,6 +2211,8 @@ function Dashboard({ transactions, money, hideValues, isWide, budgets }) {
 
   // Daily pace for Dashboard: driven by the selected month vs the one before.
   const [paceView, setPaceView] = useState("expense");
+  // "by Category" presentation: ranked list (default) or treemap.
+  const [catView, setCatView] = useState("list");
   const dashboardPaceData = useMemo(() => {
     if (year === "All" || month === "All") return null;
     const curMonthKey = `${year}-${month}`;
@@ -2345,9 +2350,21 @@ function Dashboard({ transactions, money, hideValues, isWide, budgets }) {
       {/* Category breakdown for the selected period */}
       {year !== "All" && month !== "All" && (
         <>
-          <h3 style={S.sectionTitle}>{label} — by Category</h3>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+            <h3 style={S.sectionTitle}>{label} — by Category</h3>
+            <div style={{ display: "flex", gap: 4 }}>
+              <button onClick={() => setCatView("list")} style={S.togglePill(catView === "list")}>
+                List
+              </button>
+              <button onClick={() => setCatView("map")} style={S.togglePill(catView === "map")}>
+                Map
+              </button>
+            </div>
+          </div>
           {catExpenses.length === 0 ? (
             <Empty>No expenses in this period.</Empty>
+          ) : catView === "map" ? (
+            <CategoryTreemapCard catExpenses={catExpenses} hideValues={hideValues} />
           ) : (
             <div style={{ ...S.card, padding: "8px 0" }}>
               {catExpenses.map(([cat, total], idx) => {
@@ -2431,6 +2448,65 @@ function StatCard({ label, value, accent, small }) {
       <div style={{ color: accent || "#e5e7eb", fontWeight: 700, fontSize: small ? 16 : 26, marginTop: 3, letterSpacing: -0.5, whiteSpace: "nowrap" }}>
         {value}
       </div>
+    </div>
+  );
+}
+
+// Treemap view of the "by Category" breakdown: rectangle area ∝ net spend
+// magnitude, colored with the same getCategoryColor used everywhere else.
+// Categories whose refunds net the bucket to ≥ 0 are omitted (no area).
+function TreemapNode(props) {
+  const { x, y, width, height, name, value, depth, hideValues } = props;
+  if (depth === 0 || !name || width <= 0 || height <= 0) return null;
+  const color = getCategoryColor(name);
+  const showName = width > 56 && height > 26;
+  const showValue = !hideValues && width > 56 && height > 42;
+  return (
+    <g>
+      <rect x={x} y={y} width={width} height={height} rx={4} fill={color} fillOpacity={0.85} stroke="#0b0d10" strokeWidth={2} />
+      {showName && (
+        <text x={x + 7} y={y + 17} fill="#fff" fontSize={11} fontWeight={600}>
+          {name}
+        </text>
+      )}
+      {showValue && (
+        <text x={x + 7} y={y + 32} fill="rgba(255,255,255,0.85)" fontSize={10}>
+          {usd0.format(value)}
+        </text>
+      )}
+    </g>
+  );
+}
+
+function CategoryTreemapCard({ catExpenses, hideValues }) {
+  const data = useMemo(
+    () =>
+      catExpenses
+        .filter(([, v]) => v < 0)
+        .map(([cat, v]) => ({ name: cat, size: -v })),
+    [catExpenses]
+  );
+  if (data.length === 0) return <Empty>No expenses in this period.</Empty>;
+  return (
+    <div style={{ ...S.card, padding: 8, height: 300 }}>
+      <ResponsiveContainer width="100%" height="100%">
+        <Treemap
+          data={data}
+          dataKey="size"
+          nameKey="name"
+          isAnimationActive={false}
+          content={<TreemapNode hideValues={hideValues} />}
+        >
+          {!hideValues && (
+            <Tooltip
+              formatter={(v) => usd.format(v)}
+              contentStyle={{ background: "#161a20", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 14, fontSize: 12, boxShadow: "0 8px 24px rgba(0,0,0,0.4)" }}
+              itemStyle={{ color: "#e5e7eb" }}
+              labelStyle={{ color: "#8b94a3" }}
+            />
+          )}
+        </Treemap>
+      </ResponsiveContainer>
     </div>
   );
 }
@@ -2549,7 +2625,7 @@ function ChangeBadge({ label, pct, hideValues }) {
 // MonthlyBarCard — Income or Expense bars per bucket, with toggle
 // ===========================================================================
 
-function MonthlyBarCard({ byBucket, hideValues, fmtK, fmtKTooltip, fmtBucketLabel }) {
+function MonthlyBarCard({ byBucket, hideValues, fmtK, fmtKTooltip, fmtBucketLabel, granularity }) {
   const [view, setView] = useState("expense");
 
   const isInc = view === "income";
@@ -2561,10 +2637,27 @@ function MonthlyBarCard({ byBucket, hideValues, fmtK, fmtKTooltip, fmtBucketLabe
 
   // Net view needs a per-bucket `net = income - expenses` field, and each
   // bar colored by sign (green ≥ 0, red < 0) rather than a single static fill.
+  // At monthly granularity, also compute trailing 3M/12M moving averages of
+  // the active series (null until the window is complete, so the lines start
+  // at the 3rd/12th bucket instead of showing misleading partial averages).
+  const showMA = granularity === "M";
   const chartData = useMemo(() => {
-    if (!isNet) return byBucket;
-    return byBucket.map((row) => ({ ...row, net: (row.income || 0) - (row.expenses || 0) }));
-  }, [byBucket, isNet]);
+    const rows = byBucket.map((row) =>
+      isNet ? { ...row, net: (row.income || 0) - (row.expenses || 0) } : { ...row }
+    );
+    if (showMA) {
+      const vals = rows.map((r) => r[dataKey] || 0);
+      const trailing = (i, w) =>
+        i + 1 >= w ? vals.slice(i + 1 - w, i + 1).reduce((a, b) => a + b, 0) / w : null;
+      rows.forEach((r, i) => {
+        r.ma3 = trailing(i, 3);
+        r.ma12 = trailing(i, 12);
+      });
+    }
+    return rows;
+  }, [byBucket, isNet, dataKey, showMA]);
+  const hasMa3 = showMA && chartData.length >= 3;
+  const hasMa12 = showMA && chartData.length >= 12;
 
   return (
     <div style={{ ...S.card, padding: 0, overflow: "hidden" }}>
@@ -2591,12 +2684,26 @@ function MonthlyBarCard({ byBucket, hideValues, fmtK, fmtKTooltip, fmtBucketLabe
           </button>
         </div>
       </div>
+      {hasMa3 && (
+        <div style={{ display: "flex", gap: 14, padding: "8px 16px 0", justifyContent: "center" }}>
+          <span style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 10, color: "#8b94a3" }}>
+            <span style={{ display: "inline-block", width: 14, height: 2, background: "#e5e7eb", borderRadius: 1 }} />
+            3M avg
+          </span>
+          {hasMa12 && (
+            <span style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 10, color: "#8b94a3" }}>
+              <span style={{ display: "inline-block", width: 14, borderTop: "1.5px dashed #a78bfa" }} />
+              12M avg
+            </span>
+          )}
+        </div>
+      )}
       <div style={{ height: 260 }}>
         {byBucket.length === 0 ? (
           <Empty>No data to chart yet.</Empty>
         ) : (
           <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={chartData} margin={{ top: 24, right: 16, left: 0, bottom: 0 }}>
+            <ComposedChart data={chartData} margin={{ top: 24, right: 16, left: 0, bottom: 0 }}>
               <CartesianGrid vertical={false} stroke="rgba(255,255,255,0.05)" />
               <XAxis dataKey="bucket" tick={{ fill: "#6b7280", fontSize: 10 }} tickLine={false} axisLine={false} tickFormatter={fmtBucketLabel} />
               <YAxis tick={{ fill: "#6b7280", fontSize: 10 }} tickLine={false} axisLine={false} tickFormatter={axisFmt} width={56} />
@@ -2624,7 +2731,32 @@ function MonthlyBarCard({ byBucket, hideValues, fmtK, fmtKTooltip, fmtBucketLabe
                   }
                 />
               </Bar>
-            </BarChart>
+              {hasMa3 && (
+                <Line
+                  type="monotone"
+                  dataKey="ma3"
+                  name="3M avg"
+                  stroke="#e5e7eb"
+                  strokeWidth={1.5}
+                  dot={false}
+                  connectNulls={false}
+                  isAnimationActive={false}
+                />
+              )}
+              {hasMa12 && (
+                <Line
+                  type="monotone"
+                  dataKey="ma12"
+                  name="12M avg"
+                  stroke="#a78bfa"
+                  strokeWidth={1.5}
+                  strokeDasharray="5 4"
+                  dot={false}
+                  connectNulls={false}
+                  isAnimationActive={false}
+                />
+              )}
+            </ComposedChart>
           </ResponsiveContainer>
         )}
       </div>
@@ -3718,6 +3850,7 @@ function Charts({ transactions, hideValues, config, isWide }) {
         fmtK={fmtK}
         fmtKTooltip={fmtKFull}
         fmtBucketLabel={bucketLabel}
+        granularity={granularity}
       />
 
       <CategoryStackedBarCard
