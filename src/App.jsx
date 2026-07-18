@@ -1706,7 +1706,7 @@ function Header({ hideValues, onToggleHide, onLogout, saving, savedAt, dirty, sa
             <Wallet size={14} color="#fff" />
           </div>
           <span style={{ fontWeight: 700, fontSize: 15, letterSpacing: -0.5, color: "#e5e7eb" }}>Household</span>
-          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.44.5</span>
+          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.44.6</span>
         </div>
         <SaveIndicator saving={saving} dirty={dirty} savedAt={savedAt} saveError={saveError} />
       </div>
@@ -2321,7 +2321,9 @@ function Dashboard({ transactions, money, hideValues, isWide, budgets }) {
 
   const fmtK = (v) => {
     if (hideValues) return "";
-    return `$${(Math.abs(Number(v) || 0) / 1000).toFixed(1)}K`;
+    const abs = Math.abs(Number(v) || 0);
+    if (abs < 1000) return `$${Math.round(abs)}`;
+    return `$${(abs / 1000).toFixed(1)}K`;
   };
 
   return (
@@ -3873,10 +3875,12 @@ function Charts({ transactions, hideValues, config, isWide }) {
     return <Empty>No data to chart yet.</Empty>;
   }
 
-  // fmtK: format value as $X.XXK, respects hideValues.
+  // fmtK: format value as $X.XXK, respects hideValues. Values under $1K are
+  // shown as a plain rounded dollar amount instead of e.g. "$0.1K".
   const fmtK = (v) => {
     if (hideValues) return "";
     const abs = Math.abs(Number(v) || 0);
+    if (abs < 1000) return `$${Math.round(abs)}`;
     return `$${(abs / 1000).toFixed(1)}K`;
   };
 
@@ -3885,7 +3889,9 @@ function Charts({ transactions, hideValues, config, isWide }) {
     if (hideValues) return "•••••";
     const n = Number(v) || 0;
     const sign = n < 0 ? "-" : "";
-    return `${sign}$${(Math.abs(n) / 1000).toFixed(1)}K`;
+    const abs = Math.abs(n);
+    if (abs < 1000) return `${sign}$${Math.round(abs)}`;
+    return `${sign}$${(abs / 1000).toFixed(1)}K`;
   };
 
   const rangeLabel =
@@ -4230,6 +4236,17 @@ function YearInReviewCard({ transactions, years, hideValues, fmtKFull }) {
                 {bars.map((r, i) => (
                   <Cell key={`bar-${i}`} fill={r.fill} />
                 ))}
+                <LabelList
+                  dataKey="value"
+                  position="top"
+                  content={({ x, y, width, value }) =>
+                    hideValues || !value ? null : (
+                      <text x={x + width / 2} y={y - 4} textAnchor="middle" fill="#6b7280" fontSize={10}>
+                        {fmtKFull(value)}
+                      </text>
+                    )
+                  }
+                />
               </Bar>
             </BarChart>
           </ResponsiveContainer>
@@ -4481,7 +4498,9 @@ function Transactions({ transactions, money, hideValues, isWide, onDelete, onUpd
       if (hideValues) return "•••••";
       const v = n || 0;
       const sign = v < 0 ? "-" : "";
-      return `${sign}$${(Math.abs(v) / 1000).toFixed(2)}K`;
+      const abs = Math.abs(v);
+      if (abs < 1000) return `${sign}$${Math.round(abs)}`;
+      return `${sign}$${(abs / 1000).toFixed(2)}K`;
     },
     [hideValues]
   );
