@@ -31,23 +31,40 @@ O `feature-auditor` deve conferir, como parte da checklist de auditoria, que
 o diff inclui o bump nos dois arquivos antes de aprovar — se faltar, isso é
 motivo de reprovação (devolver ao coder), não um detalhe opcional.
 
-Versão atual: **v1.33.0** — os KPIs M/M ("LM") e Y/Y ("LY") do card
-principal (hero) da Home passam a considerar MTD (month-to-date) em vez do
-mês/ano de referência inteiro, seguindo o mesmo padrão de corte por dia já
-usado nos badges de categoria da lista "by Category" (`catChanges`/`sumCat`).
-`heroComparisons` (`useMemo`) agora filtra `mmTxns`/`yyTxns` pelo mesmo
-`cutoffDay` já calculado no componente: `(cutoffDay === null || (t.date ||
-"").slice(8, 10) <= cutoffDay)`. Quando o período selecionado é o mês
-corrente, `cutoffDay` é o dia de hoje; quando é um mês passado, é o último
-dia daquele mês (efetivamente mês cheio, sem regressão nesse caso); quando é
-"All", `heroComparisons` já retorna `null` antes do filtro. Casos de borda
-(mês anterior mais curto, ano bissexto) são cobertos automaticamente pela
-comparação de string de 2 dígitos, sem tratamento especial. Sem mudança de
-layout, labels ("LM"/"LY" continuam) ou estilo — só o cálculo dos valores.
-Sem mudança de API/Redis/modelo de transação; `Transfer` continua excluído
-via `computeTotals`. *(nota: o header do App.jsx havia avançado até v1.31.5
-em PRs anteriores #182-#186 sem atualização correspondente deste changelog;
-este PR sincroniza a numeração a partir de v1.32.0.)*
+Versão atual: **v1.33.0** — o card **"Daily Spending Pace"** (Home) ganhou um
+toggle **Income | Expense** (`S.togglePill`, mesmo padrão já usado no
+`MonthlyBarCard`/`CategoryStackedBarCard`), default **Expense** (preserva o
+comportamento original ao carregar a Home). Novo estado `paceView`
+(`"expense" | "income"`), com `setPaceView` controlado no componente pai da
+Home e passado como prop ao `DailyPaceCard`. O `useMemo`
+`dashboardPaceData` passou a aceitar o modo: no modo Expense, comportamento
+idêntico ao anterior (exclui Transfer e income, inverte o sinal para série
+positiva); no modo Income, exclui Transfer e expense e soma o sinal direto
+sem `Math.abs` (estornos/reversões de income netam naturalmente). A regra
+fixa de excluir `Transfer` de todos os totais/gráficos foi preservada em
+ambos os modos. Cor da série "current" no gráfico: laranja `#F97316` no modo
+Expense (como já era), ciano `#06B6D4` no modo Income (mesmo tom já
+convencionado para Income no `MonthlyBarCard`). Sem mudança de API/Redis/
+modelo de transação. (PR #188, branch `claude/household-daily-pace-toggle`.)
+
+Versão anterior: **v1.32.0** (PR #187, commit b84b494) — os KPIs M/M ("LM") e
+Y/Y ("LY") do card principal (hero) da Home passam a considerar MTD
+(month-to-date) em vez do mês/ano de referência inteiro, seguindo o mesmo
+padrão de corte por dia já usado nos badges de categoria da lista "by
+Category" (`catChanges`/`sumCat`). `heroComparisons` (`useMemo`) agora filtra
+`mmTxns`/`yyTxns` pelo mesmo `cutoffDay` já calculado no componente:
+`(cutoffDay === null || (t.date || "").slice(8, 10) <= cutoffDay)`. Quando o
+período selecionado é o mês corrente, `cutoffDay` é o dia de hoje; quando é
+um mês passado, é o último dia daquele mês (efetivamente mês cheio, sem
+regressão nesse caso); quando é "All", `heroComparisons` já retorna `null`
+antes do filtro. Casos de borda (mês anterior mais curto, ano bissexto) são
+cobertos automaticamente pela comparação de string de 2 dígitos, sem
+tratamento especial. Sem mudança de layout, labels ("LM"/"LY" continuam) ou
+estilo — só o cálculo dos valores. Sem mudança de API/Redis/modelo de
+transação; `Transfer` continua excluído via `computeTotals`. *(nota: o
+header do App.jsx havia avançado até v1.31.5 em PRs anteriores #182-#186 sem
+atualização correspondente deste changelog; este PR sincroniza a numeração a
+partir de v1.32.0.)*
 
 Versão anterior: **v1.31.0** — novo card "Composition Evolution" na tab Trends:
 stacked area (100%) / streamgraph de composição por categoria ao longo do
@@ -1473,13 +1490,22 @@ shell de altura cheia (`#root` em `100lvh` + shell `height:100%`): só o
    hardcoded), uniformizando a fonte em todos os popovers do app. **Hero
    card** mostra o saldo líquido, receita
    e despesa do **período selecionado** (antes era all-time). Abaixo do hero,
-   **`DailyPaceCard`** (v1.5.6) — AreaChart de gasto cumulativo diário com
+   **`DailyPaceCard`** (v1.5.6; toggle **Expense | Income** adicionado na
+   v1.33.0, PR #188) — AreaChart de gasto/receita cumulativo diário com
    duas séries vinculadas ao período selecionado pelo `SinglePeriodFilter`: mês
-   selecionado (laranja `#F97316`, linha sólida + fill semi-transparente) e
-   mês anterior (cinza `#8b94a3`, linha tracejada + fill sutil). Eixo X =
-   dia do mês; eixo Y = despesa cumulativa em formato `$X.XK`. Exibe
-   ReferenceLine "Today" quando o mês exibido é o mês corrente do calendário.
-   Transfers excluídas; `cursor={false}`. Abaixo do DailyPaceCard, bloco
+   selecionado e mês anterior (cinza `#8b94a3`, linha tracejada + fill sutil,
+   mesma cor em ambos os modos). Header ganhou um **toggle Expense | Income**
+   (`S.togglePill`, mesmo padrão do `MonthlyBarCard`/`CategoryStackedBarCard`),
+   default **Expense** (comportamento original preservado ao abrir o app). No
+   modo Expense, a série do mês selecionado é laranja `#F97316` (como sempre
+   foi) e o cálculo exclui Transfer/income, invertendo o sinal para série
+   positiva. No modo Income, a série é ciano `#06B6D4` (mesmo tom já usado
+   para Income no `MonthlyBarCard`) e o cálculo exclui Transfer/expense,
+   somando o sinal direto sem `Math.abs` (estornos/reversões de income netam
+   naturalmente). Eixo X = dia do mês; eixo Y = valor cumulativo em formato
+   `$X.XK`. Exibe ReferenceLine "Today" quando o mês exibido é o mês corrente
+   do calendário. Transfers sempre excluídas em ambos os modos; `cursor={false}`.
+   Abaixo do DailyPaceCard, bloco
    **"by Category"**: gastos do mês selecionado por categoria, ordenados do
    maior para o menor (só categorias com gasto > 0; Transfer e categorias de
    receita excluídas). Cada categoria exibe avatar colorido (cor via
@@ -2545,6 +2571,19 @@ O app inicia com array vazio quando não há dados salvos (sem SEED).
   efetivamente mês cheio (cutoff = último dia do mês). Só `src/App.jsx`
   alterado; sem mudança de API/Redis/modelo de transação; `Transfer`
   continua excluída via `computeTotals`.
+- [x] **Toggle Income | Expense no card "Daily Spending Pace"** (PR #188,
+  branch `claude/household-daily-pace-toggle`, v1.33.0): novo toggle
+  (`S.togglePill`, mesmo padrão do `MonthlyBarCard`/`CategoryStackedBarCard`)
+  no header do `DailyPaceCard` (Home), default **Expense** (preserva o
+  comportamento original ao carregar a Home). Novo estado `paceView`
+  (`"expense" | "income"`) controlado no componente pai e passado como prop;
+  `dashboardPaceData` (`useMemo`) passa a aceitar o modo: Expense mantém o
+  cálculo anterior (exclui Transfer/income, inverte sinal para série
+  positiva); Income exclui Transfer/expense e soma o sinal direto sem
+  `Math.abs`. `Transfer` continua excluída em ambos os modos. Série "current"
+  laranja `#F97316` no modo Expense (como já era), ciano `#06B6D4` no modo
+  Income (mesmo tom do Income no `MonthlyBarCard`). Só `src/App.jsx`
+  alterado; sem mudança de API/Redis/modelo de transação.
 
 ### Fase 5 — Inteligência e Auditoria
 
