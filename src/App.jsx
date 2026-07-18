@@ -1706,7 +1706,7 @@ function Header({ hideValues, onToggleHide, onLogout, saving, savedAt, dirty, sa
             <Wallet size={14} color="#fff" />
           </div>
           <span style={{ fontWeight: 700, fontSize: 15, letterSpacing: -0.5, color: "#e5e7eb" }}>Household</span>
-          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.44.1</span>
+          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.44.2</span>
         </div>
         <SaveIndicator saving={saving} dirty={dirty} savedAt={savedAt} saveError={saveError} />
       </div>
@@ -4059,11 +4059,10 @@ function YearInReviewCard({ transactions, years, hideValues, fmtKFull }) {
     <div style={{ ...S.card, padding: 0, overflow: "hidden" }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 16px 0", flexWrap: "wrap", gap: 8 }}>
         <h3 style={{ ...S.sectionTitle, margin: 0 }}>Year in Review</h3>
-        <select value={yr} onChange={(e) => setYr(e.target.value)} style={{ ...S.select, flex: "0 0 auto", width: "auto", padding: "6px 10px", colorScheme: "dark" }}>
-          {years.map((y) => (
-            <option key={y} value={y}>{y}</option>
-          ))}
-        </select>
+        <div style={{ display: "flex", gap: 4 }}>
+          <button onClick={() => setView("expense")} style={S.togglePill(view === "expense")}>Expense</button>
+          <button onClick={() => setView("income")} style={S.togglePill(view === "income")}>Income</button>
+        </div>
       </div>
       <div style={{ display: "flex", gap: 8, padding: "12px 16px 0" }}>
         {kpis.map(({ lbl, val, p, color, higherIsGood }) => (
@@ -4081,8 +4080,11 @@ function YearInReviewCard({ transactions, years, hideValues, fmtKFull }) {
         ))}
       </div>
       <div style={{ display: "flex", justifyContent: "flex-end", gap: 4, padding: "10px 16px 0" }}>
-        <button onClick={() => setView("expense")} style={S.togglePill(view === "expense")}>Expense</button>
-        <button onClick={() => setView("income")} style={S.togglePill(view === "income")}>Income</button>
+        <select value={yr} onChange={(e) => setYr(e.target.value)} style={{ ...S.select, flex: "0 0 auto", width: "auto", padding: "6px 10px", colorScheme: "dark" }}>
+          {years.map((y) => (
+            <option key={y} value={y}>{y}</option>
+          ))}
+        </select>
       </div>
       <div style={{ height: 280 }}>
         {bars.length === 0 ? (

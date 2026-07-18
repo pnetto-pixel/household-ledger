@@ -1,4 +1,4 @@
-# Household Ledger · v1.44.1
+# Household Ledger · v1.44.2
 
 Aplicativo mobile-first de controle financeiro doméstico. Registra
 transações da casa (despesas e receitas) por categoria e conta, com
@@ -31,7 +31,14 @@ O `feature-auditor` deve conferir, como parte da checklist de auditoria, que
 o diff inclui o bump nos dois arquivos antes de aprovar — se faltar, isso é
 motivo de reprovação (devolver ao coder), não um detalhe opcional.
 
-Versão atual: **v1.44.1** — **fix: causa raiz do crash da tab Settings
+Versão atual: **v1.44.2** — **ui: Year in Review reorganiza toggle e
+seletor de ano**. O toggle Expense/Income moveu para a mesma linha do
+título "Year in Review" (à direita, seguindo o padrão do card Trends); o
+`<select>` de ano passou a ocupar a linha logo acima do gráfico, alinhado
+à direita, onde antes ficava o toggle. Nenhuma mudança de lógica, apenas
+reordenação de JSX/CSS no `YearInReviewCard` (`src/App.jsx`).
+
+Versão anterior: **v1.44.1** — **fix: causa raiz do crash da tab Settings
 encontrada e corrigida**. O `TabErrorBoundary` da v1.44.0 capturou o erro
 real na primeira vez que o usuário reabriu a Settings: `descWords is not
 defined`. Causa: na extração do núcleo puro para `src/ledger.js` (v1.39.0,
