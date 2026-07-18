@@ -1,4 +1,4 @@
-# Household Ledger · v1.44.0
+# Household Ledger · v1.44.1
 
 Aplicativo mobile-first de controle financeiro doméstico. Registra
 transações da casa (despesas e receitas) por categoria e conta, com
@@ -31,7 +31,35 @@ O `feature-auditor` deve conferir, como parte da checklist de auditoria, que
 o diff inclui o bump nos dois arquivos antes de aprovar — se faltar, isso é
 motivo de reprovação (devolver ao coder), não um detalhe opcional.
 
-Versão atual: **v1.44.0** — **ajustes de feedback pós-v1.43 (4 itens)**:
+Versão atual: **v1.44.1** — **fix: causa raiz do crash da tab Settings
+encontrada e corrigida**. O `TabErrorBoundary` da v1.44.0 capturou o erro
+real na primeira vez que o usuário reabriu a Settings: `descWords is not
+defined`. Causa: na extração do núcleo puro para `src/ledger.js` (v1.39.0,
+PR #195), `descWords` (tokenizador usado tanto por `descOverlap`/dedup
+quanto por `descFragment`, no App.jsx, para a seção "Manual category
+corrections" do painel Suggested Rules) virou uma função **não exportada**
+de `ledger.js` — `descFragment` no App.jsx continuou chamando `descWords`
+diretamente, sem import, gerando `ReferenceError` em runtime. O bug só
+disparava quando `detectManualCategoryCorrections` encontrava ao menos uma
+transação com `categoryManual: true` (correção manual de categoria) — daí
+não ter sido pego nem pelos testes do `ledger.test.js` (que não tocam
+App.jsx) nem pela tentativa de reprodução da v1.44.0 (dataset sintético
+sem nenhuma transação com esse campo). Fix: `descWords` agora é `export
+function` em `ledger.js` e importado no App.jsx. Para fechar a lacuna de
+cobertura, `descFragment`/`detectManualCategoryCorrections` passaram a ser
+exportados também do próprio `App.jsx` (nomeado, ao lado do default
+`App`) e ganharam `src/App.integration.test.js` (3 testes) exercitando
+exatamente esse caminho com uma transação `categoryManual: true` — esse
+teste falha imediatamente (`descWords is not a function`) se a mesma
+classe de regressão voltar a acontecer, verificado manualmente revertendo
+o export durante o desenvolvimento desta correção. `ledger.test.js` ganhou
+também um teste direto de `descWords`. Uma varredura de todos os
+identificadores não-exportados de `ledger.js` contra o texto de `App.jsx`
+confirmou que esse era o único caso pendente (o único outro identificador
+privado, `DEDUP_STOP_WORDS`, não é referenciado fora de `ledger.js`).
+Testes 28/28, build OK. (PR #201, branch `claude/fix-descwords-export`.)
+
+Versão anterior: **v1.44.0** — **ajustes de feedback pós-v1.43 (4 itens)**:
 (1) **ErrorBoundary global por tab** (`TabErrorBoundary`, class component,
 única forma de capturar erro de render em React): envolve o conteúdo de
 `<main>`, resetado via `key={tab}` a cada troca de aba. Antes, qualquer
