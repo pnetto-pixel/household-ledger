@@ -26,6 +26,47 @@ import { authenticate } from '../lib/auth.js';
 
 const SNAPSHOT_TTL_SECONDS = 30 * 24 * 60 * 60;
 
+// Atomic compare-and-set for the optimistic-concurrency PUT. The old
+// JS-side "GET savedAt → compare → SET" left a window where two devices
+// could both pass the check and the later SET silently won; doing the same
+// three steps in one Lua script closes it. ARGV[1] is the expected savedAt
+// ('' means "client loaded an empty/legacy ledger", matching parseStored:
+// missing key or legacy bare-array blob → savedAt null). Returns
+// {1, ''} on success, {0, storedSavedAt} on conflict.
+const CAS_PUT_SCRIPT = `
+local raw = redis.call('GET', KEYS[1])
+local stored = ''
+if raw then
+  local ok, parsed = pcall(cjson.decode, raw)
+  if ok and type(parsed) == 'table' and type(parsed.savedAt) == 'string' then
+    stored = parsed.savedAt
+  end
+end
+if stored ~= ARGV[1] then
+  return {0, stored}
+end
+redis.call('SET', KEYS[1], ARGV[2])
+return {1, ''}
+`;
+
+// Minimal server-side shape check (defense in depth — the client already
+// validates imports/restores). Every row must have a YYYY-MM-DD date string
+// and a finite numeric amount; anything else means a buggy client is about
+// to overwrite the whole ledger with garbage.
+function findInvalidRow(transactions) {
+  for (let i = 0; i < transactions.length; i++) {
+    const t = transactions[i];
+    if (!t || typeof t !== 'object') return { index: i, reason: 'not an object' };
+    if (typeof t.date !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(t.date)) {
+      return { index: i, reason: 'invalid date' };
+    }
+    if (typeof t.amount !== 'number' || !Number.isFinite(t.amount)) {
+      return { index: i, reason: 'invalid amount' };
+    }
+  }
+  return null;
+}
+
 function transactionsKeyFromAuth(auth) {
   // auth.storageKey: "portfolio:<scope>:<hash>:holdings"
   // -> "household:<scope>:<hash>:transactions"
@@ -88,23 +129,34 @@ export default async function handler(req, res) {
         return res.status(400).json({ error: 'transactions array required' });
       }
 
-      // Optimistic-concurrency check (only when the client opted in by
-      // sending expectedSavedAt; null means "I loaded an empty ledger").
-      if ('expectedSavedAt' in body) {
-        const raw = await redis.get(storageKey);
-        const { savedAt: storedSavedAt } = parseStored(raw);
-        const expected = body.expectedSavedAt || null;
-        if (storedSavedAt !== expected) {
-          return res.status(409).json({
-            error: 'Ledger was updated by another device',
-            savedAt: storedSavedAt,
-          });
-        }
+      const invalid = findInvalidRow(transactions);
+      if (invalid) {
+        return res.status(400).json({
+          error: `Invalid transaction at index ${invalid.index}: ${invalid.reason}`,
+        });
       }
 
       const savedAt = new Date().toISOString();
       const payload = JSON.stringify({ transactions, savedAt });
-      await redis.set(storageKey, payload);
+
+      // Optimistic-concurrency write (only when the client opted in by
+      // sending expectedSavedAt; null means "I loaded an empty ledger").
+      // Atomic compare-and-set via Lua — see CAS_PUT_SCRIPT.
+      if ('expectedSavedAt' in body) {
+        const expected = body.expectedSavedAt || '';
+        const [okFlag, storedSavedAt] = await redis.eval(
+          CAS_PUT_SCRIPT, 1, storageKey, expected, payload
+        );
+        if (okFlag !== 1) {
+          return res.status(409).json({
+            error: 'Ledger was updated by another device',
+            savedAt: storedSavedAt || null,
+          });
+        }
+      } else {
+        // No expectedSavedAt — old client, keep last-write-wins (back-compat).
+        await redis.set(storageKey, payload);
+      }
 
       // Daily snapshot (best-effort — a snapshot failure never fails the save).
       try {

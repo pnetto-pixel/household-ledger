@@ -727,6 +727,11 @@ export default function App() {
       setSaveError(null);
       setError("");
     } catch (err) {
+      // The write did NOT land — mark the ledger dirty again so the
+      // online-retry and pagehide/visibilitychange flush paths pick it up.
+      // Without this, a failed save (500, network drop with navigator.onLine
+      // still true) left dirty=false and the change was silently lost.
+      setDirty(true);
       setSaveError(err.message || "Save failed");
       setTimeout(() => setSaveError(null), 5000);
     } finally {
@@ -1597,7 +1602,7 @@ function Header({ hideValues, onToggleHide, onLogout, saving, savedAt, dirty, sa
             <Wallet size={14} color="#fff" />
           </div>
           <span style={{ fontWeight: 700, fontSize: 15, letterSpacing: -0.5, color: "#e5e7eb" }}>Household</span>
-          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.34.0</span>
+          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.35.0</span>
         </div>
         <SaveIndicator saving={saving} dirty={dirty} savedAt={savedAt} saveError={saveError} />
       </div>

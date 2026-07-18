@@ -50,7 +50,10 @@ function sanitize(rules) {
     const clean = { id, matchField, pattern, destinationCategory };
     const providerPattern = typeof r.providerPattern === 'string' ? r.providerPattern.trim() : '';
     if (providerPattern) clean.providerPattern = providerPattern;
-    if (r.allowTransferOverride === true || r.allowTransferOverride === 'true') {
+    // allowTransferOverride is only meaningful together with a non-empty
+    // providerPattern (the client already enforces this; enforce it here too
+    // so a direct API call can't create an unguarded de-transfer rule).
+    if ((r.allowTransferOverride === true || r.allowTransferOverride === 'true') && providerPattern) {
       clean.allowTransferOverride = true;
     }
     out.push(clean);
