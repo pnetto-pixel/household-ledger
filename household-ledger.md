@@ -1963,7 +1963,30 @@ shell de altura cheia (`#root` em `100lvh` + shell `height:100%`): só o
    corrente divide pelo total acumulado até o mês atual (ex.: em julho de
    2026, o ano 2026 divide por 7) — permite comparar de forma justa a média
    mensal de um ano completo com a de um ano ainda em andamento. `Transfer`
-   continua excluído de todos os totais. É o **último card** da tab Trends.
+   continua excluído de todos os totais.
+   Sexto card (movido do Home na v1.38.0/PR #194, redesenhado na v1.44.0/PR
+   #200 e v1.44.3/PR #203): **`DailyHeatmapCard`** — "Daily Spend Pattern",
+   agora o **último card** da tab Trends. Segue o mesmo `scoped` (categoria +
+   range de anos do masthead) que `MonthlyBarCard`/`CategoryStackedBarCard`;
+   não é mais um calendário de um mês específico, e sim um **padrão médio
+   por dia-do-mês**: para cada dia 1–31, calcula a média do gasto líquido
+   daquele dia em todos os meses do escopo que de fato têm aquele dia
+   (`monthDayCounts` como divisor, evitando sub-estimar dias altos como o
+   31). Além da média diária total, agrega o **top-3 de categorias** por
+   gasto médio de cada dia. No **desktop** (`isWide`), renderiza como
+   **bar-sparkline** — até 31 barras finas ocupando 100% da largura do card
+   (sem o `maxWidth: 380` que sobrava espaço lateral antes da v1.44.3); no
+   **mobile**, mantém a grade-calendário 7 colunas (sem cabeçalho de
+   dia-da-semana nem offset de calendário, já que não representa um mês
+   específico). O `title` nativo do HTML (não funcionava em touch) foi
+   substituído por um **painel de tooltip controlado por estado**
+   (`activeDay`), acionado por clique/toque em vez de hover: clicar num
+   dia/barra abre um painel fixo abaixo do gráfico (estilo `ChartTooltip`)
+   com o dia, o valor médio total e até 3 linhas de categoria; clicar de
+   novo no mesmo dia fecha. `activeDay` reseta ao trocar o `scoped`.
+   Respeita `hideValues` em todo valor exibido. `Transfer`/income excluídos
+   (mesma lógica de `periodTxns`/`computeTotals`). Sem mudança de API/Redis/
+   modelo de transação.
 3. **Transactions** — busca textual livre + **chips de filtro** (Type /
    Account / Category / Date) que abrem dropdowns via **portal** (`Popover`
    em `position: fixed` no `document.body`, ancorado por `getBoundingClientRect`
