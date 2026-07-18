@@ -42,7 +42,9 @@ barra usam `fmtKTooltip` (formatter com sinal) em vez de `fmtK` (que usa
 `Math.abs`) quando `view === "net"`; Expense/Income continuam usando `fmtK`
 sem mudança. Limitação conhecida: `radius={[4,4,0,0]}` continua fixo
 arredondando o topo mesmo em barras negativas (fica visualmente invertido);
-não foi tratado por ser puramente cosmético e fora do escopo definido.
+não foi tratado por ser puramente cosmético e fora do escopo definido. (PR
+#190, branch `claude/household-monthlybar-net-toggle`, merge commit
+`9413494`.)
 
 Versão anterior: **v1.33.0** — o card **"Daily Spending Pace"** (Home) ganhou um
 toggle **Income | Expense** (`S.togglePill`, mesmo padrão já usado no
@@ -1592,9 +1594,14 @@ shell de altura cheia (`#root` em `100lvh` + shell `height:100%`): só o
    antigo filtro por range de anos) é composto com o `categoryFilter` para
    produzir o `scoped` que os três cards consomem. Os dois cards usam a mesma
    granularidade e range, sem limite de quantidade de buckets. Primeiro card:
-   **`MonthlyBarCard`** — barras de Income ou Expense agrupadas na
-   granularidade selecionada, com toggle de pills no topo (default: Income);
-   valores de expense sempre positivos (`Math.abs`); respeita `hideValues`.
+   **`MonthlyBarCard`** — barras de Income, Expense ou **Net** agrupadas na
+   granularidade selecionada, com toggle de pills no topo (default: Income;
+   terceiro botão **Net** adicionado na v1.34.0, PR #190). Nos modos
+   Income/Expense, valores sempre positivos (`Math.abs`), barra com `fill`
+   estático; no modo Net, `dataKey` vira `income - expenses` por bucket e
+   cada barra é colorida por sinal (verde `#34d399` ≥ 0, vermelho `#f87171`
+   < 0) via `<Cell>`, com eixo Y/labels usando formatter com sinal
+   (`fmtKTooltip`) em vez de `fmtK`. Respeita `hideValues`.
    Segundo card: **"Income vs Expenses"** (barras agrupadas na mesma
    granularidade; título antes era "Income vs Expenses (Monthly)"). Eixo Y e
    tooltip dos dois cards de barras exibem valores em formato `0.00K` (ex.
@@ -2597,6 +2604,21 @@ O app inicia com array vazio quando não há dados salvos (sem SEED).
   laranja `#F97316` no modo Expense (como já era), ciano `#06B6D4` no modo
   Income (mesmo tom do Income no `MonthlyBarCard`). Só `src/App.jsx`
   alterado; sem mudança de API/Redis/modelo de transação.
+- [x] **Toggle Net no card `MonthlyBarCard`** (PR #190, branch
+  `claude/household-monthlybar-net-toggle`, merge commit `9413494`,
+  v1.34.0): terceiro botão de toggle (`S.togglePill`) ao lado de
+  Expense/Income no header do `MonthlyBarCard` (tab Trends). No modo Net,
+  `dataKey` vira `"net"` (`income - expenses` por bucket, calculado a partir
+  do `byBucket` já recebido do pai, que já exclui `Transfer`); cada barra é
+  colorida por sinal via `<Cell>` (verde `#34d399` quando net ≥ 0, vermelho
+  `#f87171` quando net < 0), em vez do `fill` estático usado por
+  Expense/Income. Eixo Y e labels de topo de barra usam `fmtKTooltip`
+  (preserva sinal) só no modo Net; Expense/Income continuam com `fmtK`
+  (`Math.abs`), sem regressão. Limitação cosmética conhecida e aceita:
+  `radius={[4,4,0,0]}` não é ajustado por sinal, então barras negativas no
+  modo Net ficam com o arredondamento visualmente invertido (canto
+  arredondado na base em vez do topo) — possível item de polish futuro. Só
+  `src/App.jsx` alterado; sem mudança de API/Redis/modelo de transação.
 
 ### Fase 5 — Inteligência e Auditoria
 
