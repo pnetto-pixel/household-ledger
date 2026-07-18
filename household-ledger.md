@@ -1,4 +1,4 @@
-# Household Ledger · v1.32.0
+# Household Ledger · v1.33.0
 
 Aplicativo mobile-first de controle financeiro doméstico. Registra
 transações da casa (despesas e receitas) por categoria e conta, com
@@ -31,7 +31,7 @@ O `feature-auditor` deve conferir, como parte da checklist de auditoria, que
 o diff inclui o bump nos dois arquivos antes de aprovar — se faltar, isso é
 motivo de reprovação (devolver ao coder), não um detalhe opcional.
 
-Versão atual: **v1.32.0** — os KPIs M/M ("LM") e Y/Y ("LY") do card
+Versão atual: **v1.33.0** — os KPIs M/M ("LM") e Y/Y ("LY") do card
 principal (hero) da Home passam a considerar MTD (month-to-date) em vez do
 mês/ano de referência inteiro, seguindo o mesmo padrão de corte por dia já
 usado nos badges de categoria da lista "by Category" (`catChanges`/`sumCat`).

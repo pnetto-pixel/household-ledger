@@ -1596,7 +1596,7 @@ function Header({ hideValues, onToggleHide, onLogout, saving, savedAt, dirty, sa
             <Wallet size={14} color="#fff" />
           </div>
           <span style={{ fontWeight: 700, fontSize: 15, letterSpacing: -0.5, color: "#e5e7eb" }}>Household</span>
-          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.32.0</span>
+          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.33.0</span>
         </div>
         <SaveIndicator saving={saving} dirty={dirty} savedAt={savedAt} saveError={saveError} />
       </div>
@@ -2165,6 +2165,7 @@ function Dashboard({ transactions, money, hideValues, isWide }) {
   }, [catExpenses, transactions, year, month, cutoffDay, catFilter]);
 
   // Daily pace for Dashboard: driven by the selected month vs the one before.
+  const [paceView, setPaceView] = useState("expense");
   const dashboardPaceData = useMemo(() => {
     if (year === "All" || month === "All") return null;
     const curMonthKey = `${year}-${month}`;
@@ -2178,12 +2179,17 @@ function Dashboard({ transactions, money, hideValues, isWide }) {
     const buildByDay = (monthKey) => {
       const byDay = new Map();
       for (const t of transactions) {
-        if (isTransfer(t.category) || isIncome(t.category)) continue;
+        if (isTransfer(t.category)) continue;
+        if (paceView === "income") {
+          if (!isIncome(t.category)) continue;
+        } else {
+          if (isIncome(t.category)) continue;
+        }
         if (catFilter !== "All" && t.category !== catFilter) continue;
         if (!t.date || !t.date.startsWith(monthKey)) continue;
         const day = parseInt(t.date.slice(8, 10), 10);
         const signed = Number(t.amount) || 0;
-        byDay.set(day, (byDay.get(day) || 0) + (-signed));
+        byDay.set(day, (byDay.get(day) || 0) + (paceView === "income" ? signed : -signed));
       }
       return byDay;
     };
@@ -2215,7 +2221,7 @@ function Dashboard({ transactions, money, hideValues, isWide }) {
       prevLabel: monthLabel(prevMonthKey),
       todayDay: curMonthKey === todayMonth ? todayDay : null,
     };
-  }, [transactions, year, month, catFilter]);
+  }, [transactions, year, month, catFilter, paceView]);
 
   const fmtK = (v) => {
     if (hideValues) return "";
@@ -2284,7 +2290,7 @@ function Dashboard({ transactions, money, hideValues, isWide }) {
         </div>
       </div>
 
-      <DailyPaceCard paceData={dashboardPaceData} hideValues={hideValues} fmtK={fmtK} />
+      <DailyPaceCard paceData={dashboardPaceData} hideValues={hideValues} fmtK={fmtK} paceView={paceView} setPaceView={setPaceView} />
 
       {/* Category breakdown for the selected period */}
       {year !== "All" && month !== "All" && (
@@ -2566,18 +2572,36 @@ function ChartTooltip({ active, payload, label, mode = "currency", fmtValue, for
 // DailyPaceCard — cumulative daily spending: this month vs previous month
 // ===========================================================================
 
-function DailyPaceCard({ paceData, hideValues, fmtK }) {
+function DailyPaceCard({ paceData, hideValues, fmtK, paceView, setPaceView }) {
   if (!paceData || paceData.data.length === 0) return null;
   const { data, curLabel, prevLabel, todayDay } = paceData;
+  const isInc = paceView === "income";
+  const curColor = isInc ? "#06B6D4" : "#F97316";
 
   return (
     <>
-      <h3 style={S.sectionTitle}>Daily Spending Pace</h3>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+        <h3 style={S.sectionTitle}>Daily Spending Pace</h3>
+        <div style={{ display: "flex", gap: 4 }}>
+          <button
+            onClick={() => setPaceView("expense")}
+            style={S.togglePill(paceView === "expense")}
+          >
+            Expense
+          </button>
+          <button
+            onClick={() => setPaceView("income")}
+            style={S.togglePill(paceView === "income")}
+          >
+            Income
+          </button>
+        </div>
+      </div>
       <div style={{ ...S.card, padding: 0, overflow: "hidden" }}>
         {/* Minimal inline legend — colored line swatches, no heavy recharts Legend */}
         <div style={{ display: "flex", gap: 14, padding: "12px 16px 0", justifyContent: "center" }}>
           <span style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 10, color: "#8b94a3" }}>
-            <span style={{ display: "inline-block", width: 14, height: 2, background: "#F97316", borderRadius: 1 }} />
+            <span style={{ display: "inline-block", width: 14, height: 2, background: curColor, borderRadius: 1 }} />
             {curLabel}
           </span>
           <span style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 10, color: "#6b7280" }}>
@@ -2590,8 +2614,8 @@ function DailyPaceCard({ paceData, hideValues, fmtK }) {
             <AreaChart data={data} margin={{ top: 8, right: 16, left: 0, bottom: 4 }}>
               <defs>
                 <linearGradient id="curGrad" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="#F97316" stopOpacity={0.28} />
-                  <stop offset="100%" stopColor="#F97316" stopOpacity={0} />
+                  <stop offset="0%" stopColor={curColor} stopOpacity={0.28} />
+                  <stop offset="100%" stopColor={curColor} stopOpacity={0} />
                 </linearGradient>
                 <linearGradient id="prevGrad" x1="0" y1="0" x2="0" y2="1">
                   <stop offset="0%" stopColor="#6b7280" stopOpacity={0.1} />
@@ -2646,7 +2670,7 @@ function DailyPaceCard({ paceData, hideValues, fmtK }) {
                 type="monotone"
                 dataKey="current"
                 name={curLabel}
-                stroke="#F97316"
+                stroke={curColor}
                 strokeWidth={2}
                 fill="url(#curGrad)"
                 dot={false}
