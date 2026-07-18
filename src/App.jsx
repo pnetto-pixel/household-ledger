@@ -1706,7 +1706,7 @@ function Header({ hideValues, onToggleHide, onLogout, saving, savedAt, dirty, sa
             <Wallet size={14} color="#fff" />
           </div>
           <span style={{ fontWeight: 700, fontSize: 15, letterSpacing: -0.5, color: "#e5e7eb" }}>Household</span>
-          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.44.2</span>
+          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.44.3</span>
         </div>
         <SaveIndicator saving={saving} dirty={dirty} savedAt={savedAt} saveError={saveError} />
       </div>
@@ -2561,8 +2561,9 @@ function CategoryTreemapCard({ catExpenses, hideValues }) {
 // 31-day months, not by every month — otherwise it would read artificially
 // low). Cell intensity ∝ the average. Pure divs — no chart lib.
 function DailyHeatmapCard({ scoped, hideValues, isWide }) {
-  const { byDay, max, monthCount } = useMemo(() => {
+  const { byDay, topCatsByDay, max, monthCount } = useMemo(() => {
     const daySum = new Map();
+    const dayCatSum = new Map(); // day -> Map(cat -> total)
     const monthsSeen = new Set();
     for (const t of scoped) {
       if (isTransfer(t.category) || isIncome(t.category)) continue;
@@ -2572,6 +2573,10 @@ function DailyHeatmapCard({ scoped, hideValues, isWide }) {
       if (!day || !ym) continue;
       monthsSeen.add(ym);
       daySum.set(day, (daySum.get(day) || 0) + (Number(t.amount) || 0));
+      if (!dayCatSum.has(day)) dayCatSum.set(day, new Map());
+      const catMap = dayCatSum.get(day);
+      const cat = t.category || "Uncategorized";
+      catMap.set(cat, (catMap.get(cat) || 0) + (Number(t.amount) || 0));
     }
     // Count, per day-of-month, how many of the scoped months actually
     // contain that day (Feb/Apr/Jun/Sep/Nov don't have a 31st, Feb often
@@ -2585,6 +2590,7 @@ function DailyHeatmapCard({ scoped, hideValues, isWide }) {
       }
     }
     const avgByDay = new Map();
+    const topCats = new Map();
     let mx = 0;
     for (let d = 1; d <= 31; d++) {
       const count = monthDayCounts.get(d) || 0;
@@ -2593,8 +2599,23 @@ function DailyHeatmapCard({ scoped, hideValues, isWide }) {
       const avg = count > 0 ? spend / count : 0;
       avgByDay.set(d, avg);
       if (avg > mx) mx = avg;
+
+      const catMap = dayCatSum.get(d);
+      if (catMap) {
+        const catAvgs = Array.from(catMap.entries())
+          .map(([cat, tot]) => ({ cat, avg: tot < 0 ? (-tot / (count || 1)) : 0 }))
+          .filter((c) => c.avg > 0)
+          .sort((a, b) => b.avg - a.avg)
+          .slice(0, 3);
+        topCats.set(d, catAvgs);
+      }
     }
-    return { byDay: avgByDay, max: mx, monthCount: monthsSeen.size };
+    return { byDay: avgByDay, topCatsByDay: topCats, max: mx, monthCount: monthsSeen.size };
+  }, [scoped]);
+
+  const [activeDay, setActiveDay] = useState(null);
+  useEffect(() => {
+    setActiveDay(null);
   }, [scoped]);
 
   if (max === 0) return null;
@@ -2606,36 +2627,97 @@ function DailyHeatmapCard({ scoped, hideValues, isWide }) {
   };
 
   const days = Array.from({ length: 31 }, (_, i) => i + 1);
+  const fmt = (n) => (hideValues ? "•••••" : usd.format(n));
+  const toggleDay = (d) => setActiveDay((prev) => (prev === d ? null : d));
+
+  const activeSpend = activeDay ? byDay.get(activeDay) || 0 : 0;
+  const activeCats = activeDay ? topCatsByDay.get(activeDay) || [] : [];
 
   return (
-    <div style={{ ...S.card, padding: "14px 16px", maxWidth: isWide ? 380 : undefined }}>
+    <div style={{ ...S.card, padding: "14px 16px" }}>
       <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: 10 }}>
         <h3 style={{ ...S.sectionTitle, margin: 0 }}>Daily Spend Pattern</h3>
         <span style={{ fontSize: 10, color: "#6b7280" }}>avg / day, {monthCount} mo</span>
       </div>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: isWide ? 3 : 4 }}>
-        {days.map((d) => {
-          const spend = byDay.get(d) || 0;
-          return (
-            <div
-              key={`day-${d}`}
-              title={hideValues || !spend ? undefined : `Day ${d}: avg ${usd.format(spend)}`}
-              style={{
-                aspectRatio: "1",
-                borderRadius: 5,
-                background: cellBg(spend),
-                display: "grid",
-                placeItems: "center",
-                fontSize: isWide ? 9 : 10,
-                color: spend / max > 0.45 ? "#fff" : "#8b94a3",
-                fontWeight: spend ? 600 : 400,
-              }}
-            >
-              {d}
+      {isWide ? (
+        <div style={{ display: "flex", alignItems: "flex-end", gap: 3, height: 110 }}>
+          {days.map((d) => {
+            const spend = byDay.get(d) || 0;
+            const h = max > 0 ? Math.max(spend > 0 ? 3 : 1, (spend / max) * 100) : 1;
+            return (
+              <div
+                key={`bar-${d}`}
+                onClick={() => spend && toggleDay(d)}
+                style={{
+                  flex: 1,
+                  height: "100%",
+                  display: "flex",
+                  alignItems: "flex-end",
+                  cursor: spend ? "pointer" : "default",
+                }}
+              >
+                <div
+                  style={{
+                    width: "100%",
+                    height: `${h}%`,
+                    borderRadius: "3px 3px 0 0",
+                    background: cellBg(spend),
+                    outline: activeDay === d ? "1px solid rgba(255,255,255,0.5)" : "none",
+                  }}
+                />
+              </div>
+            );
+          })}
+        </div>
+      ) : (
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 4 }}>
+          {days.map((d) => {
+            const spend = byDay.get(d) || 0;
+            return (
+              <div
+                key={`day-${d}`}
+                onClick={() => spend && toggleDay(d)}
+                style={{
+                  aspectRatio: "1",
+                  borderRadius: 5,
+                  background: cellBg(spend),
+                  display: "grid",
+                  placeItems: "center",
+                  fontSize: 10,
+                  color: spend / max > 0.45 ? "#fff" : "#8b94a3",
+                  fontWeight: spend ? 600 : 400,
+                  cursor: spend ? "pointer" : "default",
+                  outline: activeDay === d ? "1px solid rgba(255,255,255,0.5)" : "none",
+                }}
+              >
+                {d}
+              </div>
+            );
+          })}
+        </div>
+      )}
+      {activeDay != null && (
+        <div style={{
+          marginTop: 10, padding: "10px 12px", borderRadius: 14,
+          background: "#1e2329", border: "1px solid rgba(255,255,255,0.08)",
+          boxShadow: "0 8px 24px rgba(0,0,0,0.4)",
+        }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: activeCats.length ? 8 : 0 }}>
+            <span style={{ fontSize: 12, fontWeight: 700, color: "#e5e7eb" }}>Day {activeDay}</span>
+            <span style={{ fontSize: 12, fontWeight: 700, color: "#fbbf24" }}>{fmt(activeSpend)}</span>
+          </div>
+          {activeCats.length > 0 && (
+            <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+              {activeCats.map(({ cat, avg }) => (
+                <div key={cat} style={{ display: "flex", justifyContent: "space-between", fontSize: 11, color: "#8b94a3" }}>
+                  <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{cat}</span>
+                  <span style={{ color: "#e5e7eb", marginLeft: 8, whiteSpace: "nowrap" }}>{fmt(avg)}</span>
+                </div>
+              ))}
             </div>
-          );
-        })}
-      </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

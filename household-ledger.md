@@ -1,4 +1,4 @@
-# Household Ledger · v1.44.2
+# Household Ledger · v1.44.3
 
 Aplicativo mobile-first de controle financeiro doméstico. Registra
 transações da casa (despesas e receitas) por categoria e conta, com
@@ -31,7 +31,24 @@ O `feature-auditor` deve conferir, como parte da checklist de auditoria, que
 o diff inclui o bump nos dois arquivos antes de aprovar — se faltar, isso é
 motivo de reprovação (devolver ao coder), não um detalhe opcional.
 
-Versão atual: **v1.44.2** — **ui: Year in Review reorganiza toggle e
+Versão atual: **v1.44.3** — **ui: Daily Spend Pattern ganha breakdown por
+categoria e vira responsivo de verdade**. `DailyHeatmapCard` (`src/App.jsx`)
+agora agrega, além da média diária total, o top-3 de categorias por gasto
+médio de cada dia-do-mês (mesmo divisor `monthDayCounts`, sem alterar a
+lógica de exclusão de `Transfer`/income). No desktop (`isWide`) o grid
+calendário 7 colunas deu lugar a um bar-sparkline de até 31 barras finas
+ocupando 100% da largura do card (removido o `maxWidth: 380` que sobrava
+espaço lateral); mobile mantém o grid de calendário inalterado. O `title`
+nativo (não funcionava em touch) foi substituído por um painel de tooltip
+controlado por estado (`activeDay`), acionado por `onClick` em vez de
+hover — clicar num dia/barra abre um painel fixo abaixo do gráfico (estilo
+`ChartTooltip`: fundo `#1e2329`, borda sutil, `borderRadius:14`) com o dia,
+o valor médio total e até 3 linhas de categoria, todos respeitando
+`hideValues`; clicar de novo no mesmo dia fecha. `activeDay` reseta para
+`null` sempre que `scoped` muda, evitando popover com dado obsoleto ao
+trocar filtro/range.
+
+Versão anterior: **v1.44.2** — **ui: Year in Review reorganiza toggle e
 seletor de ano**. O toggle Expense/Income moveu para a mesma linha do
 título "Year in Review" (à direita, seguindo o padrão do card Trends); o
 `<select>` de ano passou a ocupar a linha logo acima do gráfico, alinhado
