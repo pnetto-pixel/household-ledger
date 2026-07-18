@@ -1,4 +1,4 @@
-# Household Ledger · v1.44.6
+# Household Ledger · v1.44.7
 
 Aplicativo mobile-first de controle financeiro doméstico. Registra
 transações da casa (despesas e receitas) por categoria e conta, com
@@ -31,7 +31,16 @@ O `feature-auditor` deve conferir, como parte da checklist de auditoria, que
 o diff inclui o bump nos dois arquivos antes de aprovar — se faltar, isso é
 motivo de reprovação (devolver ao coder), não um detalhe opcional.
 
-Versão atual: **v1.44.6** — **ui: data labels no Year in Review + fix de
+Versão atual: **v1.44.7** — **ui: LM/LY ao lado do NET no card hero da
+Home**. No hero da Home, o valor NET ganhou um bloco LM (Last Month) / LY
+(Last Year) posicionado à direita do número (mesmo padrão visual já usado
+para Income/Expenses, porém em linha em vez de abaixo). `heroComparisons`
+(`src/App.jsx`) passou a calcular `mmPctNet`/`yyPctNet` com a mesma função
+`pct(cur, base)` usada para Income (net mais alto = melhor = verde). Guard
+`heroComparisons &&` e mascaramento via `hideValues` seguem o mesmo padrão
+do bloco já existente. Sem mudança de API/Redis/modelo de transação.
+
+Versão anterior: **v1.44.6** — **ui: data labels no Year in Review + fix de
 formatação de valores < $1K** (PR #207, merge squash `968995a`). Duas
 mudanças em `src/App.jsx`: (1) `YearInReviewCard` ganhou `<LabelList>` no
 `Bar dataKey="value"` do waterfall, mesmo padrão visual do `MonthlyBarCard`
