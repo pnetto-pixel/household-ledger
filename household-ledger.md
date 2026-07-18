@@ -1,4 +1,4 @@
-# Household Ledger · v1.42.0
+# Household Ledger · v1.43.0
 
 Aplicativo mobile-first de controle financeiro doméstico. Registra
 transações da casa (despesas e receitas) por categoria e conta, com
@@ -31,7 +31,26 @@ O `feature-auditor` deve conferir, como parte da checklist de auditoria, que
 o diff inclui o bump nos dois arquivos antes de aprovar — se faltar, isso é
 motivo de reprovação (devolver ao coder), não um detalhe opcional.
 
-Versão atual: **v1.42.0** — **Year in Review + waterfall** (item "Year in
+Versão atual: **v1.43.0** — **UI de snapshots diários** (item "UI de
+snapshots" da Fase 6): novo endpoint **read-only** `api/snapshots.js` — GET
+lista as datas disponíveis (`redis.keys` no prefixo exato
+`<transactionsKey>:snapshot:*`, ≤ ~30 chaves pelo TTL; newest first) e GET
+`?date=YYYY-MM-DD` retorna `{ date, transactions, savedAt, count }` daquele
+snapshot (404 se expirou, validação de formato da data). Nova seção
+**"Daily snapshots"** (`SnapshotsSection`, `CollapsibleCard`) na tab
+Settings, abaixo do backup: lista as datas com botão **Restore** em
+confirmação de 2 cliques (auto-reset 2,5 s, mesmo padrão dos delete chips);
+o restore baixa o snapshot e passa por `onRestoreTransactions` → o fluxo
+normal de restore (PUT `/api/transactions`), então **concorrência otimista,
+validação server-side e o espelho offline continuam valendo** — e o estado
+atual segue recuperável pelo snapshot de hoje (SET NX preserva o primeiro
+estado do dia). Snapshot vazio não restaura (guarda no client). Roadmap
+atualizado: fecham os itens "UI de snapshots" (Fase 6), "Alertas de
+anomalia", "Year in Review" e "Suite de testes + CI" (Fase 7);
+"Code-splitting" marcado como parcial (vendor chunks, lazy-load real
+adiado). (PR #199, branch `claude/snapshots-ui`.)
+
+Versão anterior: **v1.42.0** — **Year in Review + waterfall** (item "Year in
 Review" da Fase 7): novo `YearInReviewCard` no fim da tab **Trends**, com
 **seletor de ano próprio** (`S.togglePill`, até 6 anos, default = ano mais
 recente com dados; ignora deliberadamente o range/granularity do masthead).
@@ -3285,8 +3304,9 @@ riscos reais de perda de dados.
     editar regras/CK map em Settings.
 - [ ] **Restore com merge/dedup** — hoje o restore substitui tudo; opção de
   mesclar um backup com o ledger atual usando o dedup híbrido do import.
-- [ ] **UI de snapshots** — listar/restaurar os snapshots diários pelo app
-  (hoje a restauração é manual via Redis).
+- [x] **UI de snapshots** (v1.43.0, PR #199) — seção "Daily snapshots" na
+  Settings lista e restaura os snapshots diários via `api/snapshots.js`
+  (read-only) + fluxo normal de restore.
 - [ ] **Backup dos demais namespaces** (config, aliases, rules, CK map,
   account map, dismissed) no arquivo de backup local e/ou nos snapshots.
 
@@ -3298,17 +3318,19 @@ riscos reais de perda de dados.
 - [ ] **Painel "Data quality" na Settings** — transações com categoria/conta
   fora das listas atuais, datas inválidas, possíveis duplicatas retroativas,
   contagem de Unassigned.
-- [ ] **Alertas de anomalia de gasto na Home** — destaque quando o gasto do
-  mês numa categoria excede a média de 12 meses (a `avg12m` já é computada)
-  por um limiar; conversa com a futura reintrodução de Budgets.
+- [x] **Alertas de anomalia de gasto na Home** (v1.36.0, PR #192) —
+  `AnomalyBadge` âmbar "⚠ N.N× avg" quando o gasto MTD ≥ 1.5× a `avg12m`;
+  Budgets reintroduzidos no mesmo PR (bullet bars + editor na Settings).
 - [ ] **Scan retroativo de correções manuais ("Fatia 3" do PR #119)** — o
   histórico pré-v1.15 não alimenta o Suggested rules.
-- [ ] **Year in Review** — resumo anual (totais por categoria, maiores
-  despesas, comparativo com ano anterior, export CSV por categoria).
-- [ ] **Suite de testes + CI** — unit tests dos helpers puros
-  (`computeTotals`, `buildRow`, `mapCkCategory`, `markDuplicates`,
-  `matchAccountWithAliases`, `descriptionRuleMatches`) com Vitest; os
-  invariantes de sinal/Transfer já quebraram uma vez (v1.5.10) e hoje só a
-  auditoria humana os protege.
-- [ ] **Code-splitting** — lazy-load do recharts (bundle único passa de
-  500 KB minificado); avaliar migração para recharts v3 (2.x deprecado).
+- [x] **Year in Review** (v1.42.0, PR #198) — card na Trends com KPIs vs ano
+  anterior + waterfall por categoria. (Export CSV por categoria segue
+  pendente.)
+- [x] **Suite de testes + CI** (v1.39.0, PR #195) — helpers puros extraídos
+  para `src/ledger.js`, 24 testes Vitest (`src/ledger.test.js`), workflow
+  GitHub Actions (test + build em push/PR). `buildRow` segue no App.jsx
+  (module state) — sem cobertura direta ainda.
+- [x] **Code-splitting (parcial: vendor chunks)** (v1.40.0, PR #196) —
+  chunks separados `charts` (recharts/d3, ~427 KB) e `react` (~142 KB); app
+  cai para ~189 KB. Lazy-load real do recharts adiado (exigiria extrair os
+  cards do monolito); migração recharts v3 segue pendente.
