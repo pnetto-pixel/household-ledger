@@ -529,6 +529,52 @@ function buildAuthHeaders() {
   return headers;
 }
 
+// ---------------------------------------------------------------------------
+// Offline pending-save queue
+// ---------------------------------------------------------------------------
+// A dirty ledger only lived in memory: closing the PWA while offline (or
+// after a failed save) lost the edits. Every scheduled save now mirrors the
+// pending array to localStorage together with the savedAt it was based on;
+// a successful save clears it. On the next boot, the pending copy is
+// restored and re-saved — but only when the server's savedAt still equals
+// the recorded base (otherwise another device saved in between, and applying
+// the stale pending copy would overwrite its changes — same rule as the 409
+// path, so the pending copy is discarded with a notice instead).
+
+const PENDING_SAVE_KEY = "household_pending_save";
+
+function writePendingSave(transactions, baseSavedAt) {
+  try {
+    localStorage.setItem(
+      PENDING_SAVE_KEY,
+      JSON.stringify({ transactions, baseSavedAt: baseSavedAt || null, at: Date.now() })
+    );
+  } catch {
+    // Quota exceeded or private mode — the in-memory flow still works.
+  }
+}
+
+function clearPendingSave() {
+  try {
+    localStorage.removeItem(PENDING_SAVE_KEY);
+  } catch {
+    // ignore
+  }
+}
+
+function readPendingSave() {
+  try {
+    const raw = localStorage.getItem(PENDING_SAVE_KEY);
+    if (!raw) return null;
+    const p = JSON.parse(raw);
+    if (p && Array.isArray(p.transactions)) return p;
+  } catch {
+    // fall through
+  }
+  clearPendingSave();
+  return null;
+}
+
 // ===========================================================================
 // App
 // ===========================================================================
@@ -549,6 +595,9 @@ export default function App() {
 
   const loadedRef = useRef(false);
   const debounceRef = useRef(null);
+  // Pending transactions restored from localStorage by load(), waiting to be
+  // scheduled for save once scheduleSave exists (see effect below).
+  const pendingRestoreRef = useRef(null);
   const [dirty, setDirty] = useState(false);
   const [saveError, setSaveError] = useState(null);
 
@@ -597,8 +646,26 @@ export default function App() {
         throw new Error(j.error || `Load failed (${res.status})`);
       }
       const data = await res.json();
-      setTransactions(Array.isArray(data.transactions) ? data.transactions : []);
-      setSavedAt(data.savedAt || null);
+      const serverTxns = Array.isArray(data.transactions) ? data.transactions : [];
+      const serverSavedAt = data.savedAt || null;
+
+      // Restore a pending save from a previous session (offline close /
+      // failed save), but only if the server hasn't moved since it was based.
+      const pending = readPendingSave();
+      if (pending && (pending.baseSavedAt || null) === serverSavedAt) {
+        setTransactions(pending.transactions);
+        pendingRestoreRef.current = pending.transactions;
+        setError("Unsaved changes from your previous session were restored and will be saved.");
+      } else {
+        if (pending) {
+          clearPendingSave();
+          setError(
+            "Unsaved changes from a previous session were discarded because the ledger was updated elsewhere."
+          );
+        }
+        setTransactions(serverTxns);
+      }
+      setSavedAt(serverSavedAt);
       loadedRef.current = true;
     } catch (err) {
       setError(err.message);
@@ -652,7 +719,9 @@ export default function App() {
         // Another device saved first. Reload its data (server wins) and tell
         // the user their last local change was NOT saved and must be redone —
         // the alternative (forcing this write) would silently drop the other
-        // device's changes instead.
+        // device's changes instead. The pending mirror is stale for the same
+        // reason — drop it before load() so it isn't "restored".
+        clearPendingSave();
         setSaveError("conflict");
         await load();
         setError(
@@ -668,6 +737,7 @@ export default function App() {
       const at = data.savedAt || new Date().toISOString();
       savedAtRef.current = at;
       setSavedAt(at);
+      clearPendingSave();
       setSaveError(null);
       setError("");
     } catch (err) {
@@ -687,11 +757,24 @@ export default function App() {
     (next) => {
       setDirty(true);
       setSaveError(null);
+      // Mirror the pending array to localStorage so it survives closing the
+      // app before the save lands (offline, crash, failed PUT).
+      writePendingSave(next, savedAtRef.current);
       if (debounceRef.current) clearTimeout(debounceRef.current);
       debounceRef.current = setTimeout(() => save(next), 800);
     },
     [save]
   );
+
+  // Re-schedule the save of transactions restored from the pending mirror —
+  // load() can't call scheduleSave directly (it's defined before it).
+  useEffect(() => {
+    if (pendingRestoreRef.current) {
+      const txns = pendingRestoreRef.current;
+      pendingRestoreRef.current = null;
+      scheduleSave(txns);
+    }
+  });
 
   // Flush a pending (debounced) save when the page is being hidden or
   // closed. `visibilitychange`/`pagehide` are the events that actually fire
@@ -1582,7 +1665,7 @@ function Header({ hideValues, onToggleHide, onLogout, saving, savedAt, dirty, sa
             <Wallet size={14} color="#fff" />
           </div>
           <span style={{ fontWeight: 700, fontSize: 15, letterSpacing: -0.5, color: "#e5e7eb" }}>Household</span>
-          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.40.0</span>
+          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.41.0</span>
         </div>
         <SaveIndicator saving={saving} dirty={dirty} savedAt={savedAt} saveError={saveError} />
       </div>

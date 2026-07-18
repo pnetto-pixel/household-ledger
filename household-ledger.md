@@ -1,4 +1,4 @@
-# Household Ledger · v1.40.0
+# Household Ledger · v1.41.0
 
 Aplicativo mobile-first de controle financeiro doméstico. Registra
 transações da casa (despesas e receitas) por categoria e conta, com
@@ -31,7 +31,24 @@ O `feature-auditor` deve conferir, como parte da checklist de auditoria, que
 o diff inclui o bump nos dois arquivos antes de aprovar — se faltar, isso é
 motivo de reprovação (devolver ao coder), não um detalhe opcional.
 
-Versão atual: **v1.40.0** — **vendor chunk splitting** (item "Code-splitting"
+Versão atual: **v1.41.0** — **fila offline persistente** (item 11 da análise
+técnica, Fase 6): um ledger sujo vivia só em memória — fechar o PWA offline
+(ou depois de um save falho) perdia as edições. Agora todo `scheduleSave`
+espelha o array pendente em `localStorage`
+(`household_pending_save`, `{ transactions, baseSavedAt, at }`, try/catch
+para quota/private mode) e o save bem-sucedido limpa o espelho
+(`clearPendingSave` também no caminho 409, onde o pendente é sabidamente
+stale). No boot, `load()` compara o `baseSavedAt` gravado com o `savedAt`
+do server: **iguais** → o pendente é restaurado (`setTransactions` +
+re-agendamento do save via `pendingRestoreRef` + efeito, já que `load` é
+declarado antes de `scheduleSave`) com aviso "Unsaved changes from your
+previous session were restored and will be saved"; **diferentes** → outro
+device salvou no meio, o pendente é descartado com aviso explícito (mesma
+regra do 409 — aplicar o espelho stale sobrescreveria as mudanças do outro
+device). Sem mudança de API/Redis/modelo. Testes 24/24 e build OK. (PR
+#197, branch `claude/offline-pending-queue`.)
+
+Versão anterior: **v1.40.0** — **vendor chunk splitting** (item "Code-splitting"
 da Fase 7, fatia 1): `vite.config.js` ganhou `build.rollupOptions.output.manualChunks`
 separando o stack de gráficos (`recharts` + internos `victory-vendor`/`d3-*`/
 `internmap` etc.) num chunk **`charts`** (~427 KB / 117 KB gzip) e o runtime
