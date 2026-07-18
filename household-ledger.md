@@ -1,4 +1,4 @@
-# Household Ledger · v1.43.0
+# Household Ledger · v1.44.0
 
 Aplicativo mobile-first de controle financeiro doméstico. Registra
 transações da casa (despesas e receitas) por categoria e conta, com
@@ -31,7 +31,56 @@ O `feature-auditor` deve conferir, como parte da checklist de auditoria, que
 o diff inclui o bump nos dois arquivos antes de aprovar — se faltar, isso é
 motivo de reprovação (devolver ao coder), não um detalhe opcional.
 
-Versão atual: **v1.43.0** — **UI de snapshots diários** (item "UI de
+Versão atual: **v1.44.0** — **ajustes de feedback pós-v1.43 (4 itens)**:
+(1) **ErrorBoundary global por tab** (`TabErrorBoundary`, class component,
+única forma de capturar erro de render em React): envolve o conteúdo de
+`<main>`, resetado via `key={tab}` a cada troca de aba. Antes, qualquer
+exceção de render em qualquer lugar da árvore desmontava o app inteiro sem
+feedback (tela preta, sem header/tab bar) — reportado pelo usuário como
+"tela fica preta ao clicar em Settings", mas **não reproduzido** apesar de
+tentativa extensiva (jsdom com dataset sintético de 6 anos, bundle de
+produção real, Chromium headless real com os headers de CSP do
+`vercel.json` aplicados, todas as seções da Settings expandidas — todos os
+cenários renderizaram corretamente). Como não foi possível reproduzir a
+causa raiz, a correção aplicada é a rede de segurança que faltava:
+qualquer erro futuro (nesta tab ou outra) agora aparece como uma mensagem
+com a causa + botão "Reload app", em vez de tela preta — se recorrer,
+a mensagem exibida já é o diagnóstico. (2) **Daily Heatmap movido do Home
+para o fim da tab Trends** e **transformado em padrão médio por dia do
+mês**: em vez do calendário de um mês específico, `DailyHeatmapCard` agora
+lê o mesmo `scoped` (categoria + range de anos do masthead da Trends) que
+`MonthlyBarCard`/`CategoryStackedBarCard` usam — para cada dia 1–31,
+calcula a média do gasto líquido daquele dia através de todos os meses no
+escopo que de fato têm aquele dia (dividindo só pelos meses que têm dia 31,
+por exemplo, em vez de todos, o que sub-estimaria dias altos); grid 7
+colunas sem cabeçalho de dia-da-semana (não é mais um mês específico) nem
+offset de calendário. Card com `maxWidth: 380` no desktop (`isWide`) —
+antes ocupava a largura cheia do card, ficando desproporcionalmente grande;
+mobile inalterado (full width). (3) **Year in Review: dropdown de ano** em
+vez de chips separados (`<select>`, `S.select`). (4) **Year in Review: fix
+do bug visual do waterfall + redesign**: o gráfico antigo (barras
+flutuantes via `Bar` "base" invisível + `Bar` "value" empilhados) fazia a
+primeira categoria de despesa (maior gasto) ocupar visualmente a MESMA
+altura total do Income, porque a altura empilhada (base+value) de cada
+barra é sempre igual ao total corrente ANTES daquela despesa ser
+subtraída — correto matematicamente para uma waterfall clássica, mas lido
+como "Income e Mortgage do mesmo tamanho" pelo usuário. Substituído por um
+**bar chart simples por categoria** com toggle **Expense | Income**
+(`S.togglePill`, mesmo padrão do `MonthlyBarCard`), separando as duas
+listas em vez de misturá-las numa cascata; cada barra agora reflete
+diretamente sua própria magnitude (sem artefato de altura acumulada).
+Coluna **Net removida** do gráfico (já aparece nos KPIs no topo do card).
+**Comparação vs. ano anterior alinhada por YTD** quando o ano selecionado é
+o ano corrente: `cutoffMD` (mês-dia de hoje) filtra tanto o ano atual
+quanto o anterior para a mesma janela antes de calcular o %; um ano
+passado completo continua comparando ano cheio vs. ano cheio (ex.: 2025 vs.
+2024). O KPI numérico exibido continua sendo o total real do ano (já
+naturalmente "YTD" para o ano corrente, por não haver dados futuros) — só
+o **percentual de comparação** usa o corte. Sem mudança de API/Redis/
+modelo de transação em nenhum dos 4 itens. Testes 24/24 e build OK. (PR
+#200, branch `claude/user-feedback-fixes-1`.)
+
+Versão anterior: **v1.43.0** — **UI de snapshots diários** (item "UI de
 snapshots" da Fase 6): novo endpoint **read-only** `api/snapshots.js` — GET
 lista as datas disponíveis (`redis.keys` no prefixo exato
 `<transactionsKey>:snapshot:*`, ≤ ~30 chaves pelo TTL; newest first) e GET
