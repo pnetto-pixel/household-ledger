@@ -1,4 +1,4 @@
-# Household Ledger · v1.37.0
+# Household Ledger · v1.38.0
 
 Aplicativo mobile-first de controle financeiro doméstico. Registra
 transações da casa (despesas e receitas) por categoria e conta, com
@@ -31,7 +31,21 @@ O `feature-auditor` deve conferir, como parte da checklist de auditoria, que
 o diff inclui o bump nos dois arquivos antes de aprovar — se faltar, isso é
 motivo de reprovação (devolver ao coder), não um detalhe opcional.
 
-Versão atual: **v1.37.0** — **pacote de dataviz** (itens 16 e 17 da análise
+Versão atual: **v1.38.0** — **Daily Heatmap na Home** (item 15 da análise de
+produto de 2026-07-18): novo card `DailyHeatmapCard` entre o Daily Spending
+Pace e o "by Category", visível só com ano+mês selecionados e quando o mês
+tem algum gasto. Grade-calendário estilo GitHub (7 colunas, semana começa no
+domingo, header S/M/T/W/T/F/S), uma célula por dia do mês com intensidade de
+fundo ∝ gasto líquido do dia (laranja `#F97316` com alpha `0.15 + 0.75·√(v/max)`
+— a raiz quadrada suaviza o skew de um dia outlier; dias sem gasto ou
+netados a ≥ 0 por refund ficam em `rgba(255,255,255,0.05)`). Implementado em
+divs puras (CSS grid, `aspectRatio: 1`), sem lib de gráfico. Segue o
+`catFilter` do período (usa `periodTxns`, excluindo Transfer e income, com
+sinal invertido para série positiva). Tooltip nativo (`title`) com o valor
+do dia via `usd.format`, suprimido com `hideValues`. Sem mudança de API/
+Redis/modelo de transação. (PR #194, branch `claude/daily-spend-heatmap`.)
+
+Versão anterior: **v1.37.0** — **pacote de dataviz** (itens 16 e 17 da análise
 de produto de 2026-07-18; o item 7 — cores de categoria consistentes — já
 estava implementado desde antes via `CATEGORY_COLOR_MAP` curado +
 `catDotColor` hash-based, nenhuma mudança necessária): (1) **Médias móveis

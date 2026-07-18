@@ -1641,7 +1641,7 @@ function Header({ hideValues, onToggleHide, onLogout, saving, savedAt, dirty, sa
             <Wallet size={14} color="#fff" />
           </div>
           <span style={{ fontWeight: 700, fontSize: 15, letterSpacing: -0.5, color: "#e5e7eb" }}>Household</span>
-          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.37.0</span>
+          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.38.0</span>
         </div>
         <SaveIndicator saving={saving} dirty={dirty} savedAt={savedAt} saveError={saveError} />
       </div>
@@ -2347,6 +2347,11 @@ function Dashboard({ transactions, money, hideValues, isWide, budgets }) {
 
       <DailyPaceCard paceData={dashboardPaceData} hideValues={hideValues} fmtK={fmtK} paceView={paceView} setPaceView={setPaceView} />
 
+      {/* Calendar heatmap of daily spend for the selected month */}
+      {year !== "All" && month !== "All" && (
+        <DailyHeatmapCard periodTxns={periodTxns} year={year} month={month} hideValues={hideValues} />
+      )}
+
       {/* Category breakdown for the selected period */}
       {year !== "All" && month !== "All" && (
         <>
@@ -2508,6 +2513,81 @@ function CategoryTreemapCard({ catExpenses, hideValues }) {
         </Treemap>
       </ResponsiveContainer>
     </div>
+  );
+}
+
+// GitHub-style calendar heatmap of daily spend for the selected month.
+// Cell intensity ∝ that day's net expense (refund-heavy days that net ≥ 0
+// render as "no spend"). Pure divs — no chart lib. Weeks start on Sunday.
+function DailyHeatmapCard({ periodTxns, year, month, hideValues }) {
+  const { byDay, max } = useMemo(() => {
+    const m = new Map();
+    for (const t of periodTxns) {
+      if (isTransfer(t.category) || isIncome(t.category)) continue;
+      const day = parseInt((t.date || "").slice(8, 10), 10);
+      if (!day) continue;
+      m.set(day, (m.get(day) || 0) + (Number(t.amount) || 0));
+    }
+    let mx = 0;
+    for (const [d, v] of m) {
+      const spend = v < 0 ? -v : 0;
+      m.set(d, spend);
+      if (spend > mx) mx = spend;
+    }
+    return { byDay: m, max: mx };
+  }, [periodTxns]);
+
+  const y = Number(year);
+  const mo = Number(month);
+  const daysInMonth = new Date(y, mo, 0).getDate();
+  const firstDow = new Date(y, mo - 1, 1).getDay(); // 0 = Sunday
+  if (max === 0) return null;
+
+  const cells = [];
+  for (let i = 0; i < firstDow; i++) cells.push(null);
+  for (let d = 1; d <= daysInMonth; d++) cells.push(d);
+
+  const cellBg = (spend) => {
+    if (!spend) return "rgba(255,255,255,0.05)";
+    const t = Math.sqrt(spend / max); // sqrt eases the skew from one huge day
+    return `rgba(249,115,22,${(0.15 + 0.75 * t).toFixed(2)})`;
+  };
+
+  return (
+    <>
+      <h3 style={S.sectionTitle}>Daily Heatmap</h3>
+      <div style={{ ...S.card, padding: "14px 16px" }}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 4 }}>
+          {["S", "M", "T", "W", "T", "F", "S"].map((d, i) => (
+            <div key={`dow-${i}`} style={{ textAlign: "center", fontSize: 9, color: "#6b7280", fontWeight: 600 }}>
+              {d}
+            </div>
+          ))}
+          {cells.map((d, i) => {
+            if (d === null) return <div key={`pad-${i}`} />;
+            const spend = byDay.get(d) || 0;
+            return (
+              <div
+                key={`day-${d}`}
+                title={hideValues || !spend ? undefined : `${month}/${String(d).padStart(2, "0")}: ${usd.format(spend)}`}
+                style={{
+                  aspectRatio: "1",
+                  borderRadius: 6,
+                  background: cellBg(spend),
+                  display: "grid",
+                  placeItems: "center",
+                  fontSize: 10,
+                  color: spend / max > 0.45 ? "#fff" : "#8b94a3",
+                  fontWeight: spend ? 600 : 400,
+                }}
+              >
+                {d}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </>
   );
 }
 
