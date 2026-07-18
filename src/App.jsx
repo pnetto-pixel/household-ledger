@@ -1706,7 +1706,7 @@ function Header({ hideValues, onToggleHide, onLogout, saving, savedAt, dirty, sa
             <Wallet size={14} color="#fff" />
           </div>
           <span style={{ fontWeight: 700, fontSize: 15, letterSpacing: -0.5, color: "#e5e7eb" }}>Household</span>
-          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.44.6</span>
+          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.44.7</span>
         </div>
         <SaveIndicator saving={saving} dirty={dirty} savedAt={savedAt} saveError={saveError} />
       </div>
@@ -2159,6 +2159,8 @@ function Dashboard({ transactions, money, hideValues, isWide, budgets }) {
       yyPctExp: pctExp(period.expenses, yy.expenses),
       mmPctInc: pct(period.income, mm.income),
       yyPctInc: pct(period.income, yy.income),
+      mmPctNet: pct(period.net, mm.net),
+      yyPctNet: pct(period.net, yy.net),
     };
   }, [transactions, year, month, period, catFilter, cutoffDay]);
 
@@ -2353,8 +2355,25 @@ function Dashboard({ transactions, money, hideValues, isWide, budgets }) {
         <div style={{ fontSize: 10, color: "#8b94a3", fontWeight: 600, letterSpacing: 0.8, textTransform: "uppercase", marginBottom: 6 }}>
           {label}
         </div>
-        <div style={{ fontSize: 40, fontWeight: 700, letterSpacing: -1.5, color: periodNetColor, lineHeight: 1.1, marginBottom: 20 }}>
-          {money(period.net)}
+        <div style={{ display: "flex", alignItems: "center", gap: 20, marginBottom: 20 }}>
+          <div style={{ fontSize: 40, fontWeight: 700, letterSpacing: -1.5, color: periodNetColor, lineHeight: 1.1 }}>
+            {money(period.net)}
+          </div>
+          {heroComparisons && (
+            <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+              {[["LM", heroComparisons.mm.net, heroComparisons.mmPctNet], ["LY", heroComparisons.yy.net, heroComparisons.yyPctNet]].map(([tag, refVal, p]) => {
+                const fmtPct = (v) => v == null ? null : `${v > 0 ? "+" : ""}${v.toFixed(0)}%`;
+                const pctColor = (v) => v == null ? "#6b7280" : v > 0 ? "#34d399" : "#f87171";
+                return (
+                  <div key={tag} style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                    <span style={{ fontSize: 9, color: "#6b7280", fontWeight: 600, minWidth: 14 }}>{tag}</span>
+                    <span style={{ fontSize: 10, color: "#6b7280" }}>{hideValues ? "•••••" : usd0.format(refVal || 0)}</span>
+                    {fmtPct(p) && <span style={{ fontSize: 10, fontWeight: 700, color: pctColor(p) }}>{hideValues ? "•••" : fmtPct(p)}</span>}
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
         <div style={{ display: "flex", borderTop: "1px solid rgba(255,255,255,0.06)", paddingTop: 16 }}>
           {[
