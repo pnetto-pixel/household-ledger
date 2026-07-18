@@ -1,4 +1,4 @@
-# Household Ledger · v1.41.0
+# Household Ledger · v1.42.0
 
 Aplicativo mobile-first de controle financeiro doméstico. Registra
 transações da casa (despesas e receitas) por categoria e conta, com
@@ -31,7 +31,25 @@ O `feature-auditor` deve conferir, como parte da checklist de auditoria, que
 o diff inclui o bump nos dois arquivos antes de aprovar — se faltar, isso é
 motivo de reprovação (devolver ao coder), não um detalhe opcional.
 
-Versão atual: **v1.41.0** — **fila offline persistente** (item 11 da análise
+Versão atual: **v1.42.0** — **Year in Review + waterfall** (item "Year in
+Review" da Fase 7): novo `YearInReviewCard` no fim da tab **Trends**, com
+**seletor de ano próprio** (`S.togglePill`, até 6 anos, default = ano mais
+recente com dados; ignora deliberadamente o range/granularity do masthead).
+Conteúdo: (1) linha de **KPIs** Income / Expenses / Net do ano com % vs ano
+anterior (quando existe), cor por direção (mais despesa = vermelho, mais
+income/net = verde), valores em `usd0` e ocultos com `hideValues`; (2)
+**waterfall "para onde foi o dinheiro"**: Income como primeira barra, cada
+categoria de despesa descendo em degraus (top 9 por magnitude + "Other
+cats" agrupando a cauda), barra final **Net** (verde ≥ 0 / vermelha < 0).
+Implementado com o padrão de barra flutuante do recharts: `Bar` invisível
+`base` + `Bar` `value` empilhados (`stackId`), `Cell` por barra usando
+`getCategoryColor`; categorias com refund líquido positivo sobem (delta
+sinalizado, nunca `Math.abs` na agregação — invariante preservada via
+`computeTotals`). Labels do eixo X inclinados (-38°) para caberem. Sem
+mudança de API/Redis/modelo. Testes 24/24 e build OK. (PR #198, branch
+`claude/year-in-review`.)
+
+Versão anterior: **v1.41.0** — **fila offline persistente** (item 11 da análise
 técnica, Fase 6): um ledger sujo vivia só em memória — fechar o PWA offline
 (ou depois de um save falho) perdia as edições. Agora todo `scheduleSave`
 espelha o array pendente em `localStorage`

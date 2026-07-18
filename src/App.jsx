@@ -1665,7 +1665,7 @@ function Header({ hideValues, onToggleHide, onLogout, saving, savedAt, dirty, sa
             <Wallet size={14} color="#fff" />
           </div>
           <span style={{ fontWeight: 700, fontSize: 15, letterSpacing: -0.5, color: "#e5e7eb" }}>Household</span>
-          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.41.0</span>
+          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.42.0</span>
         </div>
         <SaveIndicator saving={saving} dirty={dirty} savedAt={savedAt} saveError={saveError} />
       </div>
@@ -3918,6 +3918,143 @@ function Charts({ transactions, hideValues, config, isWide }) {
         granularity={granularity}
         hideValues={hideValues}
       />
+
+      <YearInReviewCard
+        transactions={transactions}
+        years={years}
+        hideValues={hideValues}
+        fmtKFull={fmtKFull}
+      />
+    </div>
+  );
+}
+
+// ===========================================================================
+// YearInReviewCard — annual summary: KPIs vs previous year + a waterfall of
+// "where the money went" (Income at the top, each expense category stepping
+// down, Net at the end). Ignores the masthead year-range/granularity scope on
+// purpose — it has its own year selector (default: latest year with data).
+// ===========================================================================
+
+function YearInReviewCard({ transactions, years, hideValues, fmtKFull }) {
+  const [yr, setYr] = useState(() => years[0] || "");
+  // Keep the selection valid when data changes (e.g. first import).
+  useEffect(() => {
+    if (!years.includes(yr)) setYr(years[0] || "");
+  }, [years, yr]);
+
+  const review = useMemo(() => {
+    if (!yr) return null;
+    const inYear = (y) => transactions.filter((t) => (t.date || "").slice(0, 4) === y);
+    const cur = computeTotals(inYear(yr));
+    const prevYear = String(Number(yr) - 1);
+    const prev = years.includes(prevYear) ? computeTotals(inYear(prevYear)) : null;
+
+    // Signed per-category expense deltas for the waterfall.
+    const catMap = new Map();
+    for (const t of inYear(yr)) {
+      if (isTransfer(t.category) || isIncome(t.category)) continue;
+      catMap.set(t.category, (catMap.get(t.category) || 0) + (Number(t.amount) || 0));
+    }
+    // Largest spend first (most negative); group the tail beyond 9 as "Other cats".
+    const sorted = [...catMap.entries()].sort((a, b) => a[1] - b[1]);
+    const head = sorted.slice(0, 9);
+    const tailSum = sorted.slice(9).reduce((a, [, v]) => a + v, 0);
+    const deltas = [...head];
+    if (sorted.length > 9) deltas.push(["Other cats", tailSum]);
+
+    // Waterfall rows: floating bars via an invisible "base" + visible "value".
+    let running = cur.income;
+    const rows = [{ name: "Income", base: 0, value: cur.income, fill: "#34d399" }];
+    for (const [cat, delta] of deltas) {
+      const next = running + delta; // delta is signed (spend negative)
+      rows.push({
+        name: cat,
+        base: Math.min(running, next),
+        value: Math.abs(delta),
+        fill: delta < 0 ? getCategoryColor(cat) : "#34d399",
+      });
+      running = next;
+    }
+    rows.push({
+      name: "Net",
+      base: Math.min(0, running),
+      value: Math.abs(running),
+      fill: running >= 0 ? "#34d399" : "#f87171",
+    });
+    return { cur, prev, prevYear, rows };
+  }, [transactions, years, yr]);
+
+  if (!review) return null;
+  const { cur, prev, prevYear, rows } = review;
+  const pct = (c, p) => (p ? ((c - p) / Math.abs(p)) * 100 : null);
+  const fmtPct = (p) => (p == null ? "—" : `${p > 0 ? "+" : ""}${p.toFixed(0)}%`);
+  const kpis = [
+    { lbl: "Income", val: cur.income, p: prev ? pct(cur.income, prev.income) : null, color: "#34d399", higherIsGood: true },
+    { lbl: "Expenses", val: cur.expenses, p: prev ? pct(-cur.expenses, -prev.expenses) : null, color: "#f87171", higherIsGood: false },
+    { lbl: "Net", val: cur.net, p: prev ? pct(cur.net, prev.net) : null, color: cur.net >= 0 ? "#34d399" : "#f87171", higherIsGood: true },
+  ];
+
+  return (
+    <div style={{ ...S.card, padding: 0, overflow: "hidden" }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 16px 0", flexWrap: "wrap", gap: 8 }}>
+        <h3 style={{ ...S.sectionTitle, margin: 0 }}>Year in Review</h3>
+        <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+          {years.slice(0, 6).map((y) => (
+            <button key={y} onClick={() => setYr(y)} style={S.togglePill(yr === y)}>
+              {y}
+            </button>
+          ))}
+        </div>
+      </div>
+      <div style={{ display: "flex", gap: 8, padding: "12px 16px 0" }}>
+        {kpis.map(({ lbl, val, p, color, higherIsGood }) => (
+          <div key={lbl} style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 9, color: "#8b94a3", fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.4 }}>{lbl}</div>
+            <div style={{ fontSize: 14, fontWeight: 700, color, marginTop: 2, whiteSpace: "nowrap" }}>
+              {hideValues ? "•••••" : usd0.format(val)}
+            </div>
+            {prev && !hideValues && (
+              <div style={{ fontSize: 10, marginTop: 1, color: p == null ? "#6b7280" : (p > 0) === higherIsGood ? "#34d399" : "#f87171" }}>
+                {fmtPct(p)} vs {prevYear}
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+      <div style={{ height: 280 }}>
+        <ResponsiveContainer width="100%" height="100%">
+          <BarChart data={rows} margin={{ top: 16, right: 16, left: 0, bottom: 40 }}>
+            <CartesianGrid vertical={false} stroke="rgba(255,255,255,0.05)" />
+            <XAxis
+              dataKey="name"
+              tick={{ fill: "#6b7280", fontSize: 9 }}
+              tickLine={false}
+              axisLine={false}
+              interval={0}
+              angle={-38}
+              textAnchor="end"
+            />
+            <YAxis tick={{ fill: "#6b7280", fontSize: 10 }} tickLine={false} axisLine={false} tickFormatter={fmtKFull} width={56} />
+            {!hideValues && (
+              <Tooltip
+                cursor={false}
+                formatter={(v, name) => (name === "value" ? [fmtKFull(v), "Amount"] : null)}
+                contentStyle={{ background: "#161a20", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 14, fontSize: 12, boxShadow: "0 8px 24px rgba(0,0,0,0.4)" }}
+                itemStyle={{ color: "#e5e7eb" }}
+                labelStyle={{ color: "#8b94a3" }}
+              />
+            )}
+            {/* Invisible spacer that floats each bar at its running level */}
+            <Bar dataKey="base" stackId="wf" fill="transparent" isAnimationActive={false} />
+            <Bar dataKey="value" stackId="wf" isAnimationActive={false} radius={[3, 3, 0, 0]}>
+              {rows.map((r, i) => (
+                <Cell key={`wf-${i}`} fill={r.fill} />
+              ))}
+            </Bar>
+          </BarChart>
+        </ResponsiveContainer>
+      </div>
     </div>
   );
 }
