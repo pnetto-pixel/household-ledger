@@ -1,4 +1,4 @@
-# Household Ledger · v1.39.0
+# Household Ledger · v1.40.0
 
 Aplicativo mobile-first de controle financeiro doméstico. Registra
 transações da casa (despesas e receitas) por categoria e conta, com
@@ -31,7 +31,23 @@ O `feature-auditor` deve conferir, como parte da checklist de auditoria, que
 o diff inclui o bump nos dois arquivos antes de aprovar — se faltar, isso é
 motivo de reprovação (devolver ao coder), não um detalhe opcional.
 
-Versão atual: **v1.39.0** — **núcleo financeiro extraído + suite de testes +
+Versão atual: **v1.40.0** — **vendor chunk splitting** (item "Code-splitting"
+da Fase 7, fatia 1): `vite.config.js` ganhou `build.rollupOptions.output.manualChunks`
+separando o stack de gráficos (`recharts` + internos `victory-vendor`/`d3-*`/
+`internmap` etc.) num chunk **`charts`** (~427 KB / 117 KB gzip) e o runtime
+React (`react`/`react-dom`/`scheduler`) num chunk **`react`** (~142 KB); o
+chunk da aplicação caiu de ~744 KB (bundle único) para ~189 KB. Benefício
+principal no PWA: mudanças de código do app invalidam só o chunk pequeno no
+precache do Workbox (recharts/React ficam cacheados entre versões), e os 3
+chunks baixam em paralelo no primeiro load. **Limitação documentada**:
+lazy-loading de verdade (só baixar recharts ao abrir um gráfico) exigiria
+extrair os cards de gráfico do monolito `App.jsx` — os componentes recharts
+não toleram proxies `React.lazy` (o `BarChart` inspeciona os `children` por
+tipo), então essa fatia fica adiada. Sem mudança de código de app — só
+build config. Testes 24/24 e build OK. (PR #196, branch
+`claude/recharts-chunk-split`.)
+
+Versão anterior: **v1.39.0** — **núcleo financeiro extraído + suite de testes +
 CI** (item "Suite de testes + CI" da Fase 7 do Roadmap): novo
 **`src/ledger.js`** com os helpers **puros e stateless** movidos (não
 copiados) do `App.jsx`: `TRANSFER_CATEGORY`, `computeTotalsCore` (núcleo do
