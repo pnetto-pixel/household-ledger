@@ -2537,6 +2537,14 @@ O app inicia com array vazio quando não há dados salvos (sem SEED).
   partir de `transactions` já carregadas, sem novo endpoint; `Transfer`
   continua excluída (via `isTransfer`). Só `src/App.jsx` alterado; sem
   mudança de API/Redis/modelo de transação.
+- [x] **KPIs M/M ("LM") e Y/Y ("LY") do hero card usam MTD** (PR #187,
+  commit b84b494, v1.32.0): `heroComparisons` passa a filtrar `mmTxns`/
+  `yyTxns` pelo mesmo `cutoffDay` já usado nos badges de categoria do bloco
+  "by Category" (`catChanges`/`sumCat`), em vez de comparar mês/ano de
+  referência inteiro. Mês corrente compara até hoje; mês passado continua
+  efetivamente mês cheio (cutoff = último dia do mês). Só `src/App.jsx`
+  alterado; sem mudança de API/Redis/modelo de transação; `Transfer`
+  continua excluída via `computeTotals`.
 
 ### Fase 5 — Inteligência e Auditoria
 
