@@ -1,4 +1,4 @@
-# Household Ledger · v1.44.3
+# Household Ledger · v1.44.4
 
 Aplicativo mobile-first de controle financeiro doméstico. Registra
 transações da casa (despesas e receitas) por categoria e conta, com
@@ -31,7 +31,14 @@ O `feature-auditor` deve conferir, como parte da checklist de auditoria, que
 o diff inclui o bump nos dois arquivos antes de aprovar — se faltar, isso é
 motivo de reprovação (devolver ao coder), não um detalhe opcional.
 
-Versão atual: **v1.44.3** — **ui: Daily Spend Pattern ganha breakdown por
+Versão atual: **v1.44.4** — **fix: Daily Spend Pattern (desktop) ganha
+rótulos de dia no eixo X**. O bar-sparkline de 31 barras introduzido na
+v1.44.3 não tinha nenhuma referência visual de qual dia cada barra
+representava; agora uma linha de rótulos abaixo das barras mostra o número
+do dia a cada 5 dias (1, 5, 10, 15, 20, 25, 30), destacando o dia ativo
+(clicado) em negrito. Sem mudança de lógica de agregação.
+
+Versão anterior: **v1.44.3** — **ui: Daily Spend Pattern ganha breakdown por
 categoria e vira responsivo de verdade**. `DailyHeatmapCard` (`src/App.jsx`)
 agora agrega, além da média diária total, o top-3 de categorias por gasto
 médio de cada dia-do-mês (mesmo divisor `monthDayCounts`, sem alterar a
