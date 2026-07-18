@@ -58,12 +58,30 @@ import {
   Treemap,
 } from "recharts";
 import Papa from "papaparse";
+import {
+  TRANSFER_CATEGORY,
+  computeTotalsCore,
+  matchPeriod,
+  availableYears,
+  bucketKey,
+  bucketLabel,
+  ckCategoryToken,
+  mapCkCategory,
+  descriptionRuleMatches,
+  computeDescriptionRuleConflicts,
+  findMatchingDescriptionRule,
+  matchDescriptionCategoryRule,
+  normAccount,
+  matchAccountWithAliases,
+  txnFingerprint,
+  markDuplicates,
+} from "./ledger.js";
 
 // ---------------------------------------------------------------------------
 // Domain constants
 // ---------------------------------------------------------------------------
 
-const TRANSFER_CATEGORY = "Transfer";
+// TRANSFER_CATEGORY now lives in src/ledger.js (imported above).
 
 const DEFAULT_EXPENSE_CATEGORIES = [
   "Car",
@@ -269,35 +287,7 @@ function currentCkCategoryMapConfig() {
   return { ...CK_CATEGORY_MAP };
 }
 
-// Normalize a raw Credit Karma category name into the UPPER_SNAKE_CASE token
-// used as the lookup key — identical regex to `mapCat`/`mapCategory` in the
-// exporters, so tokens computed here line up with the seed's keys.
-function ckCategoryToken(name) {
-  return String(name || "")
-    .toUpperCase()
-    .replace(/&/g, "AND")
-    .replace(/[^A-Z0-9]+/g, "_")
-    .replace(/^_+|_+$/g, "");
-}
-
-// Pure re-implementation of the exporters' `mapCat`/`mapCategory`: Transfer/
-// Payment checked first (excluded from all ledger totals), then Income, then
-// the table lookup with an "Other" fallback. `mapObj` is a parameter (not the
-// live `CK_CATEGORY_MAP`) so the audit UI can preview a draft mapping before
-// saving, mirroring `matchAccountWithAliases`/`buildAliasArray`.
-function mapCkCategory(ckCategoryRaw, ckType, mapObj) {
-  const token = ckCategoryToken(ckCategoryRaw);
-  const ty = String(ckType || "").toUpperCase();
-  if (
-    ty === "TRANSFER" || ty === "PAYMENT" ||
-    token.indexOf("TRANSFER") >= 0 || token.indexOf("CREDIT_CARD_PAYMENT") >= 0 ||
-    token === "PAYMENT" || token === "PAYMENTS" || token === "CARD_PAYMENT"
-  ) {
-    return TRANSFER_CATEGORY;
-  }
-  if (ty === "INCOME") return "Other Income";
-  return (mapObj && mapObj[token]) || "Other";
-}
+// ckCategoryToken / mapCkCategory now live in src/ledger.js (imported above).
 
 // ---------------------------------------------------------------------------
 // Category-by-description rules (PR: Description rules, Audit tab)
@@ -340,22 +330,7 @@ function currentCategoryDescriptionRulesConfig() {
 // `allowTransferOverride` power (formerly the hard-coded Apple Daily Cash
 // heuristic, now folded into Description rules). Rules WITHOUT `providerPattern`
 // behave bit-for-bit identically to before this change.
-function descriptionRuleMatches(row, rule) {
-  const desc = String(row.description || "").toLowerCase();
-  const prov = String(row.srcAccount || row.account || "").toLowerCase();
-  const pat = String(rule.pattern || "").toLowerCase();
-  if (!pat) return false;
-  let baseMatch;
-  if (rule.matchField === "description") baseMatch = desc.includes(pat);
-  else if (rule.matchField === "provider") baseMatch = prov.includes(pat);
-  else baseMatch = desc.includes(pat) || prov.includes(pat); // "both"
-  if (!baseMatch) return false;
-
-  const extraProvider = String(rule.providerPattern || "").trim().toLowerCase();
-  if (extraProvider && !prov.includes(extraProvider)) return false; // AND extra condition
-
-  return true;
-}
+// descriptionRuleMatches now lives in src/ledger.js (imported above).
 
 // Pre-save conflict check for the Description rules editor (purely
 // informational — never blocks, never reprocesses, never mutates anything).
@@ -368,42 +343,8 @@ function descriptionRuleMatches(row, rule) {
 // (2) it also matches rows with `categoryManual === true` (a manual
 // correction the user made on purpose, which this rule would NOT retroactively
 // change, but might contradict on the next import if the user isn't aware).
-function computeDescriptionRuleConflicts(transactions, rule) {
-  const result = { transferCount: 0, transferExamples: [], manualCount: 0, manualExamples: [] };
-  if (!rule || !String(rule.pattern || "").trim()) return result;
-  for (const row of transactions || []) {
-    if (!descriptionRuleMatches(row, rule)) continue;
-    const label = `${String(row.description || row.srcAccount || "").slice(0, 40)} (${row.date || "?"})`;
-    if (row.category === TRANSFER_CATEGORY) {
-      result.transferCount++;
-      if (result.transferExamples.length < 5) result.transferExamples.push(label);
-    }
-    if (row.categoryManual === true) {
-      result.manualCount++;
-      if (result.manualExamples.length < 5) result.manualExamples.push(label);
-    }
-  }
-  return result;
-}
-
-// Returns the FIRST rule that matches the row, or null when none match. Array
-// order is semantic (first match wins). buildRow uses this to also read the
-// winning rule's `allowTransferOverride` flag.
-function findMatchingDescriptionRule(row, rules) {
-  for (const rule of rules || []) {
-    if (descriptionRuleMatches(row, rule)) return rule;
-  }
-  return null;
-}
-
-// Returns the destinationCategory of the FIRST rule that matches, or null when
-// none match. Never returns "Transfer" (sanitized out on save). Thin wrapper
-// over `findMatchingDescriptionRule` — contract unchanged for its 3 existing
-// callsites (conflict check, manual-correction detection, v1.16.3 skip).
-function matchDescriptionCategoryRule(row, rules) {
-  const r = findMatchingDescriptionRule(row, rules);
-  return r ? r.destinationCategory : null;
-}
+// computeDescriptionRuleConflicts / findMatchingDescriptionRule /
+// matchDescriptionCategoryRule now live in src/ledger.js (imported above).
 
 // ---------------------------------------------------------------------------
 // Bank import profiles
@@ -1641,7 +1582,7 @@ function Header({ hideValues, onToggleHide, onLogout, saving, savedAt, dirty, sa
             <Wallet size={14} color="#fff" />
           </div>
           <span style={{ fontWeight: 700, fontSize: 15, letterSpacing: -0.5, color: "#e5e7eb" }}>Household</span>
-          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.38.0</span>
+          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.39.0</span>
         </div>
         <SaveIndicator saving={saving} dirty={dirty} savedAt={savedAt} saveError={saveError} />
       </div>
@@ -1719,16 +1660,10 @@ function TabBar({ tab, setTab, wide }) {
 // Totals helper
 // ===========================================================================
 
+// Thin wrapper binding the pure core (src/ledger.js) to the live runtime
+// income-categories list.
 function computeTotals(rows) {
-  let income = 0;
-  let expenses = 0;
-  for (const t of rows) {
-    if (isTransfer(t.category)) continue; // Transfer excluded from all totals
-    const amt = Number(t.amount) || 0; // signed: negatives are refunds/clawbacks
-    if (isIncome(t.category)) income += amt;
-    else expenses += amt;
-  }
-  return { income, expenses, net: income + expenses };
+  return computeTotalsCore(rows, INCOME_CATEGORIES);
 }
 
 // ===========================================================================
@@ -1750,25 +1685,7 @@ const MONTHS = [
   { v: "12", l: "Dec" },
 ];
 
-// Distinct years present in the data, newest first.
-function availableYears(rows) {
-  const years = new Set();
-  for (const t of rows) {
-    const y = (t.date || "").slice(0, 4);
-    if (y) years.add(y);
-  }
-  return [...years].sort((a, b) => (a < b ? 1 : -1));
-}
-
-// year/month are "All" or "YYYY"/"MM".
-function matchPeriod(dateStr, year, month) {
-  if (year === "All" && month === "All") return true;
-  const y = (dateStr || "").slice(0, 4);
-  const m = (dateStr || "").slice(5, 7);
-  if (year !== "All" && y !== year) return false;
-  if (month !== "All" && m !== month) return false;
-  return true;
-}
+// availableYears / matchPeriod now live in src/ledger.js (imported above).
 
 function periodLabel(year, month) {
   const m = MONTHS.find((x) => x.v === month);
@@ -2848,42 +2765,7 @@ function MonthlyBarCard({ byBucket, hideValues, fmtK, fmtKTooltip, fmtBucketLabe
 // Bucket helpers for Charts granularity
 // ---------------------------------------------------------------------------
 
-// Returns the bucket key for a date string given a granularity mode.
-// M   → "YYYY-MM"
-// Q   → "YYYY-Q1" .. "YYYY-Q4"
-// H   → "YYYY-H1" / "YYYY-H2"
-// Y   → "YYYY"
-function bucketKey(dateStr, granularity) {
-  if (!dateStr) return "";
-  const y = dateStr.slice(0, 4);
-  const mm = dateStr.slice(5, 7);
-  const mo = parseInt(mm, 10); // 1–12
-  if (granularity === "Y") return y;
-  if (granularity === "H") return `${y}-${mo <= 6 ? "H1" : "H2"}`;
-  if (granularity === "Q") {
-    const q = mo <= 3 ? "Q1" : mo <= 6 ? "Q2" : mo <= 9 ? "Q3" : "Q4";
-    return `${y}-${q}`;
-  }
-  // "M" (default)
-  return `${y}-${mm}`;
-}
-
-// Human-readable label for a bucket key.
-// "2026-01"   → "Jan/26"
-// "2026-Q1"   → "Q1/26"
-// "2026-H2"   → "H2/26"
-// "2026"      → "2026"
-function bucketLabel(key) {
-  if (!key) return key;
-  if (/^\d{4}$/.test(key)) return key; // Year
-  const [y, rest] = key.split("-");
-  const yy = y.slice(2); // last 2 digits
-  if (rest && (rest.startsWith("Q") || rest.startsWith("H"))) return `${rest}/${yy}`;
-  // Month: rest is "MM"
-  const mo = parseInt(rest, 10);
-  const names = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
-  return `${names[mo - 1] || rest}/${yy}`;
-}
+// bucketKey / bucketLabel now live in src/ledger.js (imported above).
 
 // ===========================================================================
 // ChartTooltip — shared tooltip for every Trends chart: sorts series highest
@@ -6770,98 +6652,9 @@ function buildRow(raw, mapping, profile, accountMap) {
   return row;
 }
 
-// Content fingerprint for de-duplication: day + signed cents + normalized
-// description + account. Used when a source transaction id isn't available.
-function txnFingerprint(t) {
-  const amt = Math.round((Number(t.amount) || 0) * 100);
-  const desc = String(t.description || "").toLowerCase().replace(/\s+/g, " ").trim();
-  return `${t.date || ""}|${amt}|${desc}|${t.account || ""}`;
-}
+// txnFingerprint / descOverlap / dateToDayInt / markDuplicates now live in
+// src/ledger.js (imported above).
 
-// Stop words excluded from the fuzzy description overlap check.
-const DEDUP_STOP_WORDS = new Set([
-  "the", "at", "de", "da", "do", "em", "um", "uma", "para", "com",
-  "and", "in", "on", "of", "to", "a", "an", "is", "it", "by", "or",
-]);
-
-// Extract significant words (>=3 chars, not stop words) from a description
-// for fuzzy duplicate detection.
-function descWords(desc) {
-  return String(desc || "")
-    .toLowerCase()
-    .replace(/[^a-z0-9\s]/g, " ")
-    .split(/\s+/)
-    .filter((w) => w.length >= 3 && !DEDUP_STOP_WORDS.has(w));
-}
-
-// Check if two descriptions share at least one significant word.
-function descOverlap(descA, descB) {
-  const wordsA = new Set(descWords(descA));
-  if (wordsA.size === 0) return false;
-  return descWords(descB).some((w) => wordsA.has(w));
-}
-
-// Parse YYYY-MM-DD into a UTC day integer for date-diff calculations.
-function dateToDayInt(dateStr) {
-  const d = new Date(String(dateStr || "") + "T00:00:00Z");
-  return isNaN(d.getTime()) ? 0 : Math.floor(d.getTime() / 86400000);
-}
-
-// Flag duplicates in a batch of built rows against existing transactions and
-// against earlier rows in the same batch. Hybrid key: when both sides carry a
-// source id, compare by id (so two genuinely distinct but identical-looking
-// purchases are never merged); otherwise compare by content fingerprint first,
-// then fall back to fuzzy matching (same account + same cents + ±2 days +
-// at least 1 word in common).
-function markDuplicates(rows, existing) {
-  const idSet = new Set();
-  const fpNoId = new Set();
-  const fpAll = new Set();
-  // Index for fuzzy matching: key = "account|amount_cents" -> array of txns
-  const fuzzyIdx = new Map();
-
-  const addToFuzzyIdx = (t) => {
-    const cents = Math.round((Number(t.amount) || 0) * 100);
-    const key = `${t.account || ""}|${cents}`;
-    if (!fuzzyIdx.has(key)) fuzzyIdx.set(key, []);
-    fuzzyIdx.get(key).push(t);
-  };
-
-  const remember = (t) => {
-    const fp = txnFingerprint(t);
-    fpAll.add(fp);
-    if (t.sourceId) idSet.add(t.sourceId);
-    else fpNoId.add(fp);
-    addToFuzzyIdx(t);
-  };
-  for (const t of existing) remember(t);
-
-  const isFuzzyDup = (r) => {
-    // Only run fuzzy check for rows without a sourceId.
-    if (r.sourceId) return false;
-    const cents = Math.round((Number(r.amount) || 0) * 100);
-    const key = `${r.account || ""}|${cents}`;
-    const candidates = fuzzyIdx.get(key);
-    if (!candidates || candidates.length === 0) return false;
-    const rDay = dateToDayInt(r.date);
-    return candidates.some((c) => {
-      const dayDiff = Math.abs(dateToDayInt(c.date) - rDay);
-      return dayDiff <= 2 && descOverlap(r.description, c.description);
-    });
-  };
-
-  return rows.map((r) => {
-    const exactFp = txnFingerprint(r);
-    let dup;
-    if (r.sourceId) {
-      dup = idSet.has(r.sourceId) || fpNoId.has(exactFp);
-    } else {
-      dup = fpAll.has(exactFp) || isFuzzyDup(r);
-    }
-    remember(r);
-    return { ...r, _dup: dup };
-  });
-}
 
 function ImportTransactions({ onImport, accountMap, config, transactions, ckCategoryMap, categoryDescriptionRules }) {
   // Two methods: Credit Karma (auto-mapped, day-to-day) and CSV (manual
@@ -7212,45 +7005,13 @@ function matchOption(value, options, fallback) {
   return hit || fallback;
 }
 
-// Normalize an account-ish string for matching: lowercase, strip everything
-// that isn't a letter or digit ("T-Mobile" / "t mobile" / "AT&T" all collapse).
-function normAccount(s) {
-  return String(s || "").toLowerCase().replace(/[^a-z0-9]/g, "");
-}
+// normAccount / matchAccountWithAliasesReason / matchAccountWithAliases now
+// live in src/ledger.js (imported above) and take the accounts list as a
+// parameter; the wrappers below bind them to the live module state.
 
-// Classify a source account/card value into a canonical account name, given
-// an explicit alias table. Tries an exact (normalized) match first, then the
-// alias keyword table. Returns "" when nothing matches — we deliberately do
-// NOT guess an account, so unrecognized rows surface as unmapped instead of
-// hiding under ATT Reward. Pure (takes the alias array as a parameter) so the
-// impact-preview UI can try a draft alias table without mutating the module's
-// live `ACCOUNT_ALIASES`.
-// Core matcher shared by `matchAccountWithAliases` and `explainClassification`
-// so the two can never drift out of sync: returns both the resolved account
-// and a plain-text reason for which branch fired.
-function matchAccountWithAliasesReason(rawValue, aliasesArray) {
-  const n = normAccount(rawValue);
-  if (!n) return { account: "", reason: "" };
-  const exact = ACCOUNTS.find((a) => normAccount(a) === n);
-  if (exact) {
-    return { account: exact, reason: `Exact account name match: '${rawValue}' → ${exact}` };
-  }
-  for (const [account, aliases] of aliasesArray) {
-    const hit = aliases.find((al) => n.includes(al));
-    if (hit) {
-      return { account, reason: `Matched alias fragment: '${hit}' → ${account}` };
-    }
-  }
-  return { account: "", reason: "" };
-}
-
-function matchAccountWithAliases(rawValue, aliasesArray) {
-  return matchAccountWithAliasesReason(rawValue, aliasesArray).account;
-}
-
-// Same as above, using the current live alias table.
+// Same as the pure matcher, using the current live alias table + accounts.
 function matchAccount(rawValue) {
-  return matchAccountWithAliases(rawValue, ACCOUNT_ALIASES);
+  return matchAccountWithAliases(rawValue, ACCOUNT_ALIASES, ACCOUNTS);
 }
 
 // Resolve a transaction's account. The user-maintained map keyed on the source
@@ -7273,7 +7034,7 @@ function computeAliasImpact(transactions, accountMap, aliasesArray) {
     if (t.accountUrn && accountMap && accountMap[t.accountUrn]) continue;
     const raw = t.srcAccount || "";
     if (!raw) continue;
-    const to = matchAccountWithAliases(raw, aliasesArray);
+    const to = matchAccountWithAliases(raw, aliasesArray, ACCOUNTS);
     if (to && to !== t.account) {
       impacted.push({ id: t.id, from: t.account || "", to, description: t.description, date: t.date, srcAccount: raw });
     }
@@ -7299,7 +7060,7 @@ function detectSuggestedAliasFragments(transactions, aliasesArray) {
     if ((t.account || "") !== "") continue;
     const raw = t.srcAccount || "";
     if (!raw) continue;
-    if (matchAccountWithAliases(raw, aliasesArray || [])) continue; // already covered
+    if (matchAccountWithAliases(raw, aliasesArray || [], ACCOUNTS)) continue; // already covered
     const n = normAccount(raw);
     if (!n) continue;
     const e = groups.get(n) || { fragment: n, count: 0, examples: [] };
