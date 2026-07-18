@@ -75,6 +75,7 @@ import {
   matchAccountWithAliases,
   txnFingerprint,
   markDuplicates,
+  descWords,
 } from "./ledger.js";
 
 // ---------------------------------------------------------------------------
@@ -1705,7 +1706,7 @@ function Header({ hideValues, onToggleHide, onLogout, saving, savedAt, dirty, sa
             <Wallet size={14} color="#fff" />
           </div>
           <span style={{ fontWeight: 700, fontSize: 15, letterSpacing: -0.5, color: "#e5e7eb" }}>Household</span>
-          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.44.0</span>
+          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.44.1</span>
         </div>
         <SaveIndicator saving={saving} dirty={dirty} savedAt={savedAt} saveError={saveError} />
       </div>
@@ -7494,7 +7495,10 @@ function detectSuggestedCategoryTokens(transactions, ckCategoryMapObj) {
 // drops purely-numeric tokens (store/order numbers vary per transaction), and
 // keeps the first up-to-2 significant words joined — e.g. "STARBUCKS #4821" and
 // "STARBUCKS STORE 12" both collapse to "starbucks".
-function descFragment(desc) {
+// Exported (alongside the default App component) so
+// src/App.integration.test.js can exercise it directly — plain named
+// exports, no change to the single-file monolith structure.
+export function descFragment(desc) {
   const words = descWords(desc).filter((w) => !/^[0-9]+$/.test(w));
   return words.slice(0, 2).join(" ");
 }
@@ -7515,7 +7519,7 @@ function descFragment(desc) {
 // rewritten once a rule starts auto-classifying new imports), so without this
 // check a group would resurface forever even after the user creates the
 // exact rule the suggestion asked for.
-function detectManualCategoryCorrections(transactions, descriptionRules) {
+export function detectManualCategoryCorrections(transactions, descriptionRules) {
   const groups = new Map();
   for (const t of transactions || []) {
     if (t.categoryManual !== true) continue;

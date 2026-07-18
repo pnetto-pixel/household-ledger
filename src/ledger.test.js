@@ -20,6 +20,7 @@ import {
   matchAccountWithAliases,
   txnFingerprint,
   markDuplicates,
+  descWords,
 } from "./ledger.js";
 
 const INCOME = ["Salary", "Bonus", "Bela Income", "Other Income"];
@@ -187,6 +188,22 @@ describe("account matching", () => {
     expect(matchAccountWithAliases("Sapphire Reserve Card", aliases, ACCOUNTS)).toBe("Chase Reserve");
     expect(matchAccountWithAliases("Mystery Bank", aliases, ACCOUNTS)).toBe("");
     expect(matchAccountWithAliases("", aliases, ACCOUNTS)).toBe("");
+  });
+});
+
+describe("descWords", () => {
+  // App.jsx's descFragment (Settings > Suggested Rules > Manual category
+  // corrections) imports this directly, separately from descOverlap/
+  // markDuplicates — regression test for a real bug where descWords was a
+  // non-exported helper in this module, so App.jsx's own import silently had
+  // nothing to bind to descFragment's call. It only threw at runtime once a
+  // transaction with categoryManual===true reached detectManualCategoryCorrections,
+  // which synthetic/empty test data never triggers — this test exercises the
+  // exported binding directly so a missing `export` fails CI immediately.
+  it("extracts significant words, dropping short tokens and stop words", () => {
+    expect(descWords("STARBUCKS STORE #4821")).toEqual(["starbucks", "store", "4821"]);
+    expect(descWords("the a to of")).toEqual([]);
+    expect(descWords("")).toEqual([]);
   });
 });
 

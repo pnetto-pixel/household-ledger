@@ -240,9 +240,11 @@ const DEDUP_STOP_WORDS = new Set([
   "and", "in", "on", "of", "to", "a", "an", "is", "it", "by", "or",
 ]);
 
-// Extract significant words (>=3 chars, not stop words) from a description
-// for fuzzy duplicate detection.
-function descWords(desc) {
+// Extract significant words (>=3 chars, not stop words) from a description.
+// Used both for fuzzy duplicate detection (descOverlap) and, in App.jsx's
+// descFragment, to build the merchant-fragment grouping key for the
+// Suggested Rules "Manual category corrections" panel.
+export function descWords(desc) {
   return String(desc || "")
     .toLowerCase()
     .replace(/[^a-z0-9\s]/g, " ")
