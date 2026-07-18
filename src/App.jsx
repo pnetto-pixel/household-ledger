@@ -1665,7 +1665,7 @@ function Header({ hideValues, onToggleHide, onLogout, saving, savedAt, dirty, sa
             <Wallet size={14} color="#fff" />
           </div>
           <span style={{ fontWeight: 700, fontSize: 15, letterSpacing: -0.5, color: "#e5e7eb" }}>Household</span>
-          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.42.0</span>
+          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.43.0</span>
         </div>
         <SaveIndicator saving={saving} dirty={dirty} savedAt={savedAt} saveError={saveError} />
       </div>
@@ -5918,6 +5918,108 @@ function SuggestedRulesSection({ suggestedFragments, suggestedTokens, suggestedC
   );
 }
 
+// Lists the automatic daily Redis snapshots (written on the first save of
+// each UTC day, TTL 30 days) and restores one through the normal restore
+// flow — the restored array goes through PUT /api/transactions, so
+// optimistic concurrency and server-side validation still apply. Restore
+// requires a 2-click confirm (same pattern as ManagedRow's delete).
+function SnapshotsSection({ onRestore }) {
+  const [snapshots, setSnapshots] = useState(null); // null = not loaded yet
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [confirmDate, setConfirmDate] = useState(null);
+  const [busyDate, setBusyDate] = useState(null);
+
+  const loadList = useCallback(async () => {
+    setLoading(true);
+    setError("");
+    try {
+      const res = await fetch("/api/snapshots", { headers: buildAuthHeaders() });
+      if (!res.ok) throw new Error(`Load failed (${res.status})`);
+      const data = await res.json();
+      setSnapshots(Array.isArray(data.snapshots) ? data.snapshots : []);
+    } catch (err) {
+      setError(err.message || "Failed to load snapshots");
+      setSnapshots([]);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadList();
+  }, [loadList]);
+
+  // 2-click confirm with auto-reset, mirroring the delete chips elsewhere.
+  useEffect(() => {
+    if (!confirmDate) return;
+    const t = setTimeout(() => setConfirmDate(null), 2500);
+    return () => clearTimeout(t);
+  }, [confirmDate]);
+
+  const restore = async (date) => {
+    if (confirmDate !== date) {
+      setConfirmDate(date);
+      return;
+    }
+    setConfirmDate(null);
+    setBusyDate(date);
+    setError("");
+    try {
+      const res = await fetch(`/api/snapshots?date=${date}`, { headers: buildAuthHeaders() });
+      if (!res.ok) throw new Error(`Snapshot fetch failed (${res.status})`);
+      const data = await res.json();
+      if (!Array.isArray(data.transactions) || data.transactions.length === 0) {
+        throw new Error("Snapshot is empty — not restoring");
+      }
+      onRestore(data.transactions);
+    } catch (err) {
+      setError(err.message || "Restore failed");
+    } finally {
+      setBusyDate(null);
+    }
+  };
+
+  return (
+    <CollapsibleCard title="Daily snapshots" badge={snapshots ? snapshots.length : ""}>
+      <div style={{ fontSize: 11, color: "#8b94a3", marginBottom: 10 }}>
+        Automatic safety copies: the first save of each day stores an
+        immutable snapshot (kept for 30 days). Restoring replaces the current
+        ledger with that day's first state — your current data is still
+        recoverable from today's snapshot.
+      </div>
+      {loading && <div style={{ fontSize: 12, color: "#8b94a3" }}>Loading…</div>}
+      {error && <div style={{ fontSize: 12, color: "#f87171", marginBottom: 8 }}>{error}</div>}
+      {snapshots && snapshots.length === 0 && !loading && (
+        <div style={{ fontSize: 12, color: "#8b94a3" }}>No snapshots yet — they appear after the first save of a day.</div>
+      )}
+      {snapshots && snapshots.length > 0 && (
+        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+          {snapshots.map((date) => (
+            <div key={date} style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <span style={{ flex: 1, fontSize: 13, color: "#e5e7eb", fontVariantNumeric: "tabular-nums" }}>{date}</span>
+              <button
+                onClick={() => restore(date)}
+                disabled={busyDate !== null}
+                style={{
+                  ...S.secondaryBtn,
+                  fontSize: 11,
+                  padding: "4px 10px",
+                  color: confirmDate === date ? "#f87171" : undefined,
+                  borderColor: confirmDate === date ? "rgba(248,113,113,0.5)" : undefined,
+                  opacity: busyDate && busyDate !== date ? 0.5 : 1,
+                }}
+              >
+                {busyDate === date ? "Restoring…" : confirmDate === date ? "Confirm restore?" : "Restore"}
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+    </CollapsibleCard>
+  );
+}
+
 // Settings editor for the monthly budgets map ({ [category]: number }).
 // Draft is local; "Save budgets" persists only positive numeric values.
 function BudgetsSection({ budgets, expenseCategories, onSave }) {
@@ -6118,6 +6220,7 @@ function SettingsTab({
         highlightToken={categoryHighlight}
       />
       <DataBackupSection transactions={transactions} onRestore={onRestoreTransactions} />
+      <SnapshotsSection onRestore={onRestoreTransactions} />
     </div>
   );
 }
