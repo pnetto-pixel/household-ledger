@@ -575,6 +575,44 @@ function readPendingSave() {
   return null;
 }
 
+// A render/lifecycle error anywhere in the tab content used to unmount the
+// whole React tree with no feedback — the header and tab bar disappeared
+// too, reading as a blank/black screen with no way to recover short of a
+// hard reload. This boundary catches it, shows the actual error message
+// (so it can be reported/screenshotted) plus a reload button, and — keyed
+// by `tab` at the call site — resets automatically when the user switches
+// tabs. Must be a class component; React has no hook equivalent.
+class TabErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { error: null };
+  }
+  static getDerivedStateFromError(error) {
+    return { error };
+  }
+  componentDidCatch(error, info) {
+    console.error("Tab render error:", error, info.componentStack);
+  }
+  render() {
+    if (this.state.error) {
+      return (
+        <div style={{ ...S.card, margin: 16, borderColor: "rgba(248,113,113,0.35)" }}>
+          <div style={{ color: "#f87171", fontWeight: 600, marginBottom: 8 }}>
+            Something went wrong rendering this tab.
+          </div>
+          <div style={{ color: "#8b94a3", fontSize: 12, marginBottom: 12, wordBreak: "break-word" }}>
+            {this.state.error.message || String(this.state.error)}
+          </div>
+          <button style={S.secondaryBtn} onClick={() => window.location.reload()}>
+            Reload app
+          </button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
 // ===========================================================================
 // App
 // ===========================================================================
@@ -1468,6 +1506,7 @@ export default function App() {
       {error ? <div style={S.errorBar}>{error}</div> : null}
 
       <main style={S.main}>
+        <TabErrorBoundary key={tab}>
         {loading ? (
           <div style={S.center}>Loading…</div>
         ) : tab === "home" ? (
@@ -1521,6 +1560,7 @@ export default function App() {
         ) : (
           <Charts transactions={transactions} hideValues={hideValues} config={config} isWide={isWide} />
         )}
+        </TabErrorBoundary>
       </main>
 
       <TabBar tab={tab} setTab={setTab} wide={isWide} />
@@ -1665,7 +1705,7 @@ function Header({ hideValues, onToggleHide, onLogout, saving, savedAt, dirty, sa
             <Wallet size={14} color="#fff" />
           </div>
           <span style={{ fontWeight: 700, fontSize: 15, letterSpacing: -0.5, color: "#e5e7eb" }}>Household</span>
-          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.43.0</span>
+          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.44.0</span>
         </div>
         <SaveIndicator saving={saving} dirty={dirty} savedAt={savedAt} saveError={saveError} />
       </div>
@@ -2347,11 +2387,6 @@ function Dashboard({ transactions, money, hideValues, isWide, budgets }) {
 
       <DailyPaceCard paceData={dashboardPaceData} hideValues={hideValues} fmtK={fmtK} paceView={paceView} setPaceView={setPaceView} />
 
-      {/* Calendar heatmap of daily spend for the selected month */}
-      {year !== "All" && month !== "All" && (
-        <DailyHeatmapCard periodTxns={periodTxns} year={year} month={month} hideValues={hideValues} />
-      )}
-
       {/* Category breakdown for the selected period */}
       {year !== "All" && month !== "All" && (
         <>
@@ -2516,36 +2551,52 @@ function CategoryTreemapCard({ catExpenses, hideValues }) {
   );
 }
 
-// GitHub-style calendar heatmap of daily spend for the selected month.
-// Cell intensity ∝ that day's net expense (refund-heavy days that net ≥ 0
-// render as "no spend"). Pure divs — no chart lib. Weeks start on Sunday.
-function DailyHeatmapCard({ periodTxns, year, month, hideValues }) {
-  const { byDay, max } = useMemo(() => {
-    const m = new Map();
-    for (const t of periodTxns) {
+// Average daily-spend-by-day-of-month pattern, over whatever scope Trends
+// currently has selected (category filter + year range — the same `scoped`
+// array MonthlyBarCard/CategoryStackedBarCard read from; granularity M/Q/H/Y
+// doesn't apply here, a day-of-month pattern is granularity-independent).
+// For each day 1–31, averages that day's net expense across every month
+// present in scope that actually HAS that day (so day 31 divides only by
+// 31-day months, not by every month — otherwise it would read artificially
+// low). Cell intensity ∝ the average. Pure divs — no chart lib.
+function DailyHeatmapCard({ scoped, hideValues, isWide }) {
+  const { byDay, max, monthCount } = useMemo(() => {
+    const daySum = new Map();
+    const monthsSeen = new Set();
+    for (const t of scoped) {
       if (isTransfer(t.category) || isIncome(t.category)) continue;
-      const day = parseInt((t.date || "").slice(8, 10), 10);
-      if (!day) continue;
-      m.set(day, (m.get(day) || 0) + (Number(t.amount) || 0));
+      const d = t.date || "";
+      const day = parseInt(d.slice(8, 10), 10);
+      const ym = d.slice(0, 7);
+      if (!day || !ym) continue;
+      monthsSeen.add(ym);
+      daySum.set(day, (daySum.get(day) || 0) + (Number(t.amount) || 0));
     }
+    // Count, per day-of-month, how many of the scoped months actually
+    // contain that day (Feb/Apr/Jun/Sep/Nov don't have a 31st, Feb often
+    // lacks a 29th/30th) — the divisor for a fair average.
+    const monthDayCounts = new Map();
+    for (const ym of monthsSeen) {
+      const [y, mo] = ym.split("-").map(Number);
+      const dim = new Date(y, mo, 0).getDate();
+      for (let d = 1; d <= dim; d++) {
+        monthDayCounts.set(d, (monthDayCounts.get(d) || 0) + 1);
+      }
+    }
+    const avgByDay = new Map();
     let mx = 0;
-    for (const [d, v] of m) {
-      const spend = v < 0 ? -v : 0;
-      m.set(d, spend);
-      if (spend > mx) mx = spend;
+    for (let d = 1; d <= 31; d++) {
+      const count = monthDayCounts.get(d) || 0;
+      const total = daySum.get(d) || 0;
+      const spend = total < 0 ? -total : 0;
+      const avg = count > 0 ? spend / count : 0;
+      avgByDay.set(d, avg);
+      if (avg > mx) mx = avg;
     }
-    return { byDay: m, max: mx };
-  }, [periodTxns]);
+    return { byDay: avgByDay, max: mx, monthCount: monthsSeen.size };
+  }, [scoped]);
 
-  const y = Number(year);
-  const mo = Number(month);
-  const daysInMonth = new Date(y, mo, 0).getDate();
-  const firstDow = new Date(y, mo - 1, 1).getDay(); // 0 = Sunday
   if (max === 0) return null;
-
-  const cells = [];
-  for (let i = 0; i < firstDow; i++) cells.push(null);
-  for (let d = 1; d <= daysInMonth; d++) cells.push(d);
 
   const cellBg = (spend) => {
     if (!spend) return "rgba(255,255,255,0.05)";
@@ -2553,41 +2604,38 @@ function DailyHeatmapCard({ periodTxns, year, month, hideValues }) {
     return `rgba(249,115,22,${(0.15 + 0.75 * t).toFixed(2)})`;
   };
 
+  const days = Array.from({ length: 31 }, (_, i) => i + 1);
+
   return (
-    <>
-      <h3 style={S.sectionTitle}>Daily Heatmap</h3>
-      <div style={{ ...S.card, padding: "14px 16px" }}>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 4 }}>
-          {["S", "M", "T", "W", "T", "F", "S"].map((d, i) => (
-            <div key={`dow-${i}`} style={{ textAlign: "center", fontSize: 9, color: "#6b7280", fontWeight: 600 }}>
+    <div style={{ ...S.card, padding: "14px 16px", maxWidth: isWide ? 380 : undefined }}>
+      <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: 10 }}>
+        <h3 style={{ ...S.sectionTitle, margin: 0 }}>Daily Spend Pattern</h3>
+        <span style={{ fontSize: 10, color: "#6b7280" }}>avg / day, {monthCount} mo</span>
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: isWide ? 3 : 4 }}>
+        {days.map((d) => {
+          const spend = byDay.get(d) || 0;
+          return (
+            <div
+              key={`day-${d}`}
+              title={hideValues || !spend ? undefined : `Day ${d}: avg ${usd.format(spend)}`}
+              style={{
+                aspectRatio: "1",
+                borderRadius: 5,
+                background: cellBg(spend),
+                display: "grid",
+                placeItems: "center",
+                fontSize: isWide ? 9 : 10,
+                color: spend / max > 0.45 ? "#fff" : "#8b94a3",
+                fontWeight: spend ? 600 : 400,
+              }}
+            >
               {d}
             </div>
-          ))}
-          {cells.map((d, i) => {
-            if (d === null) return <div key={`pad-${i}`} />;
-            const spend = byDay.get(d) || 0;
-            return (
-              <div
-                key={`day-${d}`}
-                title={hideValues || !spend ? undefined : `${month}/${String(d).padStart(2, "0")}: ${usd.format(spend)}`}
-                style={{
-                  aspectRatio: "1",
-                  borderRadius: 6,
-                  background: cellBg(spend),
-                  display: "grid",
-                  placeItems: "center",
-                  fontSize: 10,
-                  color: spend / max > 0.45 ? "#fff" : "#8b94a3",
-                  fontWeight: spend ? 600 : 400,
-                }}
-              >
-                {d}
-              </div>
-            );
-          })}
-        </div>
+          );
+        })}
       </div>
-    </>
+    </div>
   );
 }
 
@@ -3925,19 +3973,23 @@ function Charts({ transactions, hideValues, config, isWide }) {
         hideValues={hideValues}
         fmtKFull={fmtKFull}
       />
+
+      <DailyHeatmapCard scoped={scoped} hideValues={hideValues} isWide={isWide} />
     </div>
   );
 }
 
 // ===========================================================================
-// YearInReviewCard — annual summary: KPIs vs previous year + a waterfall of
-// "where the money went" (Income at the top, each expense category stepping
-// down, Net at the end). Ignores the masthead year-range/granularity scope on
-// purpose — it has its own year selector (default: latest year with data).
+// YearInReviewCard — annual summary: KPIs vs previous year (YTD-aligned when
+// the selected year is the current one — see cutoffMD below) + a per-category
+// breakdown bar chart with an Expense/Income toggle. Ignores the masthead
+// year-range/granularity scope on purpose — it has its own year selector
+// (default: latest year with data).
 // ===========================================================================
 
 function YearInReviewCard({ transactions, years, hideValues, fmtKFull }) {
   const [yr, setYr] = useState(() => years[0] || "");
+  const [view, setView] = useState("expense");
   // Keep the selection valid when data changes (e.g. first import).
   useEffect(() => {
     if (!years.includes(yr)) setYr(years[0] || "");
@@ -3946,66 +3998,71 @@ function YearInReviewCard({ transactions, years, hideValues, fmtKFull }) {
   const review = useMemo(() => {
     if (!yr) return null;
     const inYear = (y) => transactions.filter((t) => (t.date || "").slice(0, 4) === y);
-    const cur = computeTotals(inYear(yr));
+    const curYearTxns = inYear(yr);
+    const cur = computeTotals(curYearTxns);
     const prevYear = String(Number(yr) - 1);
-    const prev = years.includes(prevYear) ? computeTotals(inYear(prevYear)) : null;
+    const hasPrev = years.includes(prevYear);
 
-    // Signed per-category expense deltas for the waterfall.
-    const catMap = new Map();
-    for (const t of inYear(yr)) {
-      if (isTransfer(t.category) || isIncome(t.category)) continue;
-      catMap.set(t.category, (catMap.get(t.category) || 0) + (Number(t.amount) || 0));
-    }
-    // Largest spend first (most negative); group the tail beyond 9 as "Other cats".
-    const sorted = [...catMap.entries()].sort((a, b) => a[1] - b[1]);
-    const head = sorted.slice(0, 9);
-    const tailSum = sorted.slice(9).reduce((a, [, v]) => a + v, 0);
-    const deltas = [...head];
-    if (sorted.length > 9) deltas.push(["Other cats", tailSum]);
+    // When reviewing the CURRENT calendar year, a full-year comparison would
+    // unfairly stack e.g. 7 months of this year against 12 of last year —
+    // clip both sides to the same "day of year" cutoff (YTD vs YTD). A past
+    // year (not the current one) compares full year vs full year, since it's
+    // already complete on both sides.
+    const isCurrentYear = yr === todayISO().slice(0, 4);
+    const cutoffMD = isCurrentYear ? todayISO().slice(5, 10) : null; // "MM-DD" or no cutoff
+    const withCutoff = (rows) =>
+      cutoffMD ? rows.filter((t) => (t.date || "").slice(5, 10) <= cutoffMD) : rows;
 
-    // Waterfall rows: floating bars via an invisible "base" + visible "value".
-    let running = cur.income;
-    const rows = [{ name: "Income", base: 0, value: cur.income, fill: "#34d399" }];
-    for (const [cat, delta] of deltas) {
-      const next = running + delta; // delta is signed (spend negative)
-      rows.push({
-        name: cat,
-        base: Math.min(running, next),
-        value: Math.abs(delta),
-        fill: delta < 0 ? getCategoryColor(cat) : "#34d399",
-      });
-      running = next;
-    }
-    rows.push({
-      name: "Net",
-      base: Math.min(0, running),
-      value: Math.abs(running),
-      fill: running >= 0 ? "#34d399" : "#f87171",
-    });
-    return { cur, prev, prevYear, rows };
+    const prev = hasPrev ? computeTotals(withCutoff(inYear(prevYear))) : null;
+    const curForCompare = cutoffMD ? computeTotals(withCutoff(curYearTxns)) : cur;
+
+    // Per-category totals for the selected year, split by income/expense so
+    // the toggle can show either side without mixing scales. Sorted by
+    // magnitude descending; tail beyond 9 grouped as "Other".
+    const buildBars = (predicate) => {
+      const map = new Map();
+      for (const t of curYearTxns) {
+        if (isTransfer(t.category) || !predicate(t.category)) continue;
+        map.set(t.category, (map.get(t.category) || 0) + (Number(t.amount) || 0));
+      }
+      const sorted = [...map.entries()]
+        .filter(([, v]) => v !== 0)
+        .sort((a, b) => Math.abs(b[1]) - Math.abs(a[1]));
+      const head = sorted.slice(0, 9);
+      const tailSum = sorted.slice(9).reduce((a, [, v]) => a + v, 0);
+      const bars = head.map(([name, value]) => ({ name, value: Math.abs(value), fill: getCategoryColor(name) }));
+      if (sorted.length > 9) bars.push({ name: "Other", value: Math.abs(tailSum), fill: getCategoryColor("Other") });
+      return bars;
+    };
+
+    return {
+      cur, prev, prevYear, isCurrentYear,
+      expenseBars: buildBars((c) => !isIncome(c)),
+      incomeBars: buildBars((c) => isIncome(c)),
+      curForCompare,
+    };
   }, [transactions, years, yr]);
 
   if (!review) return null;
-  const { cur, prev, prevYear, rows } = review;
+  const { cur, prev, prevYear, isCurrentYear, expenseBars, incomeBars, curForCompare } = review;
   const pct = (c, p) => (p ? ((c - p) / Math.abs(p)) * 100 : null);
   const fmtPct = (p) => (p == null ? "—" : `${p > 0 ? "+" : ""}${p.toFixed(0)}%`);
   const kpis = [
-    { lbl: "Income", val: cur.income, p: prev ? pct(cur.income, prev.income) : null, color: "#34d399", higherIsGood: true },
-    { lbl: "Expenses", val: cur.expenses, p: prev ? pct(-cur.expenses, -prev.expenses) : null, color: "#f87171", higherIsGood: false },
-    { lbl: "Net", val: cur.net, p: prev ? pct(cur.net, prev.net) : null, color: cur.net >= 0 ? "#34d399" : "#f87171", higherIsGood: true },
+    { lbl: "Income", val: cur.income, p: prev ? pct(curForCompare.income, prev.income) : null, color: "#34d399", higherIsGood: true },
+    { lbl: "Expenses", val: cur.expenses, p: prev ? pct(-curForCompare.expenses, -prev.expenses) : null, color: "#f87171", higherIsGood: false },
+    { lbl: "Net", val: cur.net, p: prev ? pct(curForCompare.net, prev.net) : null, color: cur.net >= 0 ? "#34d399" : "#f87171", higherIsGood: true },
   ];
+  const bars = view === "income" ? incomeBars : expenseBars;
 
   return (
     <div style={{ ...S.card, padding: 0, overflow: "hidden" }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 16px 0", flexWrap: "wrap", gap: 8 }}>
         <h3 style={{ ...S.sectionTitle, margin: 0 }}>Year in Review</h3>
-        <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
-          {years.slice(0, 6).map((y) => (
-            <button key={y} onClick={() => setYr(y)} style={S.togglePill(yr === y)}>
-              {y}
-            </button>
+        <select value={yr} onChange={(e) => setYr(e.target.value)} style={{ ...S.select, flex: "0 0 auto", width: "auto", padding: "6px 10px", colorScheme: "dark" }}>
+          {years.map((y) => (
+            <option key={y} value={y}>{y}</option>
           ))}
-        </div>
+        </select>
       </div>
       <div style={{ display: "flex", gap: 8, padding: "12px 16px 0" }}>
         {kpis.map(({ lbl, val, p, color, higherIsGood }) => (
@@ -4016,44 +4073,50 @@ function YearInReviewCard({ transactions, years, hideValues, fmtKFull }) {
             </div>
             {prev && !hideValues && (
               <div style={{ fontSize: 10, marginTop: 1, color: p == null ? "#6b7280" : (p > 0) === higherIsGood ? "#34d399" : "#f87171" }}>
-                {fmtPct(p)} vs {prevYear}
+                {fmtPct(p)} vs {isCurrentYear ? `${prevYear} YTD` : prevYear}
               </div>
             )}
           </div>
         ))}
       </div>
+      <div style={{ display: "flex", justifyContent: "flex-end", gap: 4, padding: "10px 16px 0" }}>
+        <button onClick={() => setView("expense")} style={S.togglePill(view === "expense")}>Expense</button>
+        <button onClick={() => setView("income")} style={S.togglePill(view === "income")}>Income</button>
+      </div>
       <div style={{ height: 280 }}>
-        <ResponsiveContainer width="100%" height="100%">
-          <BarChart data={rows} margin={{ top: 16, right: 16, left: 0, bottom: 40 }}>
-            <CartesianGrid vertical={false} stroke="rgba(255,255,255,0.05)" />
-            <XAxis
-              dataKey="name"
-              tick={{ fill: "#6b7280", fontSize: 9 }}
-              tickLine={false}
-              axisLine={false}
-              interval={0}
-              angle={-38}
-              textAnchor="end"
-            />
-            <YAxis tick={{ fill: "#6b7280", fontSize: 10 }} tickLine={false} axisLine={false} tickFormatter={fmtKFull} width={56} />
-            {!hideValues && (
-              <Tooltip
-                cursor={false}
-                formatter={(v, name) => (name === "value" ? [fmtKFull(v), "Amount"] : null)}
-                contentStyle={{ background: "#161a20", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 14, fontSize: 12, boxShadow: "0 8px 24px rgba(0,0,0,0.4)" }}
-                itemStyle={{ color: "#e5e7eb" }}
-                labelStyle={{ color: "#8b94a3" }}
+        {bars.length === 0 ? (
+          <Empty>No {view} categories for {yr}.</Empty>
+        ) : (
+          <ResponsiveContainer width="100%" height="100%">
+            <BarChart data={bars} margin={{ top: 16, right: 16, left: 0, bottom: 40 }}>
+              <CartesianGrid vertical={false} stroke="rgba(255,255,255,0.05)" />
+              <XAxis
+                dataKey="name"
+                tick={{ fill: "#6b7280", fontSize: 9 }}
+                tickLine={false}
+                axisLine={false}
+                interval={0}
+                angle={-38}
+                textAnchor="end"
               />
-            )}
-            {/* Invisible spacer that floats each bar at its running level */}
-            <Bar dataKey="base" stackId="wf" fill="transparent" isAnimationActive={false} />
-            <Bar dataKey="value" stackId="wf" isAnimationActive={false} radius={[3, 3, 0, 0]}>
-              {rows.map((r, i) => (
-                <Cell key={`wf-${i}`} fill={r.fill} />
-              ))}
-            </Bar>
-          </BarChart>
-        </ResponsiveContainer>
+              <YAxis tick={{ fill: "#6b7280", fontSize: 10 }} tickLine={false} axisLine={false} tickFormatter={fmtKFull} width={56} />
+              {!hideValues && (
+                <Tooltip
+                  cursor={false}
+                  formatter={(v) => [fmtKFull(v), "Amount"]}
+                  contentStyle={{ background: "#161a20", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 14, fontSize: 12, boxShadow: "0 8px 24px rgba(0,0,0,0.4)" }}
+                  itemStyle={{ color: "#e5e7eb" }}
+                  labelStyle={{ color: "#8b94a3" }}
+                />
+              )}
+              <Bar dataKey="value" isAnimationActive={false} radius={[3, 3, 0, 0]}>
+                {bars.map((r, i) => (
+                  <Cell key={`bar-${i}`} fill={r.fill} />
+                ))}
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
+        )}
       </div>
     </div>
   );
