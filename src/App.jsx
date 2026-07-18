@@ -1596,7 +1596,7 @@ function Header({ hideValues, onToggleHide, onLogout, saving, savedAt, dirty, sa
             <Wallet size={14} color="#fff" />
           </div>
           <span style={{ fontWeight: 700, fontSize: 15, letterSpacing: -0.5, color: "#e5e7eb" }}>Household</span>
-          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.31.5</span>
+          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.32.0</span>
         </div>
         <SaveIndicator saving={saving} dirty={dirty} savedAt={savedAt} saveError={saveError} />
       </div>
@@ -2053,14 +2053,15 @@ function Dashboard({ transactions, money, hideValues, isWide }) {
     return null; // "All" period — no cutoff
   }, [year, month]);
 
-  // M/M and Y/Y totals for the hero card (full months, no cutoff).
+  // M/M and Y/Y totals for the hero card, limited to the same day-of-month
+  // cutoff (MTD) as the selected period — same pattern as catChanges/sumCat.
   const heroComparisons = useMemo(() => {
     if (year === "All" || month === "All") return null;
     const prevMonthYear = month === "01" ? String(Number(year) - 1) : year;
     const prevMonthVal = month === "01" ? "12" : String(Number(month) - 1).padStart(2, "0");
     const prevYear = String(Number(year) - 1);
-    const mmTxns = transactions.filter((t) => matchPeriod(t.date, prevMonthYear, prevMonthVal) && (catFilter === "All" || t.category === catFilter));
-    const yyTxns = transactions.filter((t) => matchPeriod(t.date, prevYear, month) && (catFilter === "All" || t.category === catFilter));
+    const mmTxns = transactions.filter((t) => matchPeriod(t.date, prevMonthYear, prevMonthVal) && (catFilter === "All" || t.category === catFilter) && (cutoffDay === null || (t.date || "").slice(8, 10) <= cutoffDay));
+    const yyTxns = transactions.filter((t) => matchPeriod(t.date, prevYear, month) && (catFilter === "All" || t.category === catFilter) && (cutoffDay === null || (t.date || "").slice(8, 10) <= cutoffDay));
     const mm = computeTotals(mmTxns);
     const yy = computeTotals(yyTxns);
     const pct = (cur, base) => base === 0 ? null : ((cur - base) / Math.abs(base)) * 100;
@@ -2073,7 +2074,7 @@ function Dashboard({ transactions, money, hideValues, isWide }) {
       mmPctInc: pct(period.income, mm.income),
       yyPctInc: pct(period.income, yy.income),
     };
-  }, [transactions, year, month, period, catFilter]);
+  }, [transactions, year, month, period, catFilter, cutoffDay]);
 
   // Expenses by category for the selected period (up to cutoff day).
   const catExpenses = useMemo(() => {
