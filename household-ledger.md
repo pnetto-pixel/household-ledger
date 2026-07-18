@@ -1,4 +1,4 @@
-# Household Ledger · v1.38.0
+# Household Ledger · v1.39.0
 
 Aplicativo mobile-first de controle financeiro doméstico. Registra
 transações da casa (despesas e receitas) por categoria e conta, com
@@ -31,7 +31,34 @@ O `feature-auditor` deve conferir, como parte da checklist de auditoria, que
 o diff inclui o bump nos dois arquivos antes de aprovar — se faltar, isso é
 motivo de reprovação (devolver ao coder), não um detalhe opcional.
 
-Versão atual: **v1.38.0** — **Daily Heatmap na Home** (item 15 da análise de
+Versão atual: **v1.39.0** — **núcleo financeiro extraído + suite de testes +
+CI** (item "Suite de testes + CI" da Fase 7 do Roadmap): novo
+**`src/ledger.js`** com os helpers **puros e stateless** movidos (não
+copiados) do `App.jsx`: `TRANSFER_CATEGORY`, `computeTotalsCore` (núcleo do
+`computeTotals`; o wrapper no App injeta o `INCOME_CATEGORIES` runtime),
+`matchPeriod`, `availableYears`, `bucketKey`/`bucketLabel`,
+`ckCategoryToken`/`mapCkCategory`, `descriptionRuleMatches`/
+`findMatchingDescriptionRule`/`matchDescriptionCategoryRule`/
+`computeDescriptionRuleConflicts`, `normAccount`/`matchAccountWithAliases`
+(agora recebe `accounts` como parâmetro — os 3 call sites passam o
+`ACCOUNTS` runtime), e o pipeline de dedup completo
+(`txnFingerprint`/`descOverlap`/`dateToDayInt`/`markDuplicates`). O estado
+de módulo runtime-configurável (listas, aliases, CK map, rules, `buildRow`)
+**permanece no App.jsx** — só a parte pura saiu. Novo
+**`src/ledger.test.js`** (Vitest, 24 testes) cobrindo os invariantes que já
+quebraram na v1.5.10: soma sinalizada com `net = income + expenses`,
+bucket de despesa dominado por refund fica positivo, Transfer excluído de
+todos os totais, precedência Transfer/Payment no `mapCkCategory`,
+"primeira regra vence" nas Description rules com `providerPattern` AND,
+match exato > alias > vazio nas contas, e o dedup híbrido
+(sourceId/fingerprint/fuzzy ±2 dias). **`vitest` adicionado como
+devDependency** (sancionado pelo item do Roadmap; `npm test` = `vitest
+run`) e novo workflow **`.github/workflows/ci.yml`** (push/PR → `npm ci`,
+`npm test`, `npm run build`). `package.json.version` sincronizado (estava
+parado em 1.30.0). Comportamento do app inalterado — refactor + testes.
+(PR #195, branch `claude/ledger-helpers-tests`.)
+
+Versão anterior: **v1.38.0** — **Daily Heatmap na Home** (item 15 da análise de
 produto de 2026-07-18): novo card `DailyHeatmapCard` entre o Daily Spending
 Pace e o "by Category", visível só com ano+mês selecionados e quando o mês
 tem algum gasto. Grade-calendário estilo GitHub (7 colunas, semana começa no
