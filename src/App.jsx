@@ -1706,7 +1706,7 @@ function Header({ hideValues, onToggleHide, onLogout, saving, savedAt, dirty, sa
             <Wallet size={14} color="#fff" />
           </div>
           <span style={{ fontWeight: 700, fontSize: 15, letterSpacing: -0.5, color: "#e5e7eb" }}>Household</span>
-          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.44.4</span>
+          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.44.5</span>
         </div>
         <SaveIndicator saving={saving} dirty={dirty} savedAt={savedAt} saveError={saveError} />
       </div>
@@ -2640,53 +2640,67 @@ function DailyHeatmapCard({ scoped, hideValues, isWide }) {
         <span style={{ fontSize: 10, color: "#6b7280" }}>avg / day, {monthCount} mo</span>
       </div>
       {isWide ? (
-        <>
-          <div style={{ display: "flex", alignItems: "flex-end", gap: 3, height: 110 }}>
-            {days.map((d) => {
-              const spend = byDay.get(d) || 0;
-              const h = max > 0 ? Math.max(spend > 0 ? 3 : 1, (spend / max) * 100) : 1;
-              return (
-                <div
-                  key={`bar-${d}`}
-                  onClick={() => spend && toggleDay(d)}
-                  style={{
-                    flex: 1,
-                    height: "100%",
-                    display: "flex",
-                    alignItems: "flex-end",
-                    cursor: spend ? "pointer" : "default",
-                  }}
-                >
-                  <div
-                    style={{
-                      width: "100%",
-                      height: `${h}%`,
-                      borderRadius: "3px 3px 0 0",
-                      background: cellBg(spend),
-                      outline: activeDay === d ? "1px solid rgba(255,255,255,0.5)" : "none",
-                    }}
-                  />
-                </div>
-              );
-            })}
-          </div>
-          <div style={{ display: "flex", gap: 3, marginTop: 4 }}>
-            {days.map((d) => (
-              <div
-                key={`lbl-${d}`}
-                style={{
-                  flex: 1,
-                  textAlign: "center",
-                  fontSize: 9,
-                  color: d === activeDay ? "#e5e7eb" : "#6b7280",
-                  fontWeight: d === activeDay ? 700 : 400,
-                }}
-              >
-                {d === 1 || d % 5 === 0 ? d : ""}
-              </div>
+        <div style={{ display: "flex", gap: 6 }}>
+          <div style={{ display: "flex", flexDirection: "column", justifyContent: "space-between", height: 110, width: 34, textAlign: "right" }}>
+            {[max, max / 2, 0].map((v, i) => (
+              <span key={i} style={{ fontSize: 9, color: "#6b7280", lineHeight: 1 }}>
+                {hideValues ? "•••" : usd0.format(v)}
+              </span>
             ))}
           </div>
-        </>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ position: "relative", display: "flex", alignItems: "flex-end", gap: 2, height: 110 }}>
+              <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", justifyContent: "space-between", pointerEvents: "none" }}>
+                <div style={{ borderTop: "1px solid rgba(255,255,255,0.06)" }} />
+                <div style={{ borderTop: "1px solid rgba(255,255,255,0.06)" }} />
+                <div style={{ borderTop: "1px solid rgba(255,255,255,0.06)" }} />
+              </div>
+              {days.map((d) => {
+                const spend = byDay.get(d) || 0;
+                const h = max > 0 ? Math.max(spend > 0 ? 3 : 1, (spend / max) * 100) : 1;
+                return (
+                  <div
+                    key={`bar-${d}`}
+                    onClick={() => spend && toggleDay(d)}
+                    style={{
+                      flex: 1,
+                      height: "100%",
+                      display: "flex",
+                      alignItems: "flex-end",
+                      cursor: spend ? "pointer" : "default",
+                    }}
+                  >
+                    <div
+                      style={{
+                        width: "100%",
+                        height: `${h}%`,
+                        borderRadius: "3px 3px 0 0",
+                        background: cellBg(spend),
+                        outline: activeDay === d ? "1px solid rgba(255,255,255,0.5)" : "none",
+                      }}
+                    />
+                  </div>
+                );
+              })}
+            </div>
+            <div style={{ display: "flex", gap: 2, marginTop: 4 }}>
+              {days.map((d) => (
+                <div
+                  key={`lbl-${d}`}
+                  style={{
+                    flex: 1,
+                    textAlign: "center",
+                    fontSize: 8,
+                    color: d === activeDay ? "#e5e7eb" : "#6b7280",
+                    fontWeight: d === activeDay ? 700 : 400,
+                  }}
+                >
+                  {d}
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
       ) : (
         <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap: 4 }}>
           {days.map((d) => {
