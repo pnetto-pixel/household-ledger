@@ -1,4 +1,4 @@
-# Household Ledger · v1.34.0
+# Household Ledger · v1.35.0
 
 Aplicativo mobile-first de controle financeiro doméstico. Registra
 transações da casa (despesas e receitas) por categoria e conta, com
@@ -31,7 +31,34 @@ O `feature-auditor` deve conferir, como parte da checklist de auditoria, que
 o diff inclui o bump nos dois arquivos antes de aprovar — se faltar, isso é
 motivo de reprovação (devolver ao coder), não um detalhe opcional.
 
-Versão atual: **v1.34.0** — o card **`MonthlyBarCard`** (tab Trends) ganhou um
+Versão atual: **v1.35.0** — **pacote de confiabilidade e segurança, fatia 2**
+(itens 1, 2, 3, 9 e 12 da análise técnica de 2026-07-18): (1) **fix de perda
+de dado silenciosa no save**: `save()` fazia `setDirty(false)` antes do
+fetch e o `catch` não restaurava — um PUT que falhasse (500, queda de rede
+com `navigator.onLine` ainda true) deixava a mudança órfã, invisível para o
+retry-on-online e para o flush de `pagehide`; agora o `catch` faz
+`setDirty(true)`. (2) **CAS atômico no PUT de `/api/transactions`**: a
+checagem otimista "GET savedAt → compara → SET" virou um script Lua único
+(`CAS_PUT_SCRIPT`, `redis.eval`) — elimina a janela em que dois devices
+passavam na checagem e o segundo sobrescrevia sem 409; clients sem
+`expectedSavedAt` mantêm last-write-wins (back-compat); `''` representa
+savedAt nulo/legado no script. (3) **validação server-side do ledger**
+(`findInvalidRow`): todo item do PUT precisa de `date` `YYYY-MM-DD` e
+`amount` numérico finito, senão 400 — defesa em profundidade contra um
+client bugado regravar o blob inteiro com lixo. (4) **rate-limit de senha**
+em `lib/auth.js`: >20 falhas/IP/60s → 429 (contador `household:authfail:<ip>`
+via INCR+EX no Redis, fail-open se o Redis cair). (5) **headers de
+segurança** no `vercel.json`: HSTS, `X-Content-Type-Options: nosniff`,
+`Referrer-Policy: no-referrer`, `Permissions-Policy` e CSP (`script-src
+'self'`; `style-src 'unsafe-inline'` necessário para os estilos inline do
+objeto `S`; `frame-ancestors 'none'`) — build verificado sem scripts
+inline. (6) **enforcement server-side** do débito do PR #135:
+`sanitize()` em `api/category-description-rules.js` agora só persiste
+`allowTransferOverride: true` acompanhado de `providerPattern` não-vazio.
+Sem mudança de contrato/formato Redis; 409/400/429 são as únicas respostas
+novas. (PR #191, branch `claude/reliability-security-pack`.)
+
+Versão anterior: **v1.34.0** — o card **`MonthlyBarCard`** (tab Trends) ganhou um
 terceiro toggle **Net**, ao lado de Expense/Income (`S.togglePill`, mesmo
 padrão). No modo Net, `dataKey` vira `"net"` (`income - expenses` calculado
 por bucket a partir do `byBucket` já recebido do pai, que já exclui
