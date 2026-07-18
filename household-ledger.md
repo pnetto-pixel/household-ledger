@@ -1,4 +1,4 @@
-# Household Ledger · v1.33.0
+# Household Ledger · v1.34.0
 
 Aplicativo mobile-first de controle financeiro doméstico. Registra
 transações da casa (despesas e receitas) por categoria e conta, com
@@ -31,7 +31,20 @@ O `feature-auditor` deve conferir, como parte da checklist de auditoria, que
 o diff inclui o bump nos dois arquivos antes de aprovar — se faltar, isso é
 motivo de reprovação (devolver ao coder), não um detalhe opcional.
 
-Versão atual: **v1.33.0** — o card **"Daily Spending Pace"** (Home) ganhou um
+Versão atual: **v1.34.0** — o card **`MonthlyBarCard`** (tab Trends) ganhou um
+terceiro toggle **Net**, ao lado de Expense/Income (`S.togglePill`, mesmo
+padrão). No modo Net, `dataKey` vira `"net"` (`income - expenses` calculado
+por bucket a partir do `byBucket` já recebido do pai, que já exclui
+`Transfer`); cada barra é colorida por sinal (verde `#34d399` ≥ 0, vermelho
+`#f87171` < 0) via `<Cell>` por barra em vez de `fill` estático (import de
+`Cell` adicionado aos imports do `recharts`). Eixo Y e labels de topo de
+barra usam `fmtKTooltip` (formatter com sinal) em vez de `fmtK` (que usa
+`Math.abs`) quando `view === "net"`; Expense/Income continuam usando `fmtK`
+sem mudança. Limitação conhecida: `radius={[4,4,0,0]}` continua fixo
+arredondando o topo mesmo em barras negativas (fica visualmente invertido);
+não foi tratado por ser puramente cosmético e fora do escopo definido.
+
+Versão anterior: **v1.33.0** — o card **"Daily Spending Pace"** (Home) ganhou um
 toggle **Income | Expense** (`S.togglePill`, mesmo padrão já usado no
 `MonthlyBarCard`/`CategoryStackedBarCard`), default **Expense** (preserva o
 comportamento original ao carregar a Home). Novo estado `paceView`

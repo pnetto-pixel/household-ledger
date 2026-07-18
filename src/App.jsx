@@ -52,6 +52,7 @@ import {
   Area,
   ReferenceLine,
   LabelList,
+  Cell,
 } from "recharts";
 import Papa from "papaparse";
 
@@ -1596,7 +1597,7 @@ function Header({ hideValues, onToggleHide, onLogout, saving, savedAt, dirty, sa
             <Wallet size={14} color="#fff" />
           </div>
           <span style={{ fontWeight: 700, fontSize: 15, letterSpacing: -0.5, color: "#e5e7eb" }}>Household</span>
-          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.33.0</span>
+          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.34.0</span>
         </div>
         <SaveIndicator saving={saving} dirty={dirty} savedAt={savedAt} saveError={saveError} />
       </div>
@@ -2418,9 +2419,18 @@ function MonthlyBarCard({ byBucket, hideValues, fmtK, fmtKTooltip, fmtBucketLabe
   const [view, setView] = useState("expense");
 
   const isInc = view === "income";
-  const dataKey = isInc ? "income" : "expenses";
-  const barColor = isInc ? "#06B6D4" : "#F97316";
-  const cardTitle = isInc ? "Income" : "Expense";
+  const isNet = view === "net";
+  const dataKey = isNet ? "net" : isInc ? "income" : "expenses";
+  const barColor = isNet ? "#34d399" : isInc ? "#06B6D4" : "#F97316";
+  const cardTitle = isNet ? "Net" : isInc ? "Income" : "Expense";
+  const axisFmt = isNet ? (fmtKTooltip || fmtK) : fmtK;
+
+  // Net view needs a per-bucket `net = income - expenses` field, and each
+  // bar colored by sign (green ≥ 0, red < 0) rather than a single static fill.
+  const chartData = useMemo(() => {
+    if (!isNet) return byBucket;
+    return byBucket.map((row) => ({ ...row, net: (row.income || 0) - (row.expenses || 0) }));
+  }, [byBucket, isNet]);
 
   return (
     <div style={{ ...S.card, padding: 0, overflow: "hidden" }}>
@@ -2439,6 +2449,12 @@ function MonthlyBarCard({ byBucket, hideValues, fmtK, fmtKTooltip, fmtBucketLabe
           >
             Income
           </button>
+          <button
+            onClick={() => setView("net")}
+            style={S.togglePill(view === "net")}
+          >
+            Net
+          </button>
         </div>
       </div>
       <div style={{ height: 260 }}>
@@ -2446,10 +2462,10 @@ function MonthlyBarCard({ byBucket, hideValues, fmtK, fmtKTooltip, fmtBucketLabe
           <Empty>No data to chart yet.</Empty>
         ) : (
           <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={byBucket} margin={{ top: 24, right: 16, left: 0, bottom: 0 }}>
+            <BarChart data={chartData} margin={{ top: 24, right: 16, left: 0, bottom: 0 }}>
               <CartesianGrid vertical={false} stroke="rgba(255,255,255,0.05)" />
               <XAxis dataKey="bucket" tick={{ fill: "#6b7280", fontSize: 10 }} tickLine={false} axisLine={false} tickFormatter={fmtBucketLabel} />
-              <YAxis tick={{ fill: "#6b7280", fontSize: 10 }} tickLine={false} axisLine={false} tickFormatter={fmtK} width={56} />
+              <YAxis tick={{ fill: "#6b7280", fontSize: 10 }} tickLine={false} axisLine={false} tickFormatter={axisFmt} width={56} />
               {!hideValues && (
                 <Tooltip
                   cursor={false}
@@ -2457,14 +2473,18 @@ function MonthlyBarCard({ byBucket, hideValues, fmtK, fmtKTooltip, fmtBucketLabe
                   content={<ChartTooltip fmtValue={fmtKTooltip || fmtK} formatLabel={fmtBucketLabel} />}
                 />
               )}
-              <Bar dataKey={dataKey} name={isInc ? "Income" : "Expenses"} fill={barColor} radius={[4, 4, 0, 0]} activeBar={{ fill: barColor, opacity: 0.75 }}>
+              <Bar dataKey={dataKey} name={isNet ? "Net" : isInc ? "Income" : "Expenses"} fill={barColor} radius={[4, 4, 0, 0]} activeBar={{ fill: barColor, opacity: 0.75 }}>
+                {isNet &&
+                  chartData.map((row, i) => (
+                    <Cell key={`net-cell-${i}`} fill={row.net >= 0 ? "#34d399" : "#f87171"} />
+                  ))}
                 <LabelList
                   dataKey={dataKey}
                   position="top"
                   content={({ x, y, width, value }) =>
                     hideValues || !value ? null : (
                       <text x={x + width / 2} y={y - 4} textAnchor="middle" fill="#6b7280" fontSize={10}>
-                        {fmtK(value)}
+                        {axisFmt(value)}
                       </text>
                     )
                   }
