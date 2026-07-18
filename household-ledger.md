@@ -1,4 +1,4 @@
-# Household Ledger · v1.35.0
+# Household Ledger · v1.36.0
 
 Aplicativo mobile-first de controle financeiro doméstico. Registra
 transações da casa (despesas e receitas) por categoria e conta, com
@@ -31,7 +31,33 @@ O `feature-auditor` deve conferir, como parte da checklist de auditoria, que
 o diff inclui o bump nos dois arquivos antes de aprovar — se faltar, isso é
 motivo de reprovação (devolver ao coder), não um detalhe opcional.
 
-Versão atual: **v1.35.0** — **pacote de confiabilidade e segurança, fatia 2**
+Versão atual: **v1.36.0** — **pacote de features do Dashboard** (itens 4, 5 e
+8 da análise de produto de 2026-07-18): (1) **Projeção de fim de mês no
+Daily Pace**: `dashboardPaceData` agora retorna `projectedTotal`
+(extrapolação linear `curRunning / todayDay × daysInCur`, só quando o mês
+selecionado é o corrente) e `prevTotal` (total fechado do mês anterior); o
+`DailyPaceCard` exibe uma linha "Projected {mês}: $X.XK · {mês anterior}:
+$Y.YK" abaixo da legenda, com cor por direção (despesa acima do mês
+anterior = vermelho; income acima = verde), oculta com `hideValues`. (2)
+**Budgets reintroduzidos como bullet bars**: o endpoint `api/budgets.js`
+(órfão desde o PR #8) volta a ter UI — novo estado `budgets` no App
+(load/save no padrão `loadAccountMap`), seção **"Monthly budgets"**
+(`BudgetsSection`, `CollapsibleCard`) na tab Settings com um input numérico
+por categoria de despesa e botão "Save budgets" (persiste só valores > 0), e
+novo card **Budgets** (`BudgetsCard`) na Home entre "by Category" e "All
+Time": para cada categoria com orçamento, barra bullet com preenchimento
+`spent/budget`, **marcador de pace** (linha branca em
+`cutoffDay/daysInMonth` — onde o gasto "deveria" estar no dia atual; mês
+passado = fim da barra) e cor por estado (verde no pace, âmbar >10 pts à
+frente do pace, vermelho estourado); refunds que zeram o balde contam como
+0 gasto; respeita `hideValues` via `money`. (3) **Badge de anomalia** no "by
+Category" (`AnomalyBadge`): quando o gasto MTD da categoria já atinge
+≥1.5× a média `avg12m` (média de mês cheio — comparação deliberadamente
+conservadora, sem prorata), badge âmbar "⚠ N.N× avg" ao lado dos M/M-Y/Y.
+Sem mudança de API/Redis/modelo de transação. (PR #192, branch
+`claude/dashboard-pace-budgets-anomalies`.)
+
+Versão anterior: **v1.35.0** — **pacote de confiabilidade e segurança, fatia 2**
 (itens 1, 2, 3, 9 e 12 da análise técnica de 2026-07-18): (1) **fix de perda
 de dado silenciosa no save**: `save()` fazia `setDirty(false)` antes do
 fetch e o `catch` não restaurava — um PUT que falhasse (500, queda de rede

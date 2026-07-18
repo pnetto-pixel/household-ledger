@@ -919,6 +919,40 @@ export default function App() {
     });
   }, []);
 
+  // ---- Budgets load / save ---------------------------------------------------
+  // Monthly limits per expense category: { [category]: number }. The
+  // /api/budgets endpoint predates this UI (the old Budgets section left the
+  // app in PR #8); reintroduced as bullet bars on Home + editor in Settings.
+  const [budgets, setBudgets] = useState({});
+
+  const loadBudgets = useCallback(async () => {
+    try {
+      const res = await fetch("/api/budgets", {
+        method: "GET",
+        headers: buildAuthHeaders(),
+      });
+      if (!res.ok) return;
+      const data = await res.json();
+      if (data.budgets && typeof data.budgets === "object") setBudgets(data.budgets);
+    } catch {
+      // Silently ignore — budgets are non-critical.
+    }
+  }, []);
+
+  useEffect(() => {
+    if (authed) loadBudgets();
+  }, [authed, loadBudgets]);
+
+  // Optimistic local update + persist the full map.
+  const saveBudgets = useCallback((next) => {
+    setBudgets(next);
+    fetch("/api/budgets", {
+      method: "PUT",
+      headers: buildAuthHeaders(),
+      body: JSON.stringify({ budgets: next }),
+    }).catch(() => {});
+  }, []);
+
   // ---- CK category map load / save ------------------------------------------
   const [ckCategoryMap, setCkCategoryMap] = useState(() => currentCkCategoryMapConfig());
 
@@ -1410,7 +1444,7 @@ export default function App() {
         {loading ? (
           <div style={S.center}>Loading…</div>
         ) : tab === "home" ? (
-          <Dashboard transactions={transactions} money={money} hideValues={hideValues} isWide={isWide} />
+          <Dashboard transactions={transactions} money={money} hideValues={hideValues} isWide={isWide} budgets={budgets} />
         ) : tab === "transactions" ? (
           <Transactions
             transactions={transactions}
@@ -1454,6 +1488,8 @@ export default function App() {
             onReorderAccounts={reorderAccounts}
             onReorderCategories={reorderCategories}
             onRestoreTransactions={restoreTransactions}
+            budgets={budgets}
+            onSaveBudgets={saveBudgets}
           />
         ) : (
           <Charts transactions={transactions} hideValues={hideValues} config={config} isWide={isWide} />
@@ -1602,7 +1638,7 @@ function Header({ hideValues, onToggleHide, onLogout, saving, savedAt, dirty, sa
             <Wallet size={14} color="#fff" />
           </div>
           <span style={{ fontWeight: 700, fontSize: 15, letterSpacing: -0.5, color: "#e5e7eb" }}>Household</span>
-          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.35.0</span>
+          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.36.0</span>
         </div>
         <SaveIndicator saving={saving} dirty={dirty} savedAt={savedAt} saveError={saveError} />
       </div>
@@ -1995,7 +2031,7 @@ function SingleCategoryFilter({ value, options, setValue, isWide }) {
 // Dashboard
 // ===========================================================================
 
-function Dashboard({ transactions, money, hideValues, isWide }) {
+function Dashboard({ transactions, money, hideValues, isWide, budgets }) {
   // Default the period to the current month.
   const [year, setYear] = useState(() => todayISO().slice(0, 4));
   const [month, setMonth] = useState(() => todayISO().slice(5, 7));
@@ -2221,11 +2257,19 @@ function Dashboard({ transactions, money, hideValues, isWide }) {
       const [y, m] = key.split("-").map(Number);
       return new Date(y, m - 1, 1).toLocaleString("default", { month: "short" }) + "/" + String(y).slice(2);
     };
+    // End-of-month projection: extrapolate the current cumulative total by
+    // average daily pace so far. Only meaningful when viewing the current
+    // (partial) month — a past month is already complete.
+    const isCurrentMonth = curMonthKey === todayMonth;
+    const projectedTotal =
+      isCurrentMonth && todayDay > 0 ? (curRunning / todayDay) * daysInCur : null;
     return {
       data,
       curLabel: monthLabel(curMonthKey),
       prevLabel: monthLabel(prevMonthKey),
-      todayDay: curMonthKey === todayMonth ? todayDay : null,
+      todayDay: isCurrentMonth ? todayDay : null,
+      projectedTotal,
+      prevTotal: prevRunning,
     };
   }, [transactions, year, month, catFilter, paceView]);
 
@@ -2334,6 +2378,7 @@ function Dashboard({ transactions, money, hideValues, isWide }) {
                       <div style={{ display: "flex", gap: 5, marginTop: 4, flexWrap: "wrap" }}>
                         <ChangeBadge label="M/M" pct={changes.mm} hideValues={hideValues} />
                         <ChangeBadge label="Y/Y" pct={changes.yy} hideValues={hideValues} />
+                        <AnomalyBadge total={total} avg12m={changes.avg12m} hideValues={hideValues} />
                       </div>
                     </div>
                     {/* Amount + reference totals */}
@@ -2355,6 +2400,19 @@ function Dashboard({ transactions, money, hideValues, isWide }) {
         </>
       )}
 
+      {/* Budgets — bullet bars for the selected month (set in Settings) */}
+      {year !== "All" && month !== "All" && (
+        <BudgetsCard
+          budgets={budgets}
+          catExpenses={catExpenses}
+          cutoffDay={cutoffDay}
+          year={year}
+          month={month}
+          money={money}
+          hideValues={hideValues}
+        />
+      )}
+
       {/* All Time chips — moved to end of page */}
       <h3 style={S.sectionTitle}>All Time</h3>
       <div style={S.cardRow}>
@@ -2374,6 +2432,77 @@ function StatCard({ label, value, accent, small }) {
         {value}
       </div>
     </div>
+  );
+}
+
+// Bullet-style budget bars for the selected month. For each category with a
+// budget set (Settings → Monthly budgets): filled bar = spent/budget, thin
+// white marker = where spend "should" be at the current day of the month
+// (cutoffDay/daysInMonth — full month for past periods). Green on pace,
+// amber when >10 pts ahead of pace, red when over budget.
+function BudgetsCard({ budgets, catExpenses, cutoffDay, year, month, money, hideValues }) {
+  const entries = Object.entries(budgets || {}).filter(([, v]) => Number(v) > 0);
+  if (entries.length === 0) return null;
+  const spentBy = new Map(catExpenses);
+  const daysInMonth = new Date(Number(year), Number(month), 0).getDate();
+  const pacePos = cutoffDay != null ? Math.min(Number(cutoffDay) / daysInMonth, 1) : 1;
+  const rows = entries
+    .map(([cat, limit]) => {
+      const raw = spentBy.get(cat) || 0;
+      const spent = raw < 0 ? -raw : 0; // refunds can push a bucket ≥ 0 → nothing spent
+      const budget = Number(limit);
+      return { cat, budget, spent, pct: spent / budget };
+    })
+    .sort((a, b) => b.pct - a.pct);
+  return (
+    <>
+      <h3 style={S.sectionTitle}>Budgets</h3>
+      <div style={{ ...S.card, padding: "14px 16px", display: "flex", flexDirection: "column", gap: 12 }}>
+        {rows.map(({ cat, budget, spent, pct }) => {
+          const over = pct > 1;
+          const ahead = pct > pacePos + 0.1;
+          const barColor = over ? "#f87171" : ahead ? "#fbbf24" : "#34d399";
+          return (
+            <div key={cat}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 5, gap: 8 }}>
+                <span style={{ fontSize: 12, color: "#e5e7eb", fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{cat}</span>
+                <span style={{ fontSize: 11, color: over ? "#f87171" : "#8b94a3", whiteSpace: "nowrap" }}>
+                  {money(spent)} / {money(budget)}
+                  {!hideValues && (
+                    <span style={{ fontWeight: 700, color: barColor, marginLeft: 6 }}>{Math.round(pct * 100)}%</span>
+                  )}
+                </span>
+              </div>
+              <div style={{ position: "relative", height: 6, borderRadius: 3, background: "rgba(255,255,255,0.08)" }}>
+                <div style={{ position: "absolute", left: 0, top: 0, height: "100%", width: `${Math.min(pct, 1) * 100}%`, borderRadius: 3, background: barColor }} />
+                <div style={{ position: "absolute", left: `calc(${pacePos * 100}% - 1px)`, top: -2, width: 2, height: 10, background: "rgba(255,255,255,0.45)", borderRadius: 1 }} />
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </>
+  );
+}
+
+// Amber warning badge when the period's spend in a category is already at
+// least 1.5× its 12-month full-month average — an early anomaly signal.
+// Conservative on purpose: `total` is month-to-date while `avg12m` is a
+// full-month average, so no prorating guesswork and no false alarms early
+// in the month. Both values are signed (expenses negative).
+function AnomalyBadge({ total, avg12m, hideValues }) {
+  if (hideValues) return null;
+  if (avg12m == null || avg12m >= 0 || total >= 0) return null;
+  const ratio = total / avg12m; // both negative → positive ratio
+  if (ratio < 1.5) return null;
+  return (
+    <span style={{
+      fontSize: 9, fontWeight: 700, color: "#fbbf24",
+      background: "rgba(251,191,36,0.12)", border: "1px solid rgba(251,191,36,0.35)",
+      borderRadius: 5, padding: "1px 5px", whiteSpace: "nowrap",
+    }}>
+      ⚠ {ratio.toFixed(1)}× avg
+    </span>
   );
 }
 
@@ -2599,9 +2728,17 @@ function ChartTooltip({ active, payload, label, mode = "currency", fmtValue, for
 
 function DailyPaceCard({ paceData, hideValues, fmtK, paceView, setPaceView }) {
   if (!paceData || paceData.data.length === 0) return null;
-  const { data, curLabel, prevLabel, todayDay } = paceData;
+  const { data, curLabel, prevLabel, todayDay, projectedTotal, prevTotal } = paceData;
   const isInc = paceView === "income";
   const curColor = isInc ? "#06B6D4" : "#F97316";
+  // Projection vs last month: for expenses, tracking higher is bad (red);
+  // for income, higher is good (green).
+  const projColor =
+    projectedTotal == null || !prevTotal
+      ? "#8b94a3"
+      : (projectedTotal > prevTotal) === isInc
+      ? "#34d399"
+      : "#f87171";
 
   return (
     <>
@@ -2634,6 +2771,13 @@ function DailyPaceCard({ paceData, hideValues, fmtK, paceView, setPaceView }) {
             {prevLabel}
           </span>
         </div>
+        {projectedTotal != null && !hideValues && (
+          <div style={{ textAlign: "center", fontSize: 11, color: "#8b94a3", paddingTop: 6 }}>
+            Projected {curLabel}:{" "}
+            <span style={{ fontWeight: 700, color: projColor }}>{fmtK(projectedTotal)}</span>
+            {prevTotal > 0 && <> · {prevLabel}: {fmtK(prevTotal)}</>}
+          </div>
+        )}
         <div style={{ height: 220 }}>
           <ResponsiveContainer width="100%" height="100%">
             <AreaChart data={data} margin={{ top: 8, right: 16, left: 0, bottom: 4 }}>
@@ -5459,6 +5603,62 @@ function SuggestedRulesSection({ suggestedFragments, suggestedTokens, suggestedC
   );
 }
 
+// Settings editor for the monthly budgets map ({ [category]: number }).
+// Draft is local; "Save budgets" persists only positive numeric values.
+function BudgetsSection({ budgets, expenseCategories, onSave }) {
+  const [draft, setDraft] = useState(() => ({ ...(budgets || {}) }));
+  const [dirty, setDirty] = useState(false);
+  useEffect(() => {
+    setDraft({ ...(budgets || {}) });
+    setDirty(false);
+  }, [budgets]);
+  const setVal = (cat, v) => {
+    setDraft((d) => ({ ...d, [cat]: v }));
+    setDirty(true);
+  };
+  const handleSave = () => {
+    const clean = {};
+    for (const cat of expenseCategories) {
+      const n = parseFloat(draft[cat]);
+      if (Number.isFinite(n) && n > 0) clean[cat] = n;
+    }
+    onSave(clean);
+    setDirty(false);
+  };
+  const count = Object.values(budgets || {}).filter((v) => Number(v) > 0).length;
+  return (
+    <CollapsibleCard title="Monthly budgets" badge={count}>
+      <div style={{ fontSize: 11, color: "#8b94a3", marginBottom: 10 }}>
+        Monthly spending limit per expense category — leave empty for no
+        budget. Categories with a budget show bullet bars on the Home tab for
+        the selected month.
+      </div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+        {expenseCategories.map((cat) => (
+          <div key={cat} style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <span style={{ flex: 1, fontSize: 13, color: "#e5e7eb", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{cat}</span>
+            <input
+              type="number"
+              min="0"
+              step="10"
+              inputMode="decimal"
+              placeholder="—"
+              value={draft[cat] ?? ""}
+              onChange={(e) => setVal(cat, e.target.value)}
+              style={{ ...S.input, width: 110, textAlign: "right" }}
+            />
+          </div>
+        ))}
+      </div>
+      {dirty && (
+        <button onClick={handleSave} style={{ ...S.primaryBtn, marginTop: 12 }}>
+          Save budgets
+        </button>
+      )}
+    </CollapsibleCard>
+  );
+}
+
 function SettingsTab({
   transactions, accountMap, accountAliases, onSaveAccountAliases,
   dismissedSuggestions, onDismissSuggestion,
@@ -5470,6 +5670,7 @@ function SettingsTab({
   onAddCategory, onRenameCategory, onDeleteCategory,
   onReorderAccounts, onReorderCategories,
   onRestoreTransactions,
+  budgets, onSaveBudgets,
 }) {
   const usage = useMemo(() => {
     const acc = {}, cat = {};
@@ -5544,6 +5745,11 @@ function SettingsTab({
         transactions={transactions}
         accountMap={accountMap}
         onSave={onSaveAccountMap}
+      />
+      <BudgetsSection
+        budgets={budgets}
+        expenseCategories={config.expenseCategories}
+        onSave={onSaveBudgets}
       />
       <CollapsibleCard
         title="Accounts & Categories"
