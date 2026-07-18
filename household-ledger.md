@@ -1,4 +1,4 @@
-# Household Ledger · v1.44.5
+# Household Ledger · v1.44.6
 
 Aplicativo mobile-first de controle financeiro doméstico. Registra
 transações da casa (despesas e receitas) por categoria e conta, com
@@ -31,7 +31,24 @@ O `feature-auditor` deve conferir, como parte da checklist de auditoria, que
 o diff inclui o bump nos dois arquivos antes de aprovar — se faltar, isso é
 motivo de reprovação (devolver ao coder), não um detalhe opcional.
 
-Versão atual: **v1.44.5** — **ui: Daily Spend Pattern (desktop) ganha eixo Y
+Versão atual: **v1.44.6** — **ui: data labels no Year in Review + fix de
+formatação de valores < $1K** (PR #207, merge squash `968995a`). Duas
+mudanças em `src/App.jsx`: (1) `YearInReviewCard` ganhou `<LabelList>` no
+`Bar dataKey="value"` do waterfall, mesmo padrão visual do `MonthlyBarCard`
+(texto cinza, `fontSize: 10`, posição "top", respeita `hideValues`) — antes
+era o único gráfico de barras "principal" da tab Charts sem rótulo de valor
+sobre a barra; (2) as 4 funções de formatação compacta "K" usadas pelos
+cards de gráfico (`Charts.fmtK`/`Charts.fmtKFull` — `MonthlyBarCard`,
+`CategoryStackedBarCard`, `MonthlyAvgByCategoryCard`, agora também
+`YearInReviewCard`; `Dashboard.fmtK` — `DailyPaceCard`; e
+`Transactions.moneyShortK` — pills de resumo da barra de auditoria) passam
+a exibir valores com `|valor| < 1000` como inteiro em dólar sem casas
+decimais e sem sufixo "K" (ex.: `$123` em vez de `$0.1K`); valores ≥ $1000
+continuam no formato `$X.XK`. `DailyHeatmapCard` não foi tocado (usa dólar
+cheio via `usd0`, fora do bug). Só `src/App.jsx` alterado; sem mudança de
+API/Redis/modelo de transação.
+
+Versão anterior: **v1.44.5** — **ui: Daily Spend Pattern (desktop) ganha eixo Y
 e rótulo em todos os 31 dias**. Como as barras do bar-sparkline (v1.44.3)
 têm espaço de sobra, a coluna de rótulos abaixo das barras passou a mostrar
 o número de todos os dias (não mais só a cada 5), e uma coluna de eixo Y à
@@ -180,9 +197,12 @@ Implementado com o padrão de barra flutuante do recharts: `Bar` invisível
 `base` + `Bar` `value` empilhados (`stackId`), `Cell` por barra usando
 `getCategoryColor`; categorias com refund líquido positivo sobem (delta
 sinalizado, nunca `Math.abs` na agregação — invariante preservada via
-`computeTotals`). Labels do eixo X inclinados (-38°) para caberem. Sem
-mudança de API/Redis/modelo. Testes 24/24 e build OK. (PR #198, branch
-`claude/year-in-review`.)
+`computeTotals`). Labels do eixo X inclinados (-38°) para caberem. Desde a
+v1.44.6 (PR #207) o `Bar dataKey="value"` também exibe rótulo de valor
+sobre cada barra via `<LabelList>` (mesmo padrão do `MonthlyBarCard`,
+respeita `hideValues`), igualando-o aos demais gráficos de barra principais
+da tab. Sem mudança de API/Redis/modelo. Testes 24/24 e build OK. (PR #198,
+branch `claude/year-in-review`.)
 
 Versão anterior: **v1.41.0** — **fila offline persistente** (item 11 da análise
 técnica, Fase 6): um ledger sujo vivia só em memória — fechar o PWA offline
@@ -1907,7 +1927,9 @@ shell de altura cheia (`#root` em `100lvh` + shell `height:100%`): só o
    Segundo card: **"Income vs Expenses"** (barras agrupadas na mesma
    granularidade; título antes era "Income vs Expenses (Monthly)"). Eixo Y e
    tooltip dos dois cards de barras exibem valores em formato `0.00K` (ex.
-   `$1.50K`); lógica de fallback de mês único (`isSingleMonth`) removida.
+   `$1.50K`); desde a v1.44.6 (PR #207) valores com `|valor| < 1000` exibem
+   como inteiro em dólar sem sufixo "K" (ex. `$123`) em vez de `$0.1K`;
+   lógica de fallback de mês único (`isSingleMonth`) removida.
    **Padrão visual (PR #94):** ambos os cards seguem o mesmo design do
    `DailyPaceCard` — wrapper com `padding:0`/`overflow:hidden`, header
    interno com título e controles, `CartesianGrid vertical={false}`, eixos
@@ -2944,6 +2966,15 @@ O app inicia com array vazio quando não há dados salvos (sem SEED).
   modo Net ficam com o arredondamento visualmente invertido (canto
   arredondado na base em vez do topo) — possível item de polish futuro. Só
   `src/App.jsx` alterado; sem mudança de API/Redis/modelo de transação.
+- [x] **Data labels no `YearInReviewCard` + fix de formatação < $1K** (PR
+  #207, merge squash `968995a`, v1.44.6): waterfall do Year in Review ganha
+  `<LabelList>` no `Bar dataKey="value"` (mesmo padrão do `MonthlyBarCard`),
+  fechando a lacuna de ser o único gráfico de barras principal da tab Charts
+  sem rótulo de valor; e as 4 funções de formatação "K" (`Charts.fmtK`/
+  `fmtKFull`, `Dashboard.fmtK`, `Transactions.moneyShortK`) passam a exibir
+  valores com `|valor| < 1000` como `$123` (inteiro, sem "K") em vez de
+  `$0.1K`. Só `src/App.jsx` alterado; sem mudança de API/Redis/modelo de
+  transação.
 
 ### Fase 5 — Inteligência e Auditoria
 
