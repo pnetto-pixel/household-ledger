@@ -9,7 +9,9 @@
 React 18 + Vite (front) · recharts (gráficos) · papaparse (CSV) ·
 lucide-react (ícones) · funções serverless Vercel (`/api/*`) · Redis via
 `ioredis` · Auth somente por senha de app (`lib/auth.js`; Google JWT
-removido na v1.30.0).
+removido na v1.30.0). Auto-lock de cliente após 30 min de inatividade
+(v1.45.0): a senha sai do `localStorage` e o login volta; timestamp
+`household_last_active` compartilhado entre abas.
 
 ## Estrutura
 - `src/App.jsx` — app inteiro, monolito single-file (5 tabs), organizado em

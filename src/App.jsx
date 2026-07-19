@@ -531,6 +531,41 @@ function buildAuthHeaders() {
 }
 
 // ---------------------------------------------------------------------------
+// Idle auto-lock (inactivity timeout)
+// ---------------------------------------------------------------------------
+// The stored app password used to live in localStorage forever, so anyone
+// picking up an unlocked device had the ledger wide open. After
+// IDLE_LOGOUT_MS without user interaction the password is dropped and the
+// login screen returns (banking-app style auto-lock). This is a client-side
+// lock only — the server keeps validating the same shared password per
+// request — but it covers the real risk of a device left open/lost.
+// The timestamp is shared via localStorage so activity in any tab of the
+// same browser counts, and the check runs at boot too (device untouched for
+// days → asks for the password on open, not after).
+
+const IDLE_LOGOUT_MS = 30 * 60 * 1000;
+const LAST_ACTIVE_KEY = "household_last_active";
+
+function touchLastActive() {
+  try {
+    localStorage.setItem(LAST_ACTIVE_KEY, String(Date.now()));
+  } catch {
+    // Private mode / quota — the in-memory session still works.
+  }
+}
+
+function idleExpired() {
+  try {
+    const t = Number(localStorage.getItem(LAST_ACTIVE_KEY) || 0);
+    // No timestamp (first run after this feature shipped) → not expired;
+    // the boot path records one immediately so the clock starts now.
+    return t > 0 && Date.now() - t > IDLE_LOGOUT_MS;
+  } catch {
+    return false;
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Offline pending-save queue
 // ---------------------------------------------------------------------------
 // A dirty ledger only lived in memory: closing the PWA while offline (or
@@ -629,9 +664,21 @@ class TabErrorBoundary extends React.Component {
 // ===========================================================================
 
 export default function App() {
+  // Session idled out while the app was closed → require the password again
+  // before showing anything. Both initializers read the same pre-purge
+  // localStorage state; the actual password removal happens in the mount
+  // effect below (initializers stay side-effect free).
   const [authed, setAuthed] = useState(
-    () => !!localStorage.getItem("household_pwd")
+    () => !!localStorage.getItem("household_pwd") && !idleExpired()
   );
+  // True when the last de-auth was the idle lock (vs. explicit logout /
+  // rotated password) — drives the notice on the login screen.
+  const [idleLocked, setIdleLocked] = useState(
+    () => !!localStorage.getItem("household_pwd") && idleExpired()
+  );
+  useEffect(() => {
+    if (idleLocked && !authed) localStorage.removeItem("household_pwd");
+  }, []); // mount only — boot-time purge of an expired session's password
   const [transactions, setTransactions] = useState([]);
   const [tab, setTab] = useState("home");
   const [hideValues, setHideValues] = useState(
@@ -889,6 +936,53 @@ export default function App() {
       window.removeEventListener("beforeunload", flush);
     };
   }, [save]);
+
+  // ---- Idle auto-lock ------------------------------------------------------
+  // Drop the stored password after IDLE_LOGOUT_MS without interaction. The
+  // pending-save mirror is deliberately NOT cleared: unsaved work survives
+  // the lock and is restored/saved after the next login (same path as an
+  // offline close).
+  const lockForIdle = useCallback(() => {
+    localStorage.removeItem("household_pwd");
+    setIdleLocked(true);
+    setAuthed(false);
+    setTransactions([]);
+  }, []);
+
+  useEffect(() => {
+    if (!authed) return;
+    touchLastActive(); // login / boot counts as activity — start the clock
+    // Throttle the localStorage write: interaction bursts (scrolling,
+    // typing) refresh the timestamp at most every 30s.
+    let lastTouch = Date.now();
+    const touch = () => {
+      const now = Date.now();
+      if (now - lastTouch > 30000) {
+        lastTouch = now;
+        touchLastActive();
+      }
+    };
+    const check = () => {
+      if (idleExpired()) lockForIdle();
+    };
+    // Check BEFORE the browser replays any interaction events: returning to
+    // a tab that idled out must land on the login screen, not count the
+    // return tap as fresh activity.
+    const onVisible = () => {
+      if (document.visibilityState === "visible") check();
+    };
+    window.addEventListener("pointerdown", touch, { passive: true });
+    window.addEventListener("keydown", touch);
+    document.addEventListener("visibilitychange", onVisible);
+    // Also lock a tab left open and untouched (not just on return/boot).
+    const interval = setInterval(check, 60 * 1000);
+    return () => {
+      window.removeEventListener("pointerdown", touch);
+      window.removeEventListener("keydown", touch);
+      document.removeEventListener("visibilitychange", onVisible);
+      clearInterval(interval);
+    };
+  }, [authed, lockForIdle]);
 
   // Retry the save when connectivity comes back — the offline banner promises
   // "changes will sync when reconnected", this is what actually does it.
@@ -1523,7 +1617,16 @@ export default function App() {
   const shellWidth = isWide ? 1180 : 560;
 
   if (!authed) {
-    return <Login onAuthed={() => setAuthed(true)} />;
+    return (
+      <Login
+        notice={idleLocked ? "Signed out after 30 minutes of inactivity." : ""}
+        onAuthed={() => {
+          touchLastActive();
+          setIdleLocked(false);
+          setAuthed(true);
+        }}
+      />
+    );
   }
 
   return (
@@ -1613,7 +1716,7 @@ export default function App() {
 // Login
 // ===========================================================================
 
-function Login({ onAuthed }) {
+function Login({ onAuthed, notice = "" }) {
   const [pwd, setPwd] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
@@ -1652,6 +1755,10 @@ function Login({ onAuthed }) {
         <p style={{ margin: "0 0 20px", color: "#8b94a3", fontSize: 14 }}>
           Sign in to continue
         </p>
+
+        {notice ? (
+          <div style={{ color: "#fbbf24", fontSize: 13, margin: "0 0 12px" }}>{notice}</div>
+        ) : null}
 
         <form onSubmit={submit}>
           <input
@@ -1746,7 +1853,7 @@ function Header({ hideValues, onToggleHide, onLogout, saving, savedAt, dirty, sa
             <Wallet size={14} color="#fff" />
           </div>
           <span style={{ fontWeight: 700, fontSize: 15, letterSpacing: -0.5, color: "#e5e7eb" }}>Household</span>
-          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.44.8</span>
+          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.45.0</span>
         </div>
         <SaveIndicator saving={saving} dirty={dirty} savedAt={savedAt} saveError={saveError} />
       </div>

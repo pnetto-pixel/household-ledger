@@ -1,4 +1,4 @@
-# Household Ledger · v1.44.8
+# Household Ledger · v1.45.0
 
 Aplicativo mobile-first de controle financeiro doméstico. Registra
 transações da casa (despesas e receitas) por categoria e conta, com
@@ -31,7 +31,26 @@ O `feature-auditor` deve conferir, como parte da checklist de auditoria, que
 o diff inclui o bump nos dois arquivos antes de aprovar — se faltar, isso é
 motivo de reprovação (devolver ao coder), não um detalhe opcional.
 
-Versão atual: **v1.44.8** — **fix: falso conflito "updated on another
+Versão atual: **v1.45.0** — **feat: auto-lock por inatividade (30 min)**
+(branch `claude/credit-karma-sync-error-ep76xi`, mesmo PR do fix v1.44.8).
+A senha do app ficava no `localStorage` para sempre — quem pegasse o
+dispositivo desbloqueado tinha o ledger aberto. Agora, após 30 minutos sem
+interação (`IDLE_LOGOUT_MS`, `src/App.jsx`), a senha armazenada é removida
+e a tela de login volta, com aviso "Signed out after 30 minutes of
+inactivity.". Mecânica: timestamp `household_last_active` no `localStorage`
+(compartilhado entre abas — atividade em qualquer aba conta), atualizado
+com throttle de 30s em `pointerdown`/`keydown`; expiração checada (1) no
+boot, antes de renderizar qualquer dado (dispositivo parado por dias pede
+senha ao abrir), (2) ao voltar a ficar visível (`visibilitychange`, checada
+ANTES de contar o toque de retorno como atividade) e (3) a cada 60s com a
+aba aberta. O pending mirror NÃO é limpo no lock — trabalho não salvo
+sobrevive e é restaurado/salvo após o próximo login (mesmo caminho do
+fechamento offline). É um lock de cliente (o servidor segue validando a
+mesma senha compartilhada por request) — protege dispositivo
+perdido/esquecido aberto, não substitui rotação de senha. Sem mudança de
+API/Redis/modelo de transação.
+
+Versão anterior: **v1.44.8** — **fix: falso conflito "updated on another
 device" causado pelo próprio dispositivo (iOS)** (branch
 `claude/credit-karma-sync-error-ep76xi`). O 409 de concorrência otimista
 (v1.30.0) disparava sem nenhum outro dispositivo envolvido, tipicamente ao
