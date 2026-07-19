@@ -578,6 +578,9 @@ function idleExpired() {
 // the stale pending copy would overwrite its changes — same rule as the 409
 // path, so the pending copy is discarded with a notice instead).
 
+// Single source for the version shown in the header and in diagnostics.
+const APP_VERSION = "v1.47.0";
+
 const PENDING_SAVE_KEY = "household_pending_save";
 
 // Per-page-load id sent with every PUT so the server can tell "this same
@@ -724,13 +727,20 @@ export default function App() {
   );
 
   // ---- Load ----------------------------------------------------------------
-  const load = useCallback(async () => {
-    setLoading(true);
-    setError("");
+  // `silent` skips the full-screen loading state — used by the
+  // resync-on-return effect below, where flashing the spinner over a page
+  // the user is already looking at would be jarring.
+  const lastLoadAtRef = useRef(0);
+  const load = useCallback(async ({ silent = false } = {}) => {
+    if (!silent) {
+      setLoading(true);
+      setError("");
+    }
     try {
       const res = await fetch("/api/transactions", {
         method: "GET",
         headers: buildAuthHeaders(),
+        signal: AbortSignal.timeout?.(25000),
       });
       if (res.status === 401 || res.status === 403) {
         setAuthed(false);
@@ -770,10 +780,11 @@ export default function App() {
       }
       setSavedAt(serverSavedAt);
       loadedRef.current = true;
+      lastLoadAtRef.current = Date.now();
     } catch (err) {
-      setError(err.message);
+      if (!silent) setError(err.message);
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }, []);
 
@@ -799,48 +810,60 @@ export default function App() {
   // please redo" — which makes the slower device lose an entire import every
   // time two instances are open), fetch the server state, three-way merge it
   // with what we tried to save, and PUT the result on top of the server's
-  // fresh savedAt. Returns true when the merge landed; false falls back to
-  // the old reload-and-redo path (e.g. yet another writer raced the merge).
+  // fresh savedAt. Up to 3 attempts (a writer would have to land inside the
+  // GET→PUT window every time). Returns { ok: true } when the merge landed,
+  // or { ok: false, reason } for the fallback path — `reason` is surfaced in
+  // the conflict message so a recurring failure diagnoses itself in the field.
   const tryMergeSave = useCallback(async (localNext) => {
-    try {
-      const res = await fetch("/api/transactions", {
-        method: "GET",
-        headers: buildAuthHeaders(),
-        signal: AbortSignal.timeout?.(25000),
-      });
-      if (!res.ok) return false;
-      const data = await res.json();
-      const serverTxns = Array.isArray(data.transactions) ? data.transactions : [];
-      const serverSavedAt = data.savedAt || null;
-      const merged = mergeTransactions(
-        baseTransactionsRef.current || [],
-        localNext,
-        serverTxns
-      );
-      const putRes = await fetch("/api/transactions", {
-        method: "PUT",
-        headers: buildAuthHeaders(),
-        body: JSON.stringify({
-          transactions: merged,
-          expectedSavedAt: serverSavedAt,
-          clientId: CLIENT_ID,
-        }),
-        signal: AbortSignal.timeout?.(25000),
-      });
-      if (!putRes.ok) return false;
-      const j = await putRes.json();
-      const at = j.savedAt || new Date().toISOString();
-      baseTransactionsRef.current = merged;
-      savedAtRef.current = at;
-      setSavedAt(at);
-      setTransactions(merged);
-      clearPendingSave();
-      setSaveError(null);
-      setError("Changes from another device were merged with yours.");
-      return true;
-    } catch {
-      return false;
+    let reason = "unknown";
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      try {
+        const res = await fetch("/api/transactions", {
+          method: "GET",
+          headers: buildAuthHeaders(),
+          signal: AbortSignal.timeout?.(25000),
+        });
+        if (!res.ok) {
+          reason = `get ${res.status}`;
+          continue;
+        }
+        const data = await res.json();
+        const serverTxns = Array.isArray(data.transactions) ? data.transactions : [];
+        const serverSavedAt = data.savedAt || null;
+        const merged = mergeTransactions(
+          baseTransactionsRef.current || [],
+          localNext,
+          serverTxns
+        );
+        const putRes = await fetch("/api/transactions", {
+          method: "PUT",
+          headers: buildAuthHeaders(),
+          body: JSON.stringify({
+            transactions: merged,
+            expectedSavedAt: serverSavedAt,
+            clientId: CLIENT_ID,
+          }),
+          signal: AbortSignal.timeout?.(25000),
+        });
+        if (!putRes.ok) {
+          reason = `put ${putRes.status}`;
+          continue;
+        }
+        const j = await putRes.json();
+        const at = j.savedAt || new Date().toISOString();
+        baseTransactionsRef.current = merged;
+        savedAtRef.current = at;
+        setSavedAt(at);
+        setTransactions(merged);
+        clearPendingSave();
+        setSaveError(null);
+        setError("Changes from another device were merged with yours.");
+        return { ok: true };
+      } catch (err) {
+        reason = err?.name === "TimeoutError" ? "timeout" : err?.message || "error";
+      }
     }
+    return { ok: false, reason };
   }, []);
 
   // Saves are serialized: one PUT in flight at a time, with a queue of one
@@ -901,11 +924,22 @@ export default function App() {
         const localNext = queuedSaveRef.current ? queuedSaveRef.current.next : next;
         queuedSaveRef.current = null;
         clearPendingSave();
-        if (await tryMergeSave(localNext)) return;
+        const mergeResult = await tryMergeSave(localNext);
+        if (mergeResult.ok) return;
+        // Fallback with field diagnostics: the 409 body carries the stored
+        // savedAt + clientId of whoever wrote last — showing them (plus this
+        // device's id and why the merge failed) turns a recurring conflict
+        // report into an actionable bug report.
+        const conflictInfo = await res.json().catch(() => ({}));
+        const otherAt = conflictInfo.savedAt
+          ? new Date(conflictInfo.savedAt).toLocaleTimeString()
+          : "?";
+        const otherClient = (conflictInfo.clientId || "old-version-client").slice(0, 8);
         setSaveError("conflict");
         await load();
         setError(
-          "This ledger was updated on another device. The latest data was reloaded — please redo your last change."
+          `This ledger was updated on another device. The latest data was reloaded — please redo your last change. ` +
+            `[${APP_VERSION} · this device ${CLIENT_ID.slice(0, 8)} · other write ${otherAt} by ${otherClient} · merge failed: ${mergeResult.reason}]`
         );
         return;
       }
@@ -997,6 +1031,32 @@ export default function App() {
       window.removeEventListener("beforeunload", flush);
     };
   }, [save]);
+
+  // ---- Resync on return ----------------------------------------------------
+  // The common iPhone flow is: leave the ledger, run the CK bookmarklet in
+  // Safari, come back, import. The returning page still holds the savedAt
+  // from when it was last here — any write that landed meanwhile (another
+  // device, another tab, a spouse's phone) turns the import's save into a
+  // 409. Re-fetching on return keeps expectedSavedAt current, so the
+  // conflict mostly can't happen in the first place. Only when nothing is
+  // unsaved locally (dirty/in-flight saves own the state) and throttled to
+  // once per 10s.
+  useEffect(() => {
+    if (!authed) return;
+    const onVisibleResync = () => {
+      if (document.visibilityState !== "visible") return;
+      if (!loadedRef.current) return;
+      if (dirtyRef.current || saveInFlightRef.current) return;
+      if (Date.now() - lastLoadAtRef.current < 10000) return;
+      load({ silent: true });
+    };
+    document.addEventListener("visibilitychange", onVisibleResync);
+    window.addEventListener("focus", onVisibleResync);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisibleResync);
+      window.removeEventListener("focus", onVisibleResync);
+    };
+  }, [authed, load]);
 
   // ---- Idle auto-lock ------------------------------------------------------
   // Drop the stored password after IDLE_LOGOUT_MS without interaction. The
@@ -1914,7 +1974,7 @@ function Header({ hideValues, onToggleHide, onLogout, saving, savedAt, dirty, sa
             <Wallet size={14} color="#fff" />
           </div>
           <span style={{ fontWeight: 700, fontSize: 15, letterSpacing: -0.5, color: "#e5e7eb" }}>Household</span>
-          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.46.0</span>
+          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>{APP_VERSION}</span>
         </div>
         <SaveIndicator saving={saving} dirty={dirty} savedAt={savedAt} saveError={saveError} />
       </div>
