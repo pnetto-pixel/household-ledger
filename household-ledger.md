@@ -1,4 +1,4 @@
-# Household Ledger · v1.47.0
+# Household Ledger · v1.47.1
 
 Aplicativo mobile-first de controle financeiro doméstico. Registra
 transações da casa (despesas e receitas) por categoria e conta, com
@@ -31,7 +31,30 @@ O `feature-auditor` deve conferir, como parte da checklist de auditoria, que
 o diff inclui o bump nos dois arquivos antes de aprovar — se faltar, isso é
 motivo de reprovação (devolver ao coder), não um detalhe opcional.
 
-Versão atual: **v1.47.0** — **feat: resync ao voltar ao app + merge com
+Versão atual: **v1.47.1** — **fix: CAUSA RAIZ do 409 eterno — cjson do CAS
+Lua engasgava com surrogate solto no blob**. O diagnóstico de campo da
+v1.47.0 (`[other write ? by old-vers · merge failed: put 409]`) entregou o
+bug: o blob armazenado tinha `savedAt`/`clientId` ilegíveis PARA O LUA.
+Reproduzido em laboratório: um único surrogate UTF-16 sem par numa
+descrição (ex.: emoji cortado por truncamento de CSV) passa ileso pelo
+`JSON.parse` do JS mas faz `cjson.decode` falhar no blob INTEIRO — o CAS
+(v1.35.0) lia `stored=''`, nunca batia com nenhum `expectedSavedAt`, e
+TODO save otimista levava 409 para sempre (o "conflito" nunca foi outro
+dispositivo). Correção em 3 partes em `api/transactions.js`: (1) o CAS
+não decodifica mais JSON — `savedAt|clientId` vivem numa chave lateral
+`<key>:meta` que o Lua compara como string pura (`KEYS[2]`; migração: GET
+faz seed da meta a partir do parse JS tolerante, `SET NX`; fallback Lua
+sem meta: decode antigo, e se ATÉ o decode falhar — o ledger travado — o
+write é aceito uma vez para curar); (2) `sanitizeStrings` no PUT troca
+surrogates sem par por U+FFFD antes de gravar, então o blob volta a ser
+JSON válido para qualquer parser (o dado corrompido é higienizado no
+primeiro save pós-deploy); (3) caminho legacy sem `expectedSavedAt`
+também mantém a meta. Validação: teste do handler real contra Redis
+reproduzindo o estado travado de produção — GET lê e faz seed, save
+destrava, blob volta a ser cjson-decodável, 409 informativo para
+conflito real, perdão same-client e fallbacks legacy intactos (11/11).
+
+Versão anterior: **v1.47.0** — **feat: resync ao voltar ao app + merge com
 retry + diagnóstico no conflito**. Contexto: TODO o maquinário de conflito
 (409/`expectedSavedAt` do pack v1.35.0, pending queue v1.41.0) entrou em
 produção num único lote de 23 versões em 18/07 — antes disso o erro
