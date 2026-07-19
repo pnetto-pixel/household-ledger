@@ -39,6 +39,7 @@ import {
   Gift,
   Coins,
   Tag,
+  RefreshCw,
 } from "lucide-react";
 import {
   ResponsiveContainer,
@@ -579,7 +580,7 @@ function idleExpired() {
 // path, so the pending copy is discarded with a notice instead).
 
 // Single source for the version shown in the header and in diagnostics.
-const APP_VERSION = "v1.47.1";
+const APP_VERSION = "v1.48.0";
 
 const PENDING_SAVE_KEY = "household_pending_save";
 
@@ -7466,8 +7467,10 @@ function buildRow(raw, mapping, profile, accountMap) {
 
 
 function ImportTransactions({ onImport, accountMap, config, transactions, ckCategoryMap, categoryDescriptionRules }) {
-  // Two methods: Credit Karma (auto-mapped, day-to-day) and CSV (manual
-  // mapping, one-time history backfill).
+  // Three methods: Credit Karma (auto-mapped, day-to-day), CSV (manual
+  // mapping, one-time history backfill), and SimpleFin (on-demand pull via
+  // api/simplefin-sync.js — complementary to the manual CK import, not a
+  // replacement; there's no background/cron sync, just a "Sync now" button).
   const [method, setMethod] = useState("ck");
   const profile = BANK_PROFILES.find((p) => p.id === (method === "ck" ? "credit-karma" : "generic"));
 
@@ -7479,6 +7482,12 @@ function ImportTransactions({ onImport, accountMap, config, transactions, ckCate
   const [error, setError] = useState("");
   const [done, setDone] = useState("");
 
+  // SimpleFin-only state: rows come back from the endpoint already shaped
+  // like a ledger row (see mapSimpleFinRows below), so they feed the same
+  // preview/dedup pipeline as csvRows further down instead of a parallel one.
+  const [sfRows, setSfRows] = useState([]);
+  const [sfLoading, setSfLoading] = useState(false);
+
   const resetAll = () => {
     setRawRows([]);
     setHeaders([]);
@@ -7486,6 +7495,7 @@ function ImportTransactions({ onImport, accountMap, config, transactions, ckCate
     setFileName("");
     setError("");
     setDone("");
+    setSfRows([]);
   };
 
   const selectMethod = (m) => {
@@ -7548,6 +7558,7 @@ function ImportTransactions({ onImport, accountMap, config, transactions, ckCate
   };
 
   const { csvRows, skippedCount } = useMemo(() => {
+    if (method === "sf") return { csvRows: sfRows, skippedCount: 0 };
     if (rawRows.length === 0) return { csvRows: [], skippedCount: 0 };
     const built = rawRows.map((r) => buildRow(r, mapping, profile, accountMap));
     let skipped = 0;
@@ -7562,7 +7573,7 @@ function ImportTransactions({ onImport, accountMap, config, transactions, ckCate
     // buildRow reads their module-level mirrors — but they must invalidate
     // this memo so editing a rule in Settings recomputes an already-parsed
     // preview instead of showing stale categories.
-  }, [rawRows, mapping, profile, accountMap, config, ckCategoryMap, categoryDescriptionRules]);
+  }, [method, sfRows, rawRows, mapping, profile, accountMap, config, ckCategoryMap, categoryDescriptionRules]);
 
   // Flag duplicates against existing data + within the batch.
   const dedupedRows = useMemo(() => markDuplicates(csvRows, transactions || []), [csvRows, transactions]);
@@ -7635,7 +7646,48 @@ function ImportTransactions({ onImport, accountMap, config, transactions, ckCate
   const methods = [
     { id: "ck", title: "Credit Karma", desc: "Daily export — auto-mapped, sign preserved." },
     { id: "csv", title: "CSV", desc: "Manual mapping — for backfilling old history." },
+    { id: "sf", title: "SimpleFin (auto)", desc: "Pulls transactions from SimpleFin on demand — complements, doesn't replace, the CSV/Credit Karma import." },
   ];
+
+  // SimpleFin sync: hits the server endpoint, then runs the returned rows
+  // through the same account-matching / category-fallback buildRow already
+  // applies for CSV rows, so they land in the shared preview/dedup pipeline
+  // looking exactly like any other imported row.
+  const syncSimpleFin = async () => {
+    setError("");
+    setDone("");
+    setSfLoading(true);
+    try {
+      const res = await fetch("/api/simplefin-sync", { headers: buildAuthHeaders() });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setError(
+          res.status === 501
+            ? "SimpleFin não configurado (SIMPLEFIN_ACCESS_URL ausente no servidor)."
+            : (data.error || "Falha ao sincronizar com o SimpleFin.")
+        );
+        setSfRows([]);
+        return;
+      }
+      const mapped = (data.transactions || []).map((t) => {
+        const account = classifyAccount(t.srcAccount, "", accountMap) || "";
+        const category = matchOption(t.category, CATEGORIES, "Other");
+        return { ...t, account, category, autoCategory: category };
+      });
+      setSfRows(mapped);
+      setFileName(`SimpleFin sync — ${mapped.length} transaction${mapped.length === 1 ? "" : "s"}`);
+      if (data.errors && data.errors.length) {
+        setError(`SimpleFin warnings: ${data.errors.join("; ")}`);
+      }
+    } catch (err) {
+      setError(`Could not reach the sync endpoint: ${err.message}`);
+      setSfRows([]);
+    } finally {
+      setSfLoading(false);
+    }
+  };
+
+  const showPreview = method === "sf" ? sfRows.length > 0 : headers.length > 0;
 
   return (
     <div style={S.col}>
@@ -7662,30 +7714,46 @@ function ImportTransactions({ onImport, accountMap, config, transactions, ckCate
         </div>
       </div>
 
-      {/* File dropzone */}
-      <label
-        onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
-        onDragLeave={() => setDragOver(false)}
-        onDrop={onDrop}
-        style={{
-          display: "flex", flexDirection: "column", alignItems: "center", gap: 8,
-          padding: "26px 16px", borderRadius: 16, cursor: "pointer", textAlign: "center",
-          border: `1.5px dashed ${dragOver ? "#0A84FF" : "#2a313c"}`,
-          background: dragOver ? "#10243d" : "#12161c",
-        }}
-      >
-        <input type="file" accept=".csv,.tsv,.txt" onChange={onFile} style={{ display: "none" }} />
-        <Upload size={22} color="#8b94a3" />
-        <span style={{ fontSize: 14, color: "#cbd5e1", overflowWrap: "anywhere" }}>
-          {fileName || "Choose a file or drag it here"}
-        </span>
-        <span style={{ fontSize: 11, color: "#6b7280" }}>CSV</span>
-      </label>
+      {/* File dropzone — CK/CSV only. SimpleFin has no file, just a sync button. */}
+      {method === "sf" ? (
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 8, padding: "26px 16px", borderRadius: 16, textAlign: "center", border: "1.5px dashed #2a313c", background: "#12161c" }}>
+          <RefreshCw size={22} color="#8b94a3" />
+          <span style={{ fontSize: 14, color: "#cbd5e1", overflowWrap: "anywhere" }}>
+            {fileName || "Pull the latest transactions from SimpleFin"}
+          </span>
+          <button
+            onClick={syncSimpleFin}
+            disabled={sfLoading}
+            style={{ ...S.primaryBtn, opacity: sfLoading ? 0.6 : 1, cursor: sfLoading ? "not-allowed" : "pointer", padding: "8px 20px", minHeight: 36, fontSize: 13 }}
+          >
+            {sfLoading ? "Syncing…" : "Sync now"}
+          </button>
+        </div>
+      ) : (
+        <label
+          onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+          onDragLeave={() => setDragOver(false)}
+          onDrop={onDrop}
+          style={{
+            display: "flex", flexDirection: "column", alignItems: "center", gap: 8,
+            padding: "26px 16px", borderRadius: 16, cursor: "pointer", textAlign: "center",
+            border: `1.5px dashed ${dragOver ? "#0A84FF" : "#2a313c"}`,
+            background: dragOver ? "#10243d" : "#12161c",
+          }}
+        >
+          <input type="file" accept=".csv,.tsv,.txt" onChange={onFile} style={{ display: "none" }} />
+          <Upload size={22} color="#8b94a3" />
+          <span style={{ fontSize: 14, color: "#cbd5e1", overflowWrap: "anywhere" }}>
+            {fileName || "Choose a file or drag it here"}
+          </span>
+          <span style={{ fontSize: 11, color: "#6b7280" }}>CSV</span>
+        </label>
+      )}
 
       {error ? <div style={{ color: "#f87171", fontSize: 13 }}>{error}</div> : null}
       {done ? <div style={{ color: "#34d399", fontSize: 13 }}>{done}</div> : null}
 
-      {headers.length > 0 ? (
+      {showPreview ? (
         <>
           {/* Manual column mapping — CSV method only. Collapsed by default
               once the auto-guessed mapping already satisfies the required
