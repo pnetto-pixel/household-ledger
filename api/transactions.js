@@ -63,7 +63,7 @@ if raw then
 end
 if stored ~= ARGV[1] then
   if ARGV[3] == '' or storedClient ~= ARGV[3] then
-    return {0, stored}
+    return {0, stored, storedClient}
   end
 end
 redis.call('SET', KEYS[1], ARGV[2])
@@ -166,13 +166,16 @@ export default async function handler(req, res) {
       // Atomic compare-and-set via Lua — see CAS_PUT_SCRIPT.
       if ('expectedSavedAt' in body) {
         const expected = body.expectedSavedAt || '';
-        const [okFlag, storedSavedAt] = await redis.eval(
+        const [okFlag, storedSavedAt, storedClientId] = await redis.eval(
           CAS_PUT_SCRIPT, 1, storageKey, expected, payload, clientId
         );
         if (okFlag !== 1) {
+          // savedAt + clientId of the conflicting write feed the client's
+          // on-screen diagnostics (who wrote, when, from which device).
           return res.status(409).json({
             error: 'Ledger was updated by another device',
             savedAt: storedSavedAt || null,
+            clientId: storedClientId || null,
           });
         }
       } else {

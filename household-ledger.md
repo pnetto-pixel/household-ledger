@@ -1,4 +1,4 @@
-# Household Ledger · v1.46.0
+# Household Ledger · v1.47.0
 
 Aplicativo mobile-first de controle financeiro doméstico. Registra
 transações da casa (despesas e receitas) por categoria e conta, com
@@ -31,7 +31,27 @@ O `feature-auditor` deve conferir, como parte da checklist de auditoria, que
 o diff inclui o bump nos dois arquivos antes de aprovar — se faltar, isso é
 motivo de reprovação (devolver ao coder), não um detalhe opcional.
 
-Versão atual: **v1.46.0** — **feat: merge de três vias em conflito de save
+Versão atual: **v1.47.0** — **feat: resync ao voltar ao app + merge com
+retry + diagnóstico no conflito**. Contexto: TODO o maquinário de conflito
+(409/`expectedSavedAt` do pack v1.35.0, pending queue v1.41.0) entrou em
+produção num único lote de 23 versões em 18/07 — antes disso o erro
+"updated on another device" era impossível (last-write-wins), o que
+explica o problema ter "aparecido de ontem para hoje". Três mudanças:
+(1) **Resync on return** — ao voltar a ficar visível/focado, se nada está
+sujo/em voo e o último load tem >10s, o app refaz o GET em silêncio
+(`load({silent:true})`, sem spinner) e adota `savedAt`/dados atuais; o
+fluxo típico do iPhone (sair p/ rodar o bookmarklet CK, voltar, importar)
+deixava o app com timestamp velho e o import nascia condenado ao 409.
+(2) O merge de três vias (v1.46.0) agora tenta **até 3 vezes** (GET→merge→
+PUT) antes de cair no fallback. (3) O fallback agora mostra **diagnóstico
+no próprio erro**: `[vX · this device abc · other write HH:MM:SS by def ·
+merge failed: motivo]` — o 409 do servidor passou a devolver também o
+`clientId` de quem gravou (Lua retorna `{0, savedAt, clientId}`), então
+uma recorrência em campo identifica sozinha o dispositivo/motivo. Versão
+do header centralizada na constante `APP_VERSION`. `AbortSignal.timeout`
+também no GET de load. Sem mudança de modelo; 409 ganha campo `clientId`.
+
+Versão anterior: **v1.46.0** — **feat: merge de três vias em conflito de save
 (fim do "please redo your last change")**. Mesmo com o perdão por
 `clientId` (v1.44.8), um 409 legítimo — outra instância/dispositivo gravou
 depois do load desta — descartava a mudança local inteira ("server wins")
