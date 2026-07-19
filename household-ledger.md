@@ -1,4 +1,4 @@
-# Household Ledger · v1.44.7
+# Household Ledger · v1.44.8
 
 Aplicativo mobile-first de controle financeiro doméstico. Registra
 transações da casa (despesas e receitas) por categoria e conta, com
@@ -31,7 +31,31 @@ O `feature-auditor` deve conferir, como parte da checklist de auditoria, que
 o diff inclui o bump nos dois arquivos antes de aprovar — se faltar, isso é
 motivo de reprovação (devolver ao coder), não um detalhe opcional.
 
-Versão atual: **v1.44.7** — **ui: LM/LY ao lado do NET no card hero da
+Versão atual: **v1.44.8** — **fix: falso conflito "updated on another
+device" causado pelo próprio dispositivo (iOS)** (branch
+`claude/credit-karma-sync-error-ep76xi`). O 409 de concorrência otimista
+(v1.30.0) disparava sem nenhum outro dispositivo envolvido, tipicamente ao
+importar CSV do Credit Karma no iPhone: (1) o flush com `keepalive` em
+`visibilitychange`/`pagehide` gravava no servidor, mas o iOS suspendia a
+página antes de a resposta chegar — o cliente ficava com o `savedAt` velho
+e o save seguinte levava 409 do próprio write anterior; (2) um segundo PUT
+podia disparar com o primeiro ainda em voo, enviando `expectedSavedAt`
+obsoleto. Correção em três partes: (a) cada page-load gera um `clientId`
+(não persistido — abas distintas continuam conflitando entre si), enviado
+em todo PUT e gravado no blob (`{ transactions, savedAt, clientId }`); o
+CAS Lua em `api/transactions.js` perdoa o mismatch de `savedAt` quando o
+blob armazenado foi escrito pelo MESMO `clientId` (o estado em memória do
+cliente já contém aquele write — nada é sobrescrito; proteção entre
+dispositivos intacta, clients antigos sem `clientId` mantêm o comportamento
+anterior); (b) saves serializados no cliente — um PUT em voo por vez, fila
+de 1 com o `next` mais recente, descartada em 409/401 (um queued pós-409
+dispararia com `savedAt` fresco e sobrescreveria o "server wins"); (c) no
+boot, pending mirror idêntico aos dados do servidor é descartado em
+silêncio (o save aconteceu, só a resposta se perdeu) em vez do aviso
+"discarded because the ledger was updated elsewhere". Sem mudança de
+modelo de transação; PUT ganha campo opcional `clientId` (back-compat).
+
+Versão anterior: **v1.44.7** — **ui: LM/LY ao lado do NET no card hero da
 Home** (PR #208, branch `claude/household-hero-net-lmly`, squash-merge SHA
 `c059fb5a36d1f6b726248b8602276a72d77708fc`). No hero da Home, o valor NET
 ganhou um bloco LM (Last Month) / LY (Last Year) posicionado à direita do

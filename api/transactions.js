@@ -1,6 +1,6 @@
 // api/transactions.js
 // GET: { exists, transactions, savedAt, method, email, admin }
-// PUT { transactions, expectedSavedAt? }: { ok, savedAt } | 409 { error, savedAt }
+// PUT { transactions, expectedSavedAt?, clientId? }: { ok, savedAt } | 409 { error, savedAt }
 // Auth required (x-app-password).
 //
 // Storage: derives a household-scoped key from auth.storageKey. The auth
@@ -15,6 +15,17 @@
 // the write would silently overwrite its changes (the payload is the whole
 // array). Clients that don't send the field keep the old last-write-wins
 // behavior (back-compat).
+//
+// Self-conflict escape hatch: the client also sends a per-page-load
+// `clientId`, stored alongside the blob. When expectedSavedAt mismatches but
+// the stored blob was written by the SAME clientId, the write is accepted:
+// the only writer since this client's last load was this client itself — its
+// in-memory state already contains that write, so nothing is overwritten.
+// This happens on iOS when a save's PUT lands but the page is suspended
+// before the response is processed (the visibilitychange/pagehide keepalive
+// flush): the client keeps the stale savedAt and its next save used to 409
+// against its own earlier write ("updated on another device" with no other
+// device involved).
 //
 // Snapshots: the first successful PUT of each (UTC) day also writes an
 // immutable copy under "<key>:snapshot:YYYY-MM-DD" with a 30-day TTL, as an
@@ -31,19 +42,29 @@ const SNAPSHOT_TTL_SECONDS = 30 * 24 * 60 * 60;
 // could both pass the check and the later SET silently won; doing the same
 // three steps in one Lua script closes it. ARGV[1] is the expected savedAt
 // ('' means "client loaded an empty/legacy ledger", matching parseStored:
-// missing key or legacy bare-array blob → savedAt null). Returns
-// {1, ''} on success, {0, storedSavedAt} on conflict.
+// missing key or legacy bare-array blob → savedAt null). ARGV[3] is the
+// caller's clientId ('' from old clients): a savedAt mismatch is forgiven
+// when the stored blob carries the same clientId — see header comment.
+// Returns {1, ''} on success, {0, storedSavedAt} on conflict.
 const CAS_PUT_SCRIPT = `
 local raw = redis.call('GET', KEYS[1])
 local stored = ''
+local storedClient = ''
 if raw then
   local ok, parsed = pcall(cjson.decode, raw)
-  if ok and type(parsed) == 'table' and type(parsed.savedAt) == 'string' then
-    stored = parsed.savedAt
+  if ok and type(parsed) == 'table' then
+    if type(parsed.savedAt) == 'string' then
+      stored = parsed.savedAt
+    end
+    if type(parsed.clientId) == 'string' then
+      storedClient = parsed.clientId
+    end
   end
 end
 if stored ~= ARGV[1] then
-  return {0, stored}
+  if ARGV[3] == '' or storedClient ~= ARGV[3] then
+    return {0, stored}
+  end
 end
 redis.call('SET', KEYS[1], ARGV[2])
 return {1, ''}
@@ -137,7 +158,8 @@ export default async function handler(req, res) {
       }
 
       const savedAt = new Date().toISOString();
-      const payload = JSON.stringify({ transactions, savedAt });
+      const clientId = typeof body.clientId === 'string' ? body.clientId : '';
+      const payload = JSON.stringify({ transactions, savedAt, clientId });
 
       // Optimistic-concurrency write (only when the client opted in by
       // sending expectedSavedAt; null means "I loaded an empty ledger").
@@ -145,7 +167,7 @@ export default async function handler(req, res) {
       if ('expectedSavedAt' in body) {
         const expected = body.expectedSavedAt || '';
         const [okFlag, storedSavedAt] = await redis.eval(
-          CAS_PUT_SCRIPT, 1, storageKey, expected, payload
+          CAS_PUT_SCRIPT, 1, storageKey, expected, payload, clientId
         );
         if (okFlag !== 1) {
           return res.status(409).json({

@@ -544,6 +544,16 @@ function buildAuthHeaders() {
 
 const PENDING_SAVE_KEY = "household_pending_save";
 
+// Per-page-load id sent with every PUT so the server can tell "this same
+// page instance wrote last" from "another device wrote". Deliberately NOT
+// persisted (localStorage/sessionStorage): after a reload the app re-loads
+// fresh server state anyway, and two tabs of the same browser MUST still
+// conflict with each other — only the exact page instance whose in-memory
+// state produced the stored blob may overwrite it without a 409.
+const CLIENT_ID =
+  (typeof crypto !== "undefined" && crypto.randomUUID && crypto.randomUUID()) ||
+  `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+
 function writePendingSave(transactions, baseSavedAt) {
   try {
     localStorage.setItem(
@@ -698,9 +708,14 @@ export default function App() {
       } else {
         if (pending) {
           clearPendingSave();
-          setError(
-            "Unsaved changes from a previous session were discarded because the ledger was updated elsewhere."
-          );
+          // A pending copy identical to the server's data means its save DID
+          // land and only the response was lost (iOS suspends the page right
+          // after the keepalive flush) — nothing was discarded, stay quiet.
+          if (JSON.stringify(pending.transactions) !== JSON.stringify(serverTxns)) {
+            setError(
+              "Unsaved changes from a previous session were discarded because the ledger was updated elsewhere."
+            );
+          }
         }
         setTransactions(serverTxns);
       }
@@ -727,17 +742,30 @@ export default function App() {
     savedAtRef.current = savedAt;
   }, [savedAt]);
 
-  const save = useCallback(async (next, { keepalive = false } = {}) => {
+  // Saves are serialized: one PUT in flight at a time, with a queue of one
+  // (only the latest `next` matters — the payload is the whole array). A
+  // second save racing a still-in-flight first one used to send the
+  // pre-first `expectedSavedAt` and 409 against our own write.
+  const saveInFlightRef = useRef(false);
+  const queuedSaveRef = useRef(null); // { next, keepalive } | null
+
+  const save = useCallback(async function saveSerialized(next, { keepalive = false } = {}) {
     if (!navigator.onLine) {
       setSaveError("offline");
       return;
     }
+    if (saveInFlightRef.current) {
+      queuedSaveRef.current = { next, keepalive };
+      return;
+    }
+    saveInFlightRef.current = true;
     setDirty(false);
     setSaving(true);
     try {
       const body = JSON.stringify({
         transactions: next,
         expectedSavedAt: savedAtRef.current,
+        clientId: CLIENT_ID,
       });
       const res = await fetch("/api/transactions", {
         method: "PUT",
@@ -749,7 +777,9 @@ export default function App() {
         keepalive: keepalive && body.length < 60000,
       });
       if (res.status === 401 || res.status === 403) {
-        // Wrong/rotated password — re-authenticating is the only fix.
+        // Wrong/rotated password — re-authenticating is the only fix. A
+        // queued save would just hit the same wall; drop it.
+        queuedSaveRef.current = null;
         localStorage.removeItem("household_pwd");
         setAuthed(false);
         return;
@@ -759,7 +789,11 @@ export default function App() {
         // the user their last local change was NOT saved and must be redone —
         // the alternative (forcing this write) would silently drop the other
         // device's changes instead. The pending mirror is stale for the same
-        // reason — drop it before load() so it isn't "restored".
+        // reason — drop it before load() so it isn't "restored". Any queued
+        // save is based on the same discarded local state — drop it too, or
+        // it would fire after load() with a FRESH savedAt and overwrite the
+        // other device's data that "server wins" just restored.
+        queuedSaveRef.current = null;
         clearPendingSave();
         setSaveError("conflict");
         await load();
@@ -788,7 +822,13 @@ export default function App() {
       setSaveError(err.message || "Save failed");
       setTimeout(() => setSaveError(null), 5000);
     } finally {
+      saveInFlightRef.current = false;
       setSaving(false);
+      const queued = queuedSaveRef.current;
+      if (queued) {
+        queuedSaveRef.current = null;
+        saveSerialized(queued.next, { keepalive: queued.keepalive });
+      }
     }
   }, [load]);
 
@@ -1706,7 +1746,7 @@ function Header({ hideValues, onToggleHide, onLogout, saving, savedAt, dirty, sa
             <Wallet size={14} color="#fff" />
           </div>
           <span style={{ fontWeight: 700, fontSize: 15, letterSpacing: -0.5, color: "#e5e7eb" }}>Household</span>
-          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.44.7</span>
+          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.44.8</span>
         </div>
         <SaveIndicator saving={saving} dirty={dirty} savedAt={savedAt} saveError={saveError} />
       </div>
