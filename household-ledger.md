@@ -1,4 +1,4 @@
-# Household Ledger · v1.45.0
+# Household Ledger · v1.46.0
 
 Aplicativo mobile-first de controle financeiro doméstico. Registra
 transações da casa (despesas e receitas) por categoria e conta, com
@@ -31,7 +31,29 @@ O `feature-auditor` deve conferir, como parte da checklist de auditoria, que
 o diff inclui o bump nos dois arquivos antes de aprovar — se faltar, isso é
 motivo de reprovação (devolver ao coder), não um detalhe opcional.
 
-Versão atual: **v1.45.0** — **feat: auto-lock por inatividade (30 min)**
+Versão atual: **v1.46.0** — **feat: merge de três vias em conflito de save
+(fim do "please redo your last change")**. Mesmo com o perdão por
+`clientId` (v1.44.8), um 409 legítimo — outra instância/dispositivo gravou
+depois do load desta — descartava a mudança local inteira ("server wins")
+e pedia para o usuário refazer; com duas instâncias abertas, o dispositivo
+mais lento perdia um import inteiro toda vez. Agora o cliente guarda o
+último estado conhecido do servidor (`baseTransactionsRef`, atualizado no
+load e a cada save OK) e, no 409, busca o estado atual do servidor, faz um
+**merge de três vias** (`mergeTransactions` em `src/ledger.js`, com testes
+de unidade) e grava o resultado sobre o `savedAt` novo. Regras por linha
+(identidade = `t.id`): adição local e adição do servidor são mantidas
+(locais na frente, como `addTransactions`); deleção local vence edição do
+servidor; deleção do servidor vence linha local intocada, mas NÃO derruba
+linha editada localmente; edição de um lado só vence; edição dos dois
+lados → local vence. Sucesso mostra "Changes from another device were
+merged with yours."; se o merge também levar 409 (terceiro escritor
+correndo), cai no comportamento antigo (reload + redo). Também: timeout de
+25s (`AbortSignal.timeout`) nos PUT/GET de save — um fetch suspenso pelo
+iOS segurava o lock de serialização (v1.44.8) para sempre e travava todos
+os saves futuros; se o PUT tiver chegado e só a resposta se perdeu, o
+retry cai no perdão por `clientId`. Sem mudança de API/modelo.
+
+Versão anterior: **v1.45.0** — **feat: auto-lock por inatividade (30 min)**
 (branch `claude/credit-karma-sync-error-ep76xi`, mesmo PR do fix v1.44.8).
 A senha do app ficava no `localStorage` para sempre — quem pegasse o
 dispositivo desbloqueado tinha o ledger aberto. Agora, após 30 minutos sem

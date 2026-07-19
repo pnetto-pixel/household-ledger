@@ -46,7 +46,9 @@ removido na v1.30.0). Auto-lock de cliente após 30 min de inatividade
   last-write-wins (back-compat). PUT também aceita `clientId` (v1.44.8, id
   por page-load): mismatch de `savedAt` é perdoado quando o blob armazenado
   foi gravado pelo mesmo `clientId` (evita auto-409 quando o iOS suspende a
-  página antes da resposta do save chegar).
+  página antes da resposta do save chegar). Em 409 real, o cliente faz
+  merge de três vias (`mergeTransactions`, `src/ledger.js`, v1.46.0) e
+  regrava, em vez de descartar a mudança local.
 - Namespace `household:*:transactions` (chave derivada por usuário a partir
   de `auth.storageKey`, reescrita de `portfolio:...:holdings` para
   `household:...:transactions`). Snapshots diários aditivos em
