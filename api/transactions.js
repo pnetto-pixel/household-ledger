@@ -40,24 +40,47 @@ const SNAPSHOT_TTL_SECONDS = 30 * 24 * 60 * 60;
 // Atomic compare-and-set for the optimistic-concurrency PUT. The old
 // JS-side "GET savedAt → compare → SET" left a window where two devices
 // could both pass the check and the later SET silently won; doing the same
-// three steps in one Lua script closes it. ARGV[1] is the expected savedAt
-// ('' means "client loaded an empty/legacy ledger", matching parseStored:
-// missing key or legacy bare-array blob → savedAt null). ARGV[3] is the
-// caller's clientId ('' from old clients): a savedAt mismatch is forgiven
-// when the stored blob carries the same clientId — see header comment.
-// Returns {1, ''} on success, {0, storedSavedAt} on conflict.
+// three steps in one Lua script closes it.
+//
+// v1.47.1: the compare no longer decodes the JSON blob. cjson is stricter
+// than JS JSON: one lone UTF-16 surrogate in a transaction description
+// (an emoji cut in half by a CSV truncation) made cjson.decode fail on the
+// whole blob while parseStored (JS) read it fine — stored savedAt came
+// back '' and EVERY optimistic PUT 409'd forever (the field signature
+// "[other write ? by old-vers · merge failed: put 409]"). The compare
+// values now live in a tiny side key KEYS[2] = "savedAt|clientId" that Lua
+// string-splits without parsing JSON. Fallbacks when the meta key doesn't
+// exist yet (pre-v1.47.1 ledgers): decode the blob the old way; if even
+// that fails (a wedged ledger — the exact bug), accept the write to heal.
+//
+// KEYS[1]=blob, KEYS[2]=meta. ARGV[1]=expected savedAt ('' = client loaded
+// an empty/legacy ledger), ARGV[2]=payload, ARGV[3]=clientId ('' from old
+// clients; same-client savedAt mismatch is forgiven — see header comment),
+// ARGV[4]=new meta value. Returns {1, ''} on success, {0, storedSavedAt,
+// storedClientId} on conflict.
 const CAS_PUT_SCRIPT = `
-local raw = redis.call('GET', KEYS[1])
 local stored = ''
 local storedClient = ''
-if raw then
-  local ok, parsed = pcall(cjson.decode, raw)
-  if ok and type(parsed) == 'table' then
-    if type(parsed.savedAt) == 'string' then
-      stored = parsed.savedAt
-    end
-    if type(parsed.clientId) == 'string' then
-      storedClient = parsed.clientId
+local meta = redis.call('GET', KEYS[2])
+if meta then
+  local sep = string.find(meta, '|', 1, true)
+  if sep then
+    stored = string.sub(meta, 1, sep - 1)
+    storedClient = string.sub(meta, sep + 1)
+  end
+else
+  local raw = redis.call('GET', KEYS[1])
+  if raw then
+    local ok, parsed = pcall(cjson.decode, raw)
+    if ok and type(parsed) == 'table' then
+      if type(parsed.savedAt) == 'string' then
+        stored = parsed.savedAt
+      end
+      if type(parsed.clientId) == 'string' then
+        storedClient = parsed.clientId
+      end
+    else
+      stored = ARGV[1]
     end
   end
 end
@@ -67,8 +90,27 @@ if stored ~= ARGV[1] then
   end
 end
 redis.call('SET', KEYS[1], ARGV[2])
+redis.call('SET', KEYS[2], ARGV[4])
 return {1, ''}
 `;
+
+// Strip unpaired UTF-16 surrogates from user strings, replacing them with
+// U+FFFD. A lone surrogate survives JS JSON round-trips but is invalid to
+// strict parsers — it is corrupt text either way (renders as �), and one
+// of them is what wedged the Lua CAS above. Scrubbing on write keeps the
+// stored blob valid JSON for every parser from here on.
+const LONE_SURROGATE_RE =
+  /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g;
+function sanitizeStrings(value) {
+  if (typeof value === 'string') return value.replace(LONE_SURROGATE_RE, '�');
+  if (Array.isArray(value)) return value.map(sanitizeStrings);
+  if (value && typeof value === 'object') {
+    const out = {};
+    for (const k of Object.keys(value)) out[k] = sanitizeStrings(value[k]);
+    return out;
+  }
+  return value;
+}
 
 // Minimal server-side shape check (defense in depth — the client already
 // validates imports/restores). Every row must have a YYYY-MM-DD date string
@@ -129,10 +171,22 @@ export default async function handler(req, res) {
     return res.status(503).json({ error: `Storage unavailable: ${err.message}` });
   }
 
+  const metaKey = `${storageKey}:meta`;
+
   try {
     if (req.method === 'GET') {
       const raw = await redis.get(storageKey);
       const { transactions, savedAt } = parseStored(raw);
+      // Migration/backfill: seed the CAS meta key from the JS-parsed blob
+      // (JS parse is tolerant where cjson is not). NX so a concurrent PUT's
+      // freshly written meta is never clobbered by a stale GET.
+      if (raw) {
+        try {
+          await redis.set(metaKey, `${savedAt || ''}|`, 'NX');
+        } catch (err) {
+          console.error('meta seed failed:', err.message);
+        }
+      }
       return res.status(200).json({
         exists: Array.isArray(transactions),
         transactions: transactions || [],
@@ -145,10 +199,10 @@ export default async function handler(req, res) {
 
     if (req.method === 'PUT') {
       const body = req.body || {};
-      const transactions = body.transactions;
-      if (!Array.isArray(transactions)) {
+      if (!Array.isArray(body.transactions)) {
         return res.status(400).json({ error: 'transactions array required' });
       }
+      const transactions = sanitizeStrings(body.transactions);
 
       const invalid = findInvalidRow(transactions);
       if (invalid) {
@@ -160,6 +214,7 @@ export default async function handler(req, res) {
       const savedAt = new Date().toISOString();
       const clientId = typeof body.clientId === 'string' ? body.clientId : '';
       const payload = JSON.stringify({ transactions, savedAt, clientId });
+      const metaValue = `${savedAt}|${clientId}`;
 
       // Optimistic-concurrency write (only when the client opted in by
       // sending expectedSavedAt; null means "I loaded an empty ledger").
@@ -167,7 +222,7 @@ export default async function handler(req, res) {
       if ('expectedSavedAt' in body) {
         const expected = body.expectedSavedAt || '';
         const [okFlag, storedSavedAt, storedClientId] = await redis.eval(
-          CAS_PUT_SCRIPT, 1, storageKey, expected, payload, clientId
+          CAS_PUT_SCRIPT, 2, storageKey, metaKey, expected, payload, clientId, metaValue
         );
         if (okFlag !== 1) {
           // savedAt + clientId of the conflicting write feed the client's
@@ -181,6 +236,7 @@ export default async function handler(req, res) {
       } else {
         // No expectedSavedAt — old client, keep last-write-wins (back-compat).
         await redis.set(storageKey, payload);
+        await redis.set(metaKey, metaValue);
       }
 
       // Daily snapshot (best-effort — a snapshot failure never fails the save).
