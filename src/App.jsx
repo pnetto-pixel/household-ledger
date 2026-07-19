@@ -76,6 +76,7 @@ import {
   txnFingerprint,
   markDuplicates,
   descWords,
+  mergeTransactions,
 } from "./ledger.js";
 
 // ---------------------------------------------------------------------------
@@ -744,6 +745,7 @@ export default function App() {
       const data = await res.json();
       const serverTxns = Array.isArray(data.transactions) ? data.transactions : [];
       const serverSavedAt = data.savedAt || null;
+      baseTransactionsRef.current = serverTxns;
 
       // Restore a pending save from a previous session (offline close /
       // failed save), but only if the server hasn't moved since it was based.
@@ -789,6 +791,58 @@ export default function App() {
     savedAtRef.current = savedAt;
   }, [savedAt]);
 
+  // Last transactions state this device knew the SERVER had (set on load and
+  // after each successful save) — the `base` of the three-way merge below.
+  const baseTransactionsRef = useRef([]);
+
+  // 409 recovery: instead of discarding the local change ("server wins,
+  // please redo" — which makes the slower device lose an entire import every
+  // time two instances are open), fetch the server state, three-way merge it
+  // with what we tried to save, and PUT the result on top of the server's
+  // fresh savedAt. Returns true when the merge landed; false falls back to
+  // the old reload-and-redo path (e.g. yet another writer raced the merge).
+  const tryMergeSave = useCallback(async (localNext) => {
+    try {
+      const res = await fetch("/api/transactions", {
+        method: "GET",
+        headers: buildAuthHeaders(),
+        signal: AbortSignal.timeout?.(25000),
+      });
+      if (!res.ok) return false;
+      const data = await res.json();
+      const serverTxns = Array.isArray(data.transactions) ? data.transactions : [];
+      const serverSavedAt = data.savedAt || null;
+      const merged = mergeTransactions(
+        baseTransactionsRef.current || [],
+        localNext,
+        serverTxns
+      );
+      const putRes = await fetch("/api/transactions", {
+        method: "PUT",
+        headers: buildAuthHeaders(),
+        body: JSON.stringify({
+          transactions: merged,
+          expectedSavedAt: serverSavedAt,
+          clientId: CLIENT_ID,
+        }),
+        signal: AbortSignal.timeout?.(25000),
+      });
+      if (!putRes.ok) return false;
+      const j = await putRes.json();
+      const at = j.savedAt || new Date().toISOString();
+      baseTransactionsRef.current = merged;
+      savedAtRef.current = at;
+      setSavedAt(at);
+      setTransactions(merged);
+      clearPendingSave();
+      setSaveError(null);
+      setError("Changes from another device were merged with yours.");
+      return true;
+    } catch {
+      return false;
+    }
+  }, []);
+
   // Saves are serialized: one PUT in flight at a time, with a queue of one
   // (only the latest `next` matters — the payload is the whole array). A
   // second save racing a still-in-flight first one used to send the
@@ -822,6 +876,11 @@ export default function App() {
         // browsers cap keepalive bodies at ~64 KB — fall back to a normal
         // fetch above that and hope the page survives long enough.
         keepalive: keepalive && body.length < 60000,
+        // A fetch left hanging by an iOS page suspension would hold
+        // saveInFlightRef forever and wedge every future save. If the PUT
+        // actually landed and only the response was lost, the retry's stale
+        // expectedSavedAt is forgiven server-side (same clientId).
+        signal: AbortSignal.timeout?.(25000),
       });
       if (res.status === 401 || res.status === 403) {
         // Wrong/rotated password — re-authenticating is the only fix. A
@@ -832,16 +891,17 @@ export default function App() {
         return;
       }
       if (res.status === 409) {
-        // Another device saved first. Reload its data (server wins) and tell
-        // the user their last local change was NOT saved and must be redone —
-        // the alternative (forcing this write) would silently drop the other
-        // device's changes instead. The pending mirror is stale for the same
-        // reason — drop it before load() so it isn't "restored". Any queued
-        // save is based on the same discarded local state — drop it too, or
-        // it would fire after load() with a FRESH savedAt and overwrite the
-        // other device's data that "server wins" just restored.
+        // Another device saved first. Try to MERGE our change with theirs
+        // (tryMergeSave above) — a queued save holds newer local state than
+        // `next`, so merge that instead when present. Only when the merge
+        // also fails (another writer racing us, network) fall back to the
+        // old server-wins reload, telling the user to redo the change. The
+        // pending mirror and queue are stale either way — the merge/load
+        // path rebuilds state from the server.
+        const localNext = queuedSaveRef.current ? queuedSaveRef.current.next : next;
         queuedSaveRef.current = null;
         clearPendingSave();
+        if (await tryMergeSave(localNext)) return;
         setSaveError("conflict");
         await load();
         setError(
@@ -855,6 +915,7 @@ export default function App() {
       }
       const data = await res.json();
       const at = data.savedAt || new Date().toISOString();
+      baseTransactionsRef.current = next;
       savedAtRef.current = at;
       setSavedAt(at);
       clearPendingSave();
@@ -877,7 +938,7 @@ export default function App() {
         saveSerialized(queued.next, { keepalive: queued.keepalive });
       }
     }
-  }, [load]);
+  }, [load, tryMergeSave]);
 
   const scheduleSave = useCallback(
     (next) => {
@@ -1853,7 +1914,7 @@ function Header({ hideValues, onToggleHide, onLogout, saving, savedAt, dirty, sa
             <Wallet size={14} color="#fff" />
           </div>
           <span style={{ fontWeight: 700, fontSize: 15, letterSpacing: -0.5, color: "#e5e7eb" }}>Household</span>
-          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.45.0</span>
+          <span style={{ fontSize: 10, color: "#6b7280", marginLeft: 4, letterSpacing: 0 }}>v1.46.0</span>
         </div>
         <SaveIndicator saving={saving} dirty={dirty} savedAt={savedAt} saveError={saveError} />
       </div>

@@ -21,6 +21,7 @@ import {
   txnFingerprint,
   markDuplicates,
   descWords,
+  mergeTransactions,
 } from "./ledger.js";
 
 const INCOME = ["Salary", "Bonus", "Bela Income", "Other Income"];
@@ -252,5 +253,82 @@ describe("markDuplicates", () => {
   it("fingerprint includes signed cents", () => {
     expect(txnFingerprint({ date: "2026-07-01", amount: -10, description: "x", account: "a" }))
       .not.toBe(txnFingerprint({ date: "2026-07-01", amount: 10, description: "x", account: "a" }));
+  });
+});
+
+describe("mergeTransactions", () => {
+  const row = (id, patch = {}) => ({
+    id,
+    date: "2026-07-01",
+    description: `txn ${id}`,
+    amount: -10,
+    category: "Groceries",
+    account: "Chase",
+    ...patch,
+  });
+
+  it("returns server state untouched when local made no changes", () => {
+    const base = [row("a"), row("b")];
+    const server = [row("c"), row("a"), row("b")];
+    expect(mergeTransactions(base, base, server)).toEqual(server);
+  });
+
+  it("keeps local additions (prepended) alongside server additions", () => {
+    const base = [row("a")];
+    const local = [row("imp1"), row("imp2"), row("a")]; // an import on this device
+    const server = [row("srv1"), row("a")]; // another device added srv1 meanwhile
+    const merged = mergeTransactions(base, local, server);
+    expect(merged.map((t) => t.id)).toEqual(["imp1", "imp2", "srv1", "a"]);
+  });
+
+  it("preserves a local deletion even though the server still has the row", () => {
+    const base = [row("a"), row("b")];
+    const local = [row("a")]; // deleted b locally
+    const server = [row("a"), row("b")];
+    expect(mergeTransactions(base, local, server).map((t) => t.id)).toEqual(["a"]);
+  });
+
+  it("respects a server-side deletion of a row untouched locally", () => {
+    const base = [row("a"), row("b")];
+    const local = [row("a"), row("b")];
+    const server = [row("a")]; // other device deleted b
+    expect(mergeTransactions(base, local, server).map((t) => t.id)).toEqual(["a"]);
+  });
+
+  it("keeps a locally edited row that the server deleted", () => {
+    const base = [row("a"), row("b")];
+    const local = [row("a"), row("b", { category: "Dog" })]; // edited here
+    const server = [row("a")]; // deleted there
+    const merged = mergeTransactions(base, local, server);
+    expect(merged.find((t) => t.id === "b")?.category).toBe("Dog");
+  });
+
+  it("takes the server version of a row edited only on the server", () => {
+    const base = [row("a")];
+    const local = [row("a")];
+    const server = [row("a", { category: "Restaurant" })];
+    expect(mergeTransactions(base, local, server)[0].category).toBe("Restaurant");
+  });
+
+  it("prefers the local version when both sides edited the same row", () => {
+    const base = [row("a")];
+    const local = [row("a", { category: "Dog" })];
+    const server = [row("a", { category: "Restaurant" })];
+    expect(mergeTransactions(base, local, server)[0].category).toBe("Dog");
+  });
+
+  it("merges an import against a concurrent edit without losing either", () => {
+    const base = [row("a")];
+    const local = [row("i1"), row("i2"), row("a")]; // import on this device
+    const server = [row("a", { amount: -99 })]; // edit on another device
+    const merged = mergeTransactions(base, local, server);
+    expect(merged.map((t) => t.id).sort()).toEqual(["a", "i1", "i2"]);
+    expect(merged.find((t) => t.id === "a").amount).toBe(-99);
+  });
+
+  it("handles an empty base (first sync) as pure union with local first", () => {
+    const local = [row("l1")];
+    const server = [row("s1")];
+    expect(mergeTransactions([], local, server).map((t) => t.id)).toEqual(["l1", "s1"]);
   });
 });

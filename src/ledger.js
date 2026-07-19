@@ -320,3 +320,72 @@ export function markDuplicates(rows, existing) {
     return { ...r, _dup: dup };
   });
 }
+
+// ---------------------------------------------------------------------------
+// Three-way merge for save conflicts (v1.46.0)
+// ---------------------------------------------------------------------------
+// When a PUT hits a 409 (another device saved since we loaded), the old
+// behavior discarded the local change ("server wins, please redo") — which
+// makes the slower device lose an entire import every time two instances are
+// open. Instead the client now merges: `base` is the last state this device
+// knew the server had, `local` is what it just tried to save, `server` is
+// what the other device wrote. Row identity is `t.id` (uid assigned on every
+// add/import path).
+//
+// Per-row rules (user intent on THIS device wins ties):
+// - added locally (not in base/server)            -> kept (prepended, like addTransactions)
+// - added on server                               -> kept
+// - deleted locally (in base, not in local)       -> stays deleted, even if server edited it
+// - deleted on server, untouched locally          -> stays deleted
+// - deleted on server, but edited locally         -> kept (an active local edit is not silently dropped)
+// - edited on one side only                       -> that side's version
+// - edited on both sides                          -> local wins
+//
+// Duplicate risk: the same external rows imported independently on two
+// devices get different uids and both survive the union — the Import
+// preview's duplicate detection already covers that case at import time.
+export function mergeTransactions(base, local, server) {
+  const byId = (arr) => {
+    const m = new Map();
+    for (const t of arr) if (t && t.id != null) m.set(t.id, t);
+    return m;
+  };
+  const baseM = byId(base);
+  const localM = byId(local);
+  const serverM = byId(server);
+  const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+
+  const out = [];
+  // Local additions first — mirrors addTransactions prepending new rows.
+  // Rows without an id can't be matched; treat them as additions too.
+  for (const t of local) {
+    if (!t) continue;
+    if (t.id == null || (!baseM.has(t.id) && !serverM.has(t.id))) out.push(t);
+  }
+  for (const t of server) {
+    if (!t) continue;
+    if (t.id == null) {
+      out.push(t);
+      continue;
+    }
+    const l = localM.get(t.id);
+    if (l === undefined) {
+      // Missing locally: locally deleted (row was in base) or server addition.
+      if (!baseM.has(t.id)) out.push(t);
+      continue;
+    }
+    if (same(l, t)) {
+      out.push(t);
+      continue;
+    }
+    const b = baseM.get(t.id);
+    const localChanged = b === undefined || !same(l, b);
+    out.push(localChanged ? l : t);
+  }
+  // Rows the server deleted but this device edited since base — keep them.
+  for (const t of local) {
+    if (!t || t.id == null || serverM.has(t.id) || !baseM.has(t.id)) continue;
+    if (!same(t, baseM.get(t.id))) out.push(t);
+  }
+  return out;
+}
