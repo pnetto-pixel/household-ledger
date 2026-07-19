@@ -9,7 +9,9 @@
 React 18 + Vite (front) · recharts (gráficos) · papaparse (CSV) ·
 lucide-react (ícones) · funções serverless Vercel (`/api/*`) · Redis via
 `ioredis` · Auth somente por senha de app (`lib/auth.js`; Google JWT
-removido na v1.30.0).
+removido na v1.30.0). Auto-lock de cliente após 30 min de inatividade
+(v1.45.0): a senha sai do `localStorage` e o login volta; timestamp
+`household_last_active` compartilhado entre abas.
 
 ## Estrutura
 - `src/App.jsx` — app inteiro, monolito single-file (5 tabs), organizado em
@@ -38,10 +40,13 @@ removido na v1.30.0).
 - Persistido no Redis como `{ transactions: [...], savedAt }`.
 
 ## Contrato de API / Redis (não alterar sem necessidade explícita)
-- GET/PUT em `/api/transactions`, payload `{ transactions, savedAt }`.
+- GET/PUT em `/api/transactions`, payload `{ transactions, savedAt, clientId }`.
 - PUT aceita `expectedSavedAt` opcional (concorrência otimista, v1.30.0):
   responde 409 quando o `savedAt` persistido diverge; sem o campo, mantém
-  last-write-wins (back-compat).
+  last-write-wins (back-compat). PUT também aceita `clientId` (v1.44.8, id
+  por page-load): mismatch de `savedAt` é perdoado quando o blob armazenado
+  foi gravado pelo mesmo `clientId` (evita auto-409 quando o iOS suspende a
+  página antes da resposta do save chegar).
 - Namespace `household:*:transactions` (chave derivada por usuário a partir
   de `auth.storageKey`, reescrita de `portfolio:...:holdings` para
   `household:...:transactions`). Snapshots diários aditivos em
