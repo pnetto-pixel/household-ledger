@@ -63,6 +63,9 @@ também mantém a meta. Validação: teste do handler real contra Redis
 reproduzindo o estado travado de produção — GET lê e faz seed, save
 destrava, blob volta a ser cjson-decodável, 409 informativo para
 conflito real, perdão same-client e fallbacks legacy intactos (11/11).
+**Confirmado em produção**: import do Credit Karma no iPhone, que vinha
+falhando desde o lote de 18/07, funcionou após este deploy — fecha a
+sequência v1.44.8→v1.47.1 de tentativas sobre o mesmo sintoma.
 
 Versão anterior: **v1.47.0** — **feat: resync ao voltar ao app + merge com
 retry + diagnóstico no conflito**. Contexto: TODO o maquinário de conflito
