@@ -1,4 +1,4 @@
-# Household Ledger · v1.47.1
+# Household Ledger · v1.48.0
 
 Aplicativo mobile-first de controle financeiro doméstico. Registra
 transações da casa (despesas e receitas) por categoria e conta, com
@@ -31,7 +31,17 @@ O `feature-auditor` deve conferir, como parte da checklist de auditoria, que
 o diff inclui o bump nos dois arquivos antes de aprovar — se faltar, isso é
 motivo de reprovação (devolver ao coder), não um detalhe opcional.
 
-Versão atual: **v1.47.1** — **fix: CAUSA RAIZ do 409 eterno — cjson do CAS
+Versão atual: **v1.48.0** — **feat: Sync automático via SimpleFin (Fase 1)**
+(PR #213, branch `claude/simplefin-credit-karma-automation-722ffq`). Novo
+endpoint `api/simplefin-sync.js` (GET autenticado, read-only, credencial via
+env var `SIMPLEFIN_ACCESS_URL`) que mapeia transações da SimpleFin Bridge
+para o shape padrão do projeto; terceiro card "SimpleFin (auto)" na tab
+Import reaproveitando o pipeline de prévia/dedup já existente. Escopo
+cortado para depois (Fase 2): cron real, UI de credencial na Settings,
+reconciliação silenciosa. Ver Roadmap Fase 7 e seção "UI" (tab Import) para
+detalhes.
+
+Versão anterior: **v1.47.1** — **fix: CAUSA RAIZ do 409 eterno — cjson do CAS
 Lua engasgava com surrogate solto no blob**. O diagnóstico de campo da
 v1.47.0 (`[other write ? by old-vers · merge failed: put 409]`) entregou o
 bug: o blob armazenado tinha `savedAt`/`clientId` ilegíveis PARA O LUA.
@@ -2202,8 +2212,9 @@ shell de altura cheia (`#root` em `100lvh` + shell `height:100%`): só o
    "Mark as Transfer" e "Delete (N)" com confirmação inline. Após qualquer
    **Apply**, a seleção é limpa automaticamente. Tudo é client-side (uma
    chamada `scheduleSave`, sem novo endpoint).
-4. **Import** — importação de CSV (papaparse) com **dois métodos** apenas
-   (`BANK_PROFILES`). **Desde a v1.16.2 (PR #126)**, o seletor de método
+4. **Import** — importação de CSV (papaparse) com **dois métodos**
+   (`BANK_PROFILES`), mais o card de sync automático SimpleFin (ver abaixo).
+   **Desde a v1.16.2 (PR #126)**, o seletor de método
    deixou de ser os 2 cards grandes com title+descrição e virou um
    **segmented control (toggle) de 2 opções** (`S.segmented`/
    `S.segmentedBtn`), com dropzone de drag-and-drop abaixo; uma legenda
@@ -2232,6 +2243,20 @@ shell de altura cheia (`#root` em `100lvh` + shell `height:100%`): só o
    contas por URN cobre o caso Chase). O placeholder do dropzone de upload
    também foi traduzido PT→EN (PR #104, v1.7.0) — o restante do componente
    `ImportTransactions` já estava em inglês.
+
+   **SimpleFin (auto)** (v1.48.0, PR #213, Fase 1) — terceiro card na tab
+   Import, ao lado de Credit Karma (CSV) e CSV genérico, com botão "Sync
+   now". Ao clicar, busca `GET /api/simplefin-sync` (endpoint autenticado,
+   read-only, credencial via env var `SIMPLEFIN_ACCESS_URL` — SimpleFin
+   Bridge access URL, sem UI de configuração ainda), resolve a conta via os
+   mesmos helpers `classifyAccount`/`matchOption` do fluxo CSV, e injeta as
+   transações resultantes no **mesmo** pipeline de prévia/dedup
+   (`markDuplicates`)/checkbox por linha/confirmação usado pelos outros dois
+   métodos — não é um pipeline paralelo. Mensagens de erro específicas: env
+   var ausente ("SimpleFin não configurado", 501) vs. falha de rede/resposta
+   não-OK do SimpleFin (502). Sem sync automático agendado nesta fase —
+   sempre disparado manualmente pelo botão; ver Roadmap Fase 7 para o
+   escopo cortado para a Fase 2.
 
    **Deduplicação (híbrida).** Na prévia, cada linha tem checkbox e as
    duplicadas vêm **desmarcadas** (badge `DUP`), com Select/Deselect all —
@@ -3636,3 +3661,19 @@ riscos reais de perda de dados.
   chunks separados `charts` (recharts/d3, ~427 KB) e `react` (~142 KB); app
   cai para ~189 KB. Lazy-load real do recharts adiado (exigiria extrair os
   cards do monolito); migração recharts v3 segue pendente.
+- [x] **Sync automático via SimpleFin — Fase 1** (v1.48.0, PR #213) — novo
+  endpoint `api/simplefin-sync.js` (GET autenticado via `authenticate()`,
+  read-only, não escreve no Redis) chama a SimpleFin Bridge access URL
+  (env var `SIMPLEFIN_ACCESS_URL`, credencial embutida na URL) e mapeia as
+  transações da fonte para o shape padrão do projeto (`srcAccount`,
+  `sourceId` reaproveitados, sinal preservado verbatim). Terceiro card
+  "SimpleFin (auto)" na tab Import, ao lado de Credit Karma (CSV) e CSV
+  genérico, com botão "Sync now" que injeta o resultado no mesmo pipeline
+  de prévia/dedup/checkbox/confirmação já existente (sem pipeline
+  paralelo). Erros distintos na UI: credencial ausente (501) vs. falha de
+  rede/SimpleFin (502).
+  - [ ] **Fase 2 (não iniciada)**: agendamento automático real (cron —
+    Vercel serverless não tem cron configurado nesta fase; hoje é sempre
+    sync manual via botão), UI de configuração de credencial SimpleFin na
+    Settings (hoje é hardcoded via env var, single-tenant), reconciliação
+    silenciosa sem prévia do usuário.
