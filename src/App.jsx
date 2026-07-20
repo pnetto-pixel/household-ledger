@@ -580,7 +580,7 @@ function idleExpired() {
 // path, so the pending copy is discarded with a notice instead).
 
 // Single source for the version shown in the header and in diagnostics.
-const APP_VERSION = "v1.52.0";
+const APP_VERSION = "v1.53.0";
 
 const PENDING_SAVE_KEY = "household_pending_save";
 
@@ -8021,10 +8021,16 @@ function SimpleFinPreview({ accountMap, money }) {
   const [sortKey, setSortKey] = useState(null);
   const [sortDir, setSortDir] = useState("asc");
   const [filters, setFilters] = useState({});
+  // Per-account warnings SimpleFin itself returns alongside `transactions`
+  // (e.g. "needs re-authentication") — an institution can fail silently
+  // here while others still return data, so this is surfaced separately
+  // from `error` (which means the whole fetch failed).
+  const [sfErrors, setSfErrors] = useState([]);
 
   const load = async (which) => {
     setLoading(true);
     setError("");
+    setSfErrors([]);
     try {
       const url = which === "live" ? "/api/simplefin-sync" : "/api/simplefin-sync?pending=1";
       const res = await fetch(url, { headers: buildAuthHeaders() });
@@ -8040,6 +8046,7 @@ function SimpleFinPreview({ accountMap, money }) {
       }
       setRows(classifySimpleFinRows(data.transactions, accountMap));
       setSource(which);
+      if (Array.isArray(data.errors) && data.errors.length) setSfErrors(data.errors);
     } catch (err) {
       setError(`Could not reach SimpleFin: ${err.message}`);
       setRows([]);
@@ -8069,6 +8076,7 @@ function SimpleFinPreview({ accountMap, money }) {
           setRows([]);
           return;
         }
+        if (Array.isArray(data.errors) && data.errors.length) setSfErrors(data.errors);
         if (Array.isArray(data.transactions) && data.transactions.length > 0) {
           setRows(classifySimpleFinRows(data.transactions, accountMap));
           setSource("pending");
@@ -8098,6 +8106,19 @@ function SimpleFinPreview({ accountMap, money }) {
   }
   const orderedKnown = SF_RAW_COLUMN_ORDER.filter((k) => rawKeys.has(k));
   const leftover = [...rawKeys].filter((k) => !SF_RAW_COLUMN_ORDER.includes(k)).sort();
+
+  // Transaction count per account name, so a whole missing/silent account
+  // (e.g. an investment sub-account SimpleFin isn't returning transactions
+  // for) is visible at a glance instead of having to scan the raw table.
+  const accountSummary = useMemo(() => {
+    const counts = new Map();
+    for (const t of rows) {
+      const name = t.raw?.accountName || t.srcAccount || "(unknown)";
+      counts.set(name, (counts.get(name) || 0) + 1);
+    }
+    return [...counts.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rows]);
 
   // One descriptor per column: raw SimpleFin fields plus the two suggested
   // columns, each with a getValue (typed, for sorting) and getDisplay
@@ -8176,7 +8197,17 @@ function SimpleFinPreview({ accountMap, money }) {
             Fonte: {source === "live" ? "busca ao vivo (agora)" : "fila do cron diário"}
           </div>
         ) : null}
+        {!loading && rows.length > 0 ? (
+          <div style={{ marginTop: 4 }}>
+            Contas retornadas: {accountSummary.map(([name, count]) => `${name} (${count})`).join(", ")}
+          </div>
+        ) : null}
       </div>
+      {sfErrors.length > 0 ? (
+        <div style={{ ...S.errorBar, background: "#3a2e12", borderColor: "#5c4a1a", color: "#e0b84a" }}>
+          Avisos do SimpleFin (conta pode precisar de reautenticação): {sfErrors.join("; ")}
+        </div>
+      ) : null}
       {error ? <div style={S.errorBar}>{error}</div> : null}
       {!error && rows.length === 0 ? (
         <Empty>Nenhuma transação encontrada. Tente "Buscar ao vivo" acima.</Empty>

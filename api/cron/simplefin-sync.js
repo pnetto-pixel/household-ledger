@@ -80,7 +80,7 @@ export default async function handler(req, res) {
   const merged = existingPending.concat(newOnes);
 
   try {
-    await redis.set(pendingKey, JSON.stringify({ transactions: merged, lastFetchAt: new Date().toISOString() }));
+    await redis.set(pendingKey, JSON.stringify({ transactions: merged, lastFetchAt: new Date().toISOString(), errors: result.errors || [] }));
   } catch (err) {
     return res.status(503).json({ error: `Failed to write pending queue: ${err.message}` });
   }

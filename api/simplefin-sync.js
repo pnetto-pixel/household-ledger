@@ -53,12 +53,13 @@ async function handlePending(req, res, auth) {
     try {
       const raw = await redis.get(pendingKey);
       if (!raw) {
-        return res.status(200).json({ transactions: [], lastFetchAt: null });
+        return res.status(200).json({ transactions: [], lastFetchAt: null, errors: [] });
       }
       const parsed = JSON.parse(raw);
       return res.status(200).json({
         transactions: Array.isArray(parsed?.transactions) ? parsed.transactions : [],
         lastFetchAt: parsed?.lastFetchAt || null,
+        errors: Array.isArray(parsed?.errors) ? parsed.errors : [],
       });
     } catch (err) {
       return res.status(500).json({ error: err.message });
