@@ -1,4 +1,4 @@
-# Household Ledger · v1.49.0
+# Household Ledger · v1.50.0
 
 Aplicativo mobile-first de controle financeiro doméstico. Registra
 transações da casa (despesas e receitas) por categoria e conta, com
@@ -31,7 +31,22 @@ O `feature-auditor` deve conferir, como parte da checklist de auditoria, que
 o diff inclui o bump nos dois arquivos antes de aprovar — se faltar, isso é
 motivo de reprovação (devolver ao coder), não um detalhe opcional.
 
-Versão atual: **v1.49.0** — **feat: SimpleFin Fase 2 — sync automático via
+Versão atual: **v1.50.0** — **feat: nova tab Preview — vitrine read-only da
+fila de pendências do SimpleFin** (PR #216, branch
+`claude/household-simplefin-preview-tab`). Nova tab "Preview" (ícone `Eye`),
+logo após Import na navegação principal, que busca automaticamente
+(sem clique) `GET /api/simplefin-sync?pending=1` ao entrar na tela, classifica
+as transações pendentes com o novo helper `classifySimpleFinRows(transactions,
+accountMap)` (extraído de `src/App.jsx`, mesma lógica de sugestão de
+conta/categoria antes duplicada nos fluxos "Sync now" e "Revisar pendentes"
+do Import) e renderiza a lista via `TxnRow`, com aviso fixo de que as
+sugestões não estão confirmadas. **100 % read-only por decisão de
+produto**: nenhuma ação de escrita (editar/deletar/selecionar/confirmar) —
+para importar de fato, o fluxo continua sendo a tab Import ("Sync now" /
+"Revisar N pendentes"), inalterado. Ver seção "UI" para detalhes de estados
+vazio/erro/loading.
+
+Versão anterior: **v1.49.0** — **feat: SimpleFin Fase 2 — sync automático via
 cron + fila de pendências** (PR #215, branch
 `claude/simplefin-credit-karma-automation-722ffq`). Lógica de fetch
 extraída para `lib/simplefin.js` (`fetchSimplefinTransactions()`,
@@ -1902,9 +1917,10 @@ Mobile-first, tema escuro iOS. Tab bar inferior fixa com 5 abas. A entrada de tr
 - **Overhaul visual "Liquid Glass" (fases A–F), CONCLUÍDO — todas as 6 fases entregues (PR #144/#145/#146/#147/#148, v1.21.0 → v1.21.5)**: overhaul visual em fases, inspirado no "Liquid Glass" da Apple, decidido com o usuário como evolução do Redesign iOS 26 "Liquid Glass" original (PR #23, acima). Único arquivo alterado em todas as fases: `src/App.jsx`. **Fase A** (header/tab bar): ícone do header trocado de `LayoutDashboard` para **`Wallet`** (mais condizente com o tema financeiro do app); tile do ícone do header com `borderRadius` 9 + gradiente de realce translúcido neutro + `boxShadow` inset (reflexo de vidro); `S.tabBar` deixou de ter fundo opaco e passou a ser translúcido (`rgba(11,13,16,0.85)`) com `backdropFilter: blur(20px) saturate(180%)`, igual ao já existente em `S.header` — header e tab bar compartilham o mesmo efeito glass. **Fase B** (modais/popovers/overlay): `S.modalOverlay` ganhou blur leve; `S.modalCard` e `S.loginCard` deixaram de ter fundo opaco (`rgba(22,26,32,0.82)` + `blur(20px) saturate(180%)` + borda translúcida + `boxShadow` de profundidade); `S.headerPop` (popover de filtro) ganhou o mesmo tratamento. **Fase C** (cards de conteúdo): `S.card` (base de `StatCard` e vários blocos) deixou de ter fundo opaco (`rgba(22,26,32,0.7)` + `blur(16px) saturate(160%)` + borda translúcida, `borderRadius` 16→14); hero card do Home com gradiente translúcido + realce de luz diagonal + `boxShadow` inset; `CollapsibleCard`, `S.summaryBar` e `S.bulkBar` receberam o mesmo tratamento, `borderRadius` uniformizado para 14px (hero card em 20px, igual ao `modalCard`); `StatCard` herdou a translucidez automaticamente via `S.card`. **Fase D** (linhas de transação) foi só uma verificação de consistência, sem código: decisão fixada reafirmada — linhas de transação (`S.txnRow`, `TxnAuditCard`, avatar de categoria) permanecem **opacas**, sem glass, por serem lista potencialmente longa (risco de performance no scroll); app permaneceu em v1.21.3 nesta fase. **Fase E** (inputs, botões e chips/pills): `S.input`, `S.select`, `S.searchWrap`, `S.cellSelect`, `S.importCatSelect` deixaram de ter fundo opaco e passaram a `rgba(15,18,22,0.92)` + borda translúcida + `boxShadow` inset simulando campo "escavado" (sem blur — inputs continuam sem `backdropFilter`, por serem pequenos e precisarem de máxima legibilidade); `S.primaryBtn` ganhou gradiente duplo (sheen branco translúcido + azul `#0A84FF→#0055cc`) + `boxShadow` com realce de luz no topo; `S.secondaryBtn` ganhou borda mais visível, fundo continua transparente; `S.chipBtn`, `S.togglePill`, `S.segmentedBtn`, `S.segmented` tiveram fundos sólidos por estado convertidos para `rgba` translúcido, mantendo bordas de acento como indicador de estado. **Fase F** (gráficos/tooltips Recharts, PR #148, v1.21.5 — última fase, fecha a iniciativa): os 5 blocos `Tooltip.contentStyle` (`MonthlyBarCard`, `DailyPaceCard`, `CategoryStackedBarCard`, `MonthlyAvgByCategoryCard`, `Charts`) tiveram a borda trocada para `rgba(255,255,255,0.12)`, `borderRadius` uniformizado para 14 e ganharam `boxShadow: "0 8px 24px rgba(0,0,0,0.4)"` (efeito de profundidade sobre o gráfico); o fundo do tooltip permanece **opaco** — exceção deliberada, por legibilidade instantânea de dados financeiros; `CartesianGrid` já estava consistente em todos os gráficos. Decisões de estilo fixadas para todo o overhaul: ícone do header = `Wallet`; realces de luz = branco neutro, sem tingimento de marca.
 - **Tela cheia iOS PWA (full-bleed)**: o `viewport-fit=cover` só passa a valer com o meta limpo (sem `maximum-scale`) **e** uma reinstalação na tela inicial (o iOS faz snapshot do viewport no add-to-home-screen). A medição no device foi decisiva: `100dvh`/`100svh` = a *layout viewport* (812 pt no iPhone 16 Pro, que **exclui** a área do home indicator), enquanto `100vh`/`100lvh` = a tela física completa (874 pt). Por isso `html`/`body`/`#root` usam **`height: 100lvh`** com `overflow: hidden` (sem rubber-band) e o shell `height: 100%`. Resultado: a tab bar encosta na borda física real (medido `belowNav = 0`), sem faixa preta. `env(safe-area-inset-bottom)` no padding da barra mantém os ícones acima do home indicator; `env(safe-area-inset-top)` no header limpa a Dynamic Island.
 
-São **5 tabs**: Home (antiga **Dashboard**, renomeada na v1.20.2, PR #138 —
+São **6 tabs**: Home (antiga **Dashboard**, renomeada na v1.20.2, PR #138 —
 ver "Identidade visual" acima), Trends (antiga **Analyze**, renomeada na
 v1.21.0, PR #143 — ver "Identidade visual" acima), Transactions, Import,
+**Preview** (nova na v1.50.0, PR #216 — ver item logo após Import abaixo),
 Settings (antiga **Audit**, renomeada e consolidada com o antigo
 `SettingsModal` na v1.17.0, PR #128 — ver item 5 abaixo). O app usa
 shell de altura cheia (`#root` em `100lvh` + shell `height:100%`): só o
@@ -2312,6 +2328,25 @@ shell de altura cheia (`#root` em `100lvh` + shell `height:100%`): só o
    limpa a fila (ela só é limpa pelo fluxo "Revisar pendentes"); sem risco
    de duplicata real, pois o dedup final (`markDuplicates`) sempre roda
    contra o ledger antes de importar.
+
+   **Tab Preview (v1.50.0, PR #216)** — nova tab na navegação principal,
+   logo após Import, ícone `Eye`. É uma **vitrine 100% read-only** da mesma
+   fila de pendências do cron SimpleFin: ao entrar na tab, busca
+   automaticamente (sem precisar de clique) `GET
+   /api/simplefin-sync?pending=1`, classifica cada transação com o novo
+   helper `classifySimpleFinRows(transactions, accountMap)` — extraído de
+   `src/App.jsx`, elimina a duplicação que existia entre os fluxos "Sync
+   now" e "Revisar pendentes" do Import, sem mudar o comportamento de
+   sugestão de conta/categoria — e renderiza cada linha reaproveitando o
+   componente `TxnRow` (mesmas colunas de data/descrição/valor/categoria
+   sugerida/conta sugerida, estilo visual igual ao da tab Transactions).
+   Tem um aviso fixo no topo deixando claro que são sugestões **não
+   confirmadas**. **Não existe nenhuma ação de escrita** — sem editar,
+   deletar, selecionar ou confirmar/importar a partir dessa tab; para
+   importar de fato, o usuário continua usando a tab Import ("Sync now" ou
+   "Revisar N pendentes"), inalterada. Estados tratados: vazio (fila sem
+   itens), erro (distingue "SimpleFin não configurado" de falha de rede,
+   mesmas mensagens do fluxo de Import) e loading.
 
    **Deduplicação (híbrida).** Na prévia, cada linha tem checkbox e as
    duplicadas vêm **desmarcadas** (badge `DUP`), com Select/Deselect all —
@@ -3740,6 +3775,12 @@ riscos reais de perda de dados.
     aviso + botão "Revisar N pendentes" na tab Import, reusando o mesmo
     pipeline de prévia/dedup/confirmação. Ver seção "Modelo de dados" e
     "UI" para detalhes.
+  - [x] **Tab Preview — vitrine read-only da fila de pendências** (v1.50.0,
+    PR #216) — nova tab "Preview" que busca e classifica a mesma fila do
+    cron automaticamente ao abrir, sem nenhum caminho de escrita (não
+    edita/deleta/importa); reuso de `TxnRow` e do novo helper
+    `classifySimpleFinRows` (extraído da lógica antes duplicada no Import).
+    Ver seção "UI" para detalhes.
   - [ ] UI de configuração de credencial SimpleFin na Settings — ainda
     hardcoded via env var `SIMPLEFIN_ACCESS_URL` (single-tenant).
   - [x] ~~Reconciliação silenciosa sem prévia do usuário~~ — **descartado
