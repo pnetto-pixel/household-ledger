@@ -580,7 +580,7 @@ function idleExpired() {
 // path, so the pending copy is discarded with a notice instead).
 
 // Single source for the version shown in the header and in diagnostics.
-const APP_VERSION = "v1.51.0";
+const APP_VERSION = "v1.51.1";
 
 const PENDING_SAVE_KEY = "household_pending_save";
 
@@ -7995,10 +7995,44 @@ function SimpleFinPreview({ accountMap, money }) {
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  // "pending" = the cron's queue (household:*:simplefin-pending, only
+  // populated once the daily cron has actually run); "live" = a fresh
+  // on-demand fetch straight from SimpleFin, same endpoint as Import's
+  // "Sync now" — lets this tab show data even before/without the cron.
+  const [source, setSource] = useState("pending");
+
+  const load = async (which) => {
+    setLoading(true);
+    setError("");
+    try {
+      const url = which === "live" ? "/api/simplefin-sync" : "/api/simplefin-sync?pending=1";
+      const res = await fetch(url, { headers: buildAuthHeaders() });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setError(
+          res.status === 501
+            ? "SimpleFin não configurado (SIMPLEFIN_ACCESS_URL ausente no servidor)."
+            : (data.error || "Falha ao carregar transações do SimpleFin.")
+        );
+        setRows([]);
+        return;
+      }
+      setRows(classifySimpleFinRows(data.transactions, accountMap));
+      setSource(which);
+    } catch (err) {
+      setError(`Could not reach SimpleFin: ${err.message}`);
+      setRows([]);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
+      // Default view on entering the tab: the cron's queue. If it's empty
+      // (e.g. the cron hasn't run successfully yet), fall back to a live
+      // fetch automatically so the tab isn't just silently blank.
       setLoading(true);
       setError("");
       try {
@@ -8014,7 +8048,12 @@ function SimpleFinPreview({ accountMap, money }) {
           setRows([]);
           return;
         }
-        setRows(classifySimpleFinRows(data.transactions, accountMap));
+        if (Array.isArray(data.transactions) && data.transactions.length > 0) {
+          setRows(classifySimpleFinRows(data.transactions, accountMap));
+          setSource("pending");
+        } else {
+          await load("live");
+        }
       } catch (err) {
         if (!cancelled) {
           setError(`Could not reach the pending queue: ${err.message}`);
@@ -8025,6 +8064,7 @@ function SimpleFinPreview({ accountMap, money }) {
       }
     })();
     return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [accountMap]);
 
   if (loading) return <div style={S.center}>Loading…</div>;
@@ -8045,15 +8085,25 @@ function SimpleFinPreview({ accountMap, money }) {
 
   return (
     <div style={S.col}>
-      <h3 style={S.sectionTitle}>Preview</h3>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+        <h3 style={S.sectionTitle}>Preview</h3>
+        <button onClick={() => load("live")} disabled={loading} style={S.secondaryBtn}>
+          Buscar ao vivo
+        </button>
+      </div>
       <div style={{ fontSize: 12, color: "#8b94a3", lineHeight: 1.4, padding: "8px 10px", borderRadius: 10, background: "#12161c", border: "1px solid #1e2530" }}>
         Tabela crua — exatamente os campos que a API do SimpleFin devolveu, mais
         as duas últimas colunas com a conta/categoria que o app sugeriria. Nada
         aqui foi importado — confirme na tab Import para gravar no ledger.
+        {!loading && !error && rows.length > 0 ? (
+          <div style={{ marginTop: 4, color: "#5b9dff" }}>
+            Fonte: {source === "live" ? "busca ao vivo (agora)" : "fila do cron diário"}
+          </div>
+        ) : null}
       </div>
       {error ? <div style={S.errorBar}>{error}</div> : null}
       {!error && rows.length === 0 ? (
-        <Empty>Nenhuma transação pendente.</Empty>
+        <Empty>Nenhuma transação encontrada. Tente "Buscar ao vivo" acima.</Empty>
       ) : !error ? (
         <div style={{ overflowX: "auto", border: "1px solid #1e2530", borderRadius: 10 }}>
           <table style={{ borderCollapse: "collapse", width: "max-content", minWidth: "100%" }}>
