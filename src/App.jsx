@@ -580,7 +580,7 @@ function idleExpired() {
 // path, so the pending copy is discarded with a notice instead).
 
 // Single source for the version shown in the header and in diagnostics.
-const APP_VERSION = "v1.49.0";
+const APP_VERSION = "v1.50.0";
 
 const PENDING_SAVE_KEY = "household_pending_save";
 
@@ -1797,6 +1797,8 @@ export default function App() {
             ckCategoryMap={ckCategoryMap}
             categoryDescriptionRules={categoryDescriptionRules}
           />
+        ) : tab === "preview" ? (
+          <SimpleFinPreview accountMap={accountMap} money={money} />
         ) : tab === "settings" ? (
           <SettingsTab
             transactions={transactions}
@@ -2016,6 +2018,7 @@ const TABS = [
   { id: "analyze", label: "Trends", Icon: TrendingUp },
   { id: "transactions", label: "Txns", Icon: List },
   { id: "import", label: "Import", Icon: Upload },
+  { id: "preview", label: "Preview", Icon: Eye },
   { id: "settings", label: "Settings", Icon: Settings },
 ];
 
@@ -7704,11 +7707,7 @@ function ImportTransactions({ onImport, accountMap, config, transactions, ckCate
         setSfRows([]);
         return;
       }
-      const mapped = (data.transactions || []).map((t) => {
-        const account = classifyAccount(t.srcAccount, "", accountMap) || "";
-        const category = matchOption(t.category, CATEGORIES, "Other");
-        return { ...t, account, category, autoCategory: category };
-      });
+      const mapped = classifySimpleFinRows(data.transactions, accountMap);
       setSfRows(mapped);
       setFileName(`SimpleFin sync — ${mapped.length} transaction${mapped.length === 1 ? "" : "s"}`);
       if (data.errors && data.errors.length) {
@@ -7737,11 +7736,7 @@ function ImportTransactions({ onImport, accountMap, config, transactions, ckCate
         setError(data.error || "Falha ao carregar pendências do SimpleFin.");
         return;
       }
-      const mapped = (data.transactions || []).map((t) => {
-        const account = classifyAccount(t.srcAccount, "", accountMap) || "";
-        const category = matchOption(t.category, CATEGORIES, "Other");
-        return { ...t, account, category, autoCategory: category };
-      });
+      const mapped = classifySimpleFinRows(data.transactions, accountMap);
       setSfRows(mapped);
       setSfFromPending(true);
       setFileName(`SimpleFin pendentes — ${mapped.length} transaction${mapped.length === 1 ? "" : "s"}`);
@@ -7963,6 +7958,68 @@ function ImportTransactions({ onImport, accountMap, config, transactions, ckCate
   );
 }
 
+// Read-only vitrine of the SimpleFin pending queue (household:*:simplefin-pending),
+// with the same account/category classification the Import tab uses — no
+// write actions, no dedup against the ledger, purely a preview so the user
+// can eyeball what the next "Revisar pendentes" import will look like.
+function SimpleFinPreview({ accountMap, money }) {
+  const [rows, setRows] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setLoading(true);
+      setError("");
+      try {
+        const res = await fetch("/api/simplefin-sync?pending=1", { headers: buildAuthHeaders() });
+        const data = await res.json().catch(() => ({}));
+        if (cancelled) return;
+        if (!res.ok) {
+          setError(
+            res.status === 501
+              ? "SimpleFin não configurado (SIMPLEFIN_ACCESS_URL ausente no servidor)."
+              : (data.error || "Falha ao carregar pendências do SimpleFin.")
+          );
+          setRows([]);
+          return;
+        }
+        setRows(classifySimpleFinRows(data.transactions, accountMap));
+      } catch (err) {
+        if (!cancelled) {
+          setError(`Could not reach the pending queue: ${err.message}`);
+          setRows([]);
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [accountMap]);
+
+  if (loading) return <div style={S.center}>Loading…</div>;
+
+  return (
+    <div style={S.col}>
+      <h3 style={S.sectionTitle}>Preview</h3>
+      <div style={{ fontSize: 12, color: "#8b94a3", lineHeight: 1.4, padding: "8px 10px", borderRadius: 10, background: "#12161c", border: "1px solid #1e2530" }}>
+        Estas transações ainda não foram importadas — são apenas uma sugestão de classificação. Confirme na tab Import para gravá-las no ledger.
+      </div>
+      {error ? <div style={S.errorBar}>{error}</div> : null}
+      {!error && rows.length === 0 ? (
+        <Empty>Nenhuma transação pendente.</Empty>
+      ) : (
+        <div style={S.col}>
+          {rows.map((t) => (
+            <TxnRow key={t.id || `${t.date}-${t.description}-${t.amount}`} t={t} money={money} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function matchOption(value, options, fallback) {
   if (!value) return fallback;
   const v = value.toLowerCase();
@@ -7993,6 +8050,19 @@ function classifyAccount(rawAccount, accountUrn, accountMap) {
 // edit). Used both for the pre-save impact preview and could be reused for a
 // future cascade audit. Reads `t.srcAccount` (the source's raw account/card
 // label kept for audit) — rows without it can't be reclassified by alias.
+// Shared classification for SimpleFin queue rows (pending review or a fresh
+// sync): resolves the suggested account via classifyAccount and falls back
+// the category through matchOption, same as the import preview pipeline.
+// Used by ImportTransactions (both "Sync now" and "Revisar pendentes") and
+// by the read-only SimpleFinPreview tab.
+function classifySimpleFinRows(transactions, accountMap) {
+  return (transactions || []).map((t) => {
+    const account = classifyAccount(t.srcAccount, "", accountMap) || "";
+    const category = matchOption(t.category, CATEGORIES, "Other");
+    return { ...t, account, category, autoCategory: category };
+  });
+}
+
 function computeAliasImpact(transactions, accountMap, aliasesArray) {
   const impacted = [];
   for (const t of transactions || []) {
