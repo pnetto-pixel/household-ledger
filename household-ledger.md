@@ -1,4 +1,4 @@
-# Household Ledger · v1.50.0
+# Household Ledger · v1.50.1
 
 Aplicativo mobile-first de controle financeiro doméstico. Registra
 transações da casa (despesas e receitas) por categoria e conta, com
@@ -31,7 +31,15 @@ O `feature-auditor` deve conferir, como parte da checklist de auditoria, que
 o diff inclui o bump nos dois arquivos antes de aprovar — se faltar, isso é
 motivo de reprovação (devolver ao coder), não um detalhe opcional.
 
-Versão atual: **v1.50.0** — **feat: nova tab Preview — vitrine read-only da
+Versão atual: **v1.50.1** — **fix: SimpleFin busca últimos 30 dias**
+(`lib/simplefin.js`). A chamada a `<access url>/accounts` não passava
+nenhum parâmetro de data, e o SimpleFin Bridge por padrão retorna pouca ou
+nenhuma transação sem um `start-date` explícito — por isso a fila de
+pendências e a tab Preview apareciam vazias. Agora a requisição inclui
+`start-date=<epoch de 30 dias atrás>`, aplicado tanto ao "Sync now" manual
+quanto ao cron diário (mesma função compartilhada `fetchSimplefinTransactions`).
+
+Versão anterior: **v1.50.0** — **feat: nova tab Preview — vitrine read-only da
 fila de pendências do SimpleFin** (PR #216, branch
 `claude/household-simplefin-preview-tab`). Nova tab "Preview" (ícone `Eye`),
 logo após Import na navegação principal, que busca automaticamente
