@@ -86,4 +86,6 @@ major só se pedido. O feature-auditor reprova PR sem bump. Ver
 `household-ledger.md` seção `## Versionamento` para o histórico.
 
 ## Env vars
-`REDIS_URL`, `APP_PASSWORD`. (Vars do login Google removidas na v1.30.0.)
+`REDIS_URL`, `APP_PASSWORD`, `SIMPLEFIN_ACCESS_URL` (credencial SimpleFin
+Bridge), `CRON_SECRET` (protege `api/cron/simplefin-sync.js`; sem ela o
+endpoint sempre responde 401). (Vars do login Google removidas na v1.30.0.)

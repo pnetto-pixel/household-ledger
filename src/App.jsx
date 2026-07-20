@@ -580,7 +580,7 @@ function idleExpired() {
 // path, so the pending copy is discarded with a notice instead).
 
 // Single source for the version shown in the header and in diagnostics.
-const APP_VERSION = "v1.48.0";
+const APP_VERSION = "v1.49.0";
 
 const PENDING_SAVE_KEY = "household_pending_save";
 
@@ -7487,6 +7487,30 @@ function ImportTransactions({ onImport, accountMap, config, transactions, ckCate
   // preview/dedup pipeline as csvRows further down instead of a parallel one.
   const [sfRows, setSfRows] = useState([]);
   const [sfLoading, setSfLoading] = useState(false);
+  // Phase 2 (daily cron, v1.49.0): the cron fetches on its own and only
+  // queues transactions server-side (household:*:simplefin-pending) — it
+  // never writes the ledger. This tracks that queue so the Import tab can
+  // surface "N pending" and let the user pull them into this same preview
+  // pipeline instead of (or in addition to) a manual "Sync now".
+  const [sfPendingCount, setSfPendingCount] = useState(0);
+  // True when the rows currently in the preview came from the pending queue
+  // rather than a fresh "Sync now" pull — decides whether confirm() needs to
+  // clear the server-side queue afterwards.
+  const [sfFromPending, setSfFromPending] = useState(false);
+
+  const refreshSfPendingCount = async () => {
+    try {
+      const res = await fetch("/api/simplefin-sync?pending=1", { headers: buildAuthHeaders() });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok) setSfPendingCount((data.transactions || []).length);
+    } catch {
+      // best-effort — no pending banner if this fails, "Sync now" still works
+    }
+  };
+  useEffect(() => {
+    refreshSfPendingCount();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const resetAll = () => {
     setRawRows([]);
@@ -7496,6 +7520,7 @@ function ImportTransactions({ onImport, accountMap, config, transactions, ckCate
     setError("");
     setDone("");
     setSfRows([]);
+    setSfFromPending(false);
   };
 
   const selectMethod = (m) => {
@@ -7640,6 +7665,15 @@ function ImportTransactions({ onImport, accountMap, config, transactions, ckCate
     const toImport = displayRows.filter((r) => selected.has(r.id)).map(({ _dup, ...t }) => t);
     onImport(toImport);
     setDone(`Imported ${toImport.length} transactions${dupCount ? ` · ${dupCount} duplicate(s) detected` : ""}.`);
+    // These rows came from the server-side pending queue (cron-fetched, not
+    // this session's "Sync now") — now that the user has reviewed and
+    // imported them, clear the queue so the same items don't show up as
+    // "pending" again next time the Import tab loads.
+    if (sfFromPending) {
+      fetch("/api/simplefin-sync?pending=1", { method: "DELETE", headers: buildAuthHeaders() })
+        .then(() => setSfPendingCount(0))
+        .catch(() => { /* best-effort — worst case it shows up again next load */ });
+    }
     resetAll();
   };
 
@@ -7657,6 +7691,7 @@ function ImportTransactions({ onImport, accountMap, config, transactions, ckCate
     setError("");
     setDone("");
     setSfLoading(true);
+    setSfFromPending(false);
     try {
       const res = await fetch("/api/simplefin-sync", { headers: buildAuthHeaders() });
       const data = await res.json().catch(() => ({}));
@@ -7682,6 +7717,36 @@ function ImportTransactions({ onImport, accountMap, config, transactions, ckCate
     } catch (err) {
       setError(`Could not reach the sync endpoint: ${err.message}`);
       setSfRows([]);
+    } finally {
+      setSfLoading(false);
+    }
+  };
+
+  // Pulls the cron-queued pending transactions (household:*:simplefin-pending)
+  // instead of hitting SimpleFin again, and runs them through the exact same
+  // account-matching / category-fallback as a manual sync so they land in the
+  // shared preview/dedup pipeline looking identical either way.
+  const loadSimpleFinPending = async () => {
+    setError("");
+    setDone("");
+    setSfLoading(true);
+    try {
+      const res = await fetch("/api/simplefin-sync?pending=1", { headers: buildAuthHeaders() });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setError(data.error || "Falha ao carregar pendências do SimpleFin.");
+        return;
+      }
+      const mapped = (data.transactions || []).map((t) => {
+        const account = classifyAccount(t.srcAccount, "", accountMap) || "";
+        const category = matchOption(t.category, CATEGORIES, "Other");
+        return { ...t, account, category, autoCategory: category };
+      });
+      setSfRows(mapped);
+      setSfFromPending(true);
+      setFileName(`SimpleFin pendentes — ${mapped.length} transaction${mapped.length === 1 ? "" : "s"}`);
+    } catch (err) {
+      setError(`Could not reach the pending queue: ${err.message}`);
     } finally {
       setSfLoading(false);
     }
@@ -7721,13 +7786,36 @@ function ImportTransactions({ onImport, accountMap, config, transactions, ckCate
           <span style={{ fontSize: 14, color: "#cbd5e1", overflowWrap: "anywhere" }}>
             {fileName || "Pull the latest transactions from SimpleFin"}
           </span>
-          <button
-            onClick={syncSimpleFin}
-            disabled={sfLoading}
-            style={{ ...S.primaryBtn, opacity: sfLoading ? 0.6 : 1, cursor: sfLoading ? "not-allowed" : "pointer", padding: "8px 20px", minHeight: 36, fontSize: 13 }}
-          >
-            {sfLoading ? "Syncing…" : "Sync now"}
-          </button>
+          {sfPendingCount > 0 ? (
+            <div style={{ fontSize: 12, color: "#fbbf24", background: "#241d0f", border: "1px solid #4a3a12", borderRadius: 10, padding: "6px 10px", lineHeight: 1.4 }}>
+              {sfPendingCount} transaç{sfPendingCount === 1 ? "ão" : "ões"} do SimpleFin (sync automático diário) pendente{sfPendingCount === 1 ? "" : "s"} de revisão.
+            </div>
+          ) : null}
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "center" }}>
+            {sfPendingCount > 0 ? (
+              <button
+                onClick={loadSimpleFinPending}
+                disabled={sfLoading}
+                style={{ ...S.primaryBtn, opacity: sfLoading ? 0.6 : 1, cursor: sfLoading ? "not-allowed" : "pointer", padding: "8px 20px", minHeight: 36, fontSize: 13 }}
+              >
+                {sfLoading ? "Carregando…" : `Revisar ${sfPendingCount} pendente${sfPendingCount === 1 ? "" : "s"}`}
+              </button>
+            ) : null}
+            <button
+              onClick={syncSimpleFin}
+              disabled={sfLoading}
+              style={{
+                ...(sfPendingCount > 0 ? S.secondaryBtn : S.primaryBtn),
+                opacity: sfLoading ? 0.6 : 1,
+                cursor: sfLoading ? "not-allowed" : "pointer",
+                padding: "8px 20px",
+                minHeight: 36,
+                fontSize: 13,
+              }}
+            >
+              {sfLoading ? "Syncing…" : "Sync now"}
+            </button>
+          </div>
         </div>
       ) : (
         <label
