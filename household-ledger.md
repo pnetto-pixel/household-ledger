@@ -1,4 +1,4 @@
-# Household Ledger · v1.51.1
+# Household Ledger · v1.52.0
 
 Aplicativo mobile-first de controle financeiro doméstico. Registra
 transações da casa (despesas e receitas) por categoria e conta, com
@@ -31,7 +31,17 @@ O `feature-auditor` deve conferir, como parte da checklist de auditoria, que
 o diff inclui o bump nos dois arquivos antes de aprovar — se faltar, isso é
 motivo de reprovação (devolver ao coder), não um detalhe opcional.
 
-Versão atual: **v1.51.1** — **fix: tab Preview funciona sem depender do
+Versão atual: **v1.52.0** — **feat: tab SimpleFin (ex-Preview) com sort e
+filtro por coluna** (`src/App.jsx`). A tab mudou de nome de "Preview" para
+"SimpleFin" na navegação (label e `h3` interno). A tabela crua ganhou uma
+segunda linha de cabeçalho com um campo de texto por coluna (filtro por
+substring, case-insensitive, aplicado ao valor já formatado da célula) e
+clique no nome da coluna ordena por ela (asc → desc → sem ordenação,
+numérico quando o valor é número, alfabético caso contrário) — tudo
+client-side, sem re-fetch. Colunas raw e as duas colunas de sugestão
+(conta/categoria) usam o mesmo mecanismo.
+
+Versão anterior: **v1.51.1** — **fix: tab Preview funciona sem depender do
 cron** (`src/App.jsx`). A tab só lia a fila `household:*:simplefin-pending`
 — populada exclusivamente pelo cron diário — então ficava vazia até o
 primeiro cron bem-sucedido rodar (ex. logo após corrigir os bugs de
@@ -2368,9 +2378,10 @@ shell de altura cheia (`#root` em `100lvh` + shell `height:100%`): só o
    de duplicata real, pois o dedup final (`markDuplicates`) sempre roda
    contra o ledger antes de importar.
 
-   **Tab Preview (v1.50.0, PR #216; tabela crua desde v1.51.0; fallback ao
-   vivo desde v1.51.1)** — nova tab na navegação principal, logo após
-   Import, ícone `Eye`. É uma **vitrine 100% read-only**: ao entrar na tab,
+   **Tab SimpleFin (v1.50.0, PR #216, então chamada "Preview"; tabela crua
+   desde v1.51.0; fallback ao vivo desde v1.51.1; renomeada + sort/filtro
+   por coluna na v1.52.0)** — tab na navegação principal, logo após Import,
+   ícone `Eye`. É uma **vitrine 100% read-only**: ao entrar na tab,
    busca automaticamente (sem precisar de clique) `GET
    /api/simplefin-sync?pending=1` (a fila do cron) e classifica cada
    transação com o helper `classifySimpleFinRows(transactions, accountMap)`
@@ -2391,8 +2402,15 @@ shell de altura cheia (`#root` em `100lvh` + shell `height:100%`): só o
    extra/institucional (ex. sob `extra`) depois, alfabético — mais duas
    colunas finais fixas com a conta/categoria sugeridas, para comparar a
    estrutura crua da API com a classificação do app lado a lado. Serve para
-   estudar como a API do SimpleFin realmente estrutura os dados. Tem um
-   aviso fixo no topo deixando claro que são sugestões **não confirmadas**.
+   estudar como a API do SimpleFin realmente estrutura os dados. **Desde a
+   v1.52.0**: cada cabeçalho de coluna é clicável (ordena asc → desc → sem
+   ordenação; compara numericamente quando o valor é número, senão por
+   string) e tem, logo abaixo, um campo de texto para filtrar aquela coluna
+   por substring (case-insensitive, sobre o valor já formatado da célula) —
+   tudo em memória, sem re-fetch; `columns`/`displayRows` (`useMemo`)
+   centralizam sort/filtro para as colunas raw e para as duas colunas de
+   sugestão igualmente. Tem um aviso fixo no topo deixando claro que são
+   sugestões **não confirmadas**.
    **Não existe nenhuma ação de escrita** — sem editar, deletar, selecionar
    ou confirmar/importar a partir dessa tab (nem no modo "ao vivo"); para
    importar de fato, o usuário continua usando a tab Import ("Sync now" ou
