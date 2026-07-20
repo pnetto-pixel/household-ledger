@@ -580,7 +580,7 @@ function idleExpired() {
 // path, so the pending copy is discarded with a notice instead).
 
 // Single source for the version shown in the header and in diagnostics.
-const APP_VERSION = "v1.50.2";
+const APP_VERSION = "v1.51.0";
 
 const PENDING_SAVE_KEY = "household_pending_save";
 
@@ -7665,7 +7665,11 @@ function ImportTransactions({ onImport, accountMap, config, transactions, ckCate
   const selectedCount = selected.size;
   const confirm = () => {
     if (selectedCount === 0 || missingRequired.length > 0) return;
-    const toImport = displayRows.filter((r) => selected.has(r.id)).map(({ _dup, ...t }) => t);
+    // `raw` (added for the read-only Preview tab / SimpleFin field
+    // inspection) must never reach the ledger — it can carry arbitrary,
+    // institution-specific blobs that have nothing to do with the fixed
+    // transaction shape.
+    const toImport = displayRows.filter((r) => selected.has(r.id)).map(({ _dup, raw, ...t }) => t);
     onImport(toImport);
     setDone(`Imported ${toImport.length} transactions${dupCount ? ` · ${dupCount} duplicate(s) detected` : ""}.`);
     // These rows came from the server-side pending queue (cron-fetched, not
@@ -7958,10 +7962,35 @@ function ImportTransactions({ onImport, accountMap, config, transactions, ckCate
   );
 }
 
-// Read-only vitrine of the SimpleFin pending queue (household:*:simplefin-pending),
-// with the same account/category classification the Import tab uses — no
-// write actions, no dedup against the ledger, purely a preview so the user
-// can eyeball what the next "Revisar pendentes" import will look like.
+// Preferred column order for the raw-fields table — anything else SimpleFin
+// (or a specific institution, via `extra`) sends shows up too, just after
+// these, so the table never silently hides an unrecognized field.
+const SF_RAW_COLUMN_ORDER = [
+  "id", "posted", "transacted_at", "amount", "description", "payee", "memo",
+  "pending", "accountId", "accountName", "accountCurrency", "accountBalance",
+  "accountBalanceDate", "accountAvailableBalance", "orgName", "orgDomain",
+];
+
+// Renders any raw SimpleFin value as a single table cell string — epoch
+// seconds (posted/transacted_at) get a human date next to the raw number so
+// you don't have to convert it by hand, objects/arrays are stringified as
+// JSON so nothing is silently dropped.
+function formatSfRawCell(key, value) {
+  if (value === null || value === undefined) return "—";
+  if ((key === "posted" || key === "transacted_at") && typeof value === "number") {
+    return `${value} (${new Date(value * 1000).toISOString().slice(0, 10)})`;
+  }
+  if (typeof value === "object") return JSON.stringify(value);
+  return String(value);
+}
+
+// Read-only vitrine of the SimpleFin pending queue (household:*:simplefin-pending).
+// Shows the RAW fields exactly as SimpleFin's API returns them (one column
+// per field, columns derived from whatever the payload actually contains —
+// nothing hardcoded/hidden) plus the account/category the app would suggest,
+// so the raw structure and the app's interpretation of it can be compared
+// side by side. No write actions, no dedup against the ledger — purely a
+// study/debug view.
 function SimpleFinPreview({ accountMap, money }) {
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -8000,22 +8029,57 @@ function SimpleFinPreview({ accountMap, money }) {
 
   if (loading) return <div style={S.center}>Loading…</div>;
 
+  // Union of every key present in any row's `raw` blob, ordered by
+  // SF_RAW_COLUMN_ORDER first and any leftover/institution-specific keys
+  // (e.g. under `extra`) appended alphabetically after.
+  const rawKeys = new Set();
+  for (const t of rows) {
+    for (const k of Object.keys(t.raw || {})) rawKeys.add(k);
+  }
+  const orderedKnown = SF_RAW_COLUMN_ORDER.filter((k) => rawKeys.has(k));
+  const leftover = [...rawKeys].filter((k) => !SF_RAW_COLUMN_ORDER.includes(k)).sort();
+  const rawColumns = [...orderedKnown, ...leftover];
+
+  const cellStyle = { padding: "6px 10px", borderBottom: "1px solid #1e2530", whiteSpace: "nowrap", fontSize: 12 };
+  const headerStyle = { ...cellStyle, position: "sticky", top: 0, background: "#12161c", color: "#8b94a3", fontWeight: 600, textAlign: "left", borderBottom: "1px solid #2a3140" };
+
   return (
     <div style={S.col}>
       <h3 style={S.sectionTitle}>Preview</h3>
       <div style={{ fontSize: 12, color: "#8b94a3", lineHeight: 1.4, padding: "8px 10px", borderRadius: 10, background: "#12161c", border: "1px solid #1e2530" }}>
-        Estas transações ainda não foram importadas — são apenas uma sugestão de classificação. Confirme na tab Import para gravá-las no ledger.
+        Tabela crua — exatamente os campos que a API do SimpleFin devolveu, mais
+        as duas últimas colunas com a conta/categoria que o app sugeriria. Nada
+        aqui foi importado — confirme na tab Import para gravar no ledger.
       </div>
       {error ? <div style={S.errorBar}>{error}</div> : null}
       {!error && rows.length === 0 ? (
         <Empty>Nenhuma transação pendente.</Empty>
-      ) : (
-        <div style={S.col}>
-          {rows.map((t) => (
-            <TxnRow key={t.id || `${t.date}-${t.description}-${t.amount}`} t={t} money={money} />
-          ))}
+      ) : !error ? (
+        <div style={{ overflowX: "auto", border: "1px solid #1e2530", borderRadius: 10 }}>
+          <table style={{ borderCollapse: "collapse", width: "max-content", minWidth: "100%" }}>
+            <thead>
+              <tr>
+                {rawColumns.map((k) => (
+                  <th key={k} style={headerStyle}>{k}</th>
+                ))}
+                <th style={{ ...headerStyle, color: "#5b9dff" }}>conta sugerida</th>
+                <th style={{ ...headerStyle, color: "#5b9dff" }}>categoria sugerida</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((t) => (
+                <tr key={t.id || `${t.date}-${t.description}-${t.amount}`}>
+                  {rawColumns.map((k) => (
+                    <td key={k} style={cellStyle}>{formatSfRawCell(k, t.raw ? t.raw[k] : undefined)}</td>
+                  ))}
+                  <td style={{ ...cellStyle, color: "#5b9dff" }}>{t.account || "(unassigned)"}</td>
+                  <td style={{ ...cellStyle, color: "#5b9dff" }}>{t.category}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
-      )}
+      ) : null}
     </div>
   );
 }
