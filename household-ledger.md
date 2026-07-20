@@ -41,8 +41,10 @@ Novo `api/cron/simplefin-sync.js`, acionado 1x/dia pelo Vercel Cron
 <CRON_SECRET>` (fail-safe: sem a env var, sempre 401). O cron busca as
 transações e faz merge append-only por `id` numa chave Redis **separada**,
 `household:<storageKey>:simplefin-pending` — nunca escreve na chave
-principal de transações. Novo `api/simplefin-pending.js` (GET/DELETE,
-autenticado via `x-app-password` como os demais endpoints) expõe a fila
+principal de transações. `api/simplefin-sync.js` também expõe a fila via
+`?pending=1` (GET/DELETE, autenticado via `x-app-password` como os demais
+endpoints) — dobrado no mesmo arquivo em vez de um endpoint separado, para
+respeitar o limite de 12 Serverless Functions do plano Vercel Hobby
 para o client. Na tab Import, um aviso mostra "N transações pendentes de
 revisão" com botão "Revisar N pendentes" que injeta a fila no mesmo
 pipeline de prévia/dedup/confirmação já usado pelos outros métodos; após
@@ -1428,7 +1430,9 @@ lastFetchAt }`. Totalmente separada da chave principal
 transações propriamente dito. Escrita apenas por
 `api/cron/simplefin-sync.js` (merge append-only por `id`, nunca sobrescreve
 o histórico da fila); lida/limpa via GET/DELETE em
-`api/simplefin-pending.js`. A gravação no ledger real segue manual — a
+`api/simplefin-sync.js?pending=1` (mesmo arquivo do sync manual, para não
+estourar o limite de Serverless Functions do plano Hobby). A gravação no
+ledger real segue manual — a
 fila só existe para alimentar a tela de revisão/import na tab Import.
 
 ### Variáveis de ambiente
@@ -2298,10 +2302,10 @@ shell de altura cheia (`#root` em `100lvh` + shell `height:100%`): só o
    (`household:*:simplefin-pending`) — nunca no ledger diretamente. Quando
    há itens na fila, a tab Import mostra um aviso "N transações pendentes
    de revisão" com botão **"Revisar N pendentes"**, que carrega a fila
-   (`GET /api/simplefin-pending`) e injeta as transações no **mesmo**
+   (`GET /api/simplefin-sync?pending=1`) e injeta as transações no **mesmo**
    pipeline de prévia/dedup/checkbox/confirmação dos outros métodos. Após
    confirmar o import, a fila é limpa automaticamente (`DELETE
-   /api/simplefin-pending`). **Decisão de produto deliberada**: não há
+   /api/simplefin-sync?pending=1`). **Decisão de produto deliberada**: não há
    gravação automática/silenciosa no ledger — o cron só alimenta a fila,
    a revisão manual pelo usuário continua obrigatória. Nota de
    comportamento conhecido: usar "Sync now" enquanto há fila pendente não
@@ -3730,7 +3734,9 @@ riscos reais de perda de dados.
     pendências separada (`household:*:simplefin-pending`, merge
     append-only por `id`) — nunca escreve na chave principal de
     transações. Lógica de fetch compartilhada extraída para
-    `lib/simplefin.js`. Novo `api/simplefin-pending.js` (GET/DELETE) e
+    `lib/simplefin.js`. Fila lida/limpa via `api/simplefin-sync.js?pending=1`
+    (GET/DELETE, dobrado no endpoint de sync manual para não estourar o
+    limite de 12 Serverless Functions do plano Vercel Hobby) e
     aviso + botão "Revisar N pendentes" na tab Import, reusando o mesmo
     pipeline de prévia/dedup/confirmação. Ver seção "Modelo de dados" e
     "UI" para detalhes.

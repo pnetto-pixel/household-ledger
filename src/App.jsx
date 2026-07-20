@@ -7500,7 +7500,7 @@ function ImportTransactions({ onImport, accountMap, config, transactions, ckCate
 
   const refreshSfPendingCount = async () => {
     try {
-      const res = await fetch("/api/simplefin-pending", { headers: buildAuthHeaders() });
+      const res = await fetch("/api/simplefin-sync?pending=1", { headers: buildAuthHeaders() });
       const data = await res.json().catch(() => ({}));
       if (res.ok) setSfPendingCount((data.transactions || []).length);
     } catch {
@@ -7670,7 +7670,7 @@ function ImportTransactions({ onImport, accountMap, config, transactions, ckCate
     // imported them, clear the queue so the same items don't show up as
     // "pending" again next time the Import tab loads.
     if (sfFromPending) {
-      fetch("/api/simplefin-pending", { method: "DELETE", headers: buildAuthHeaders() })
+      fetch("/api/simplefin-sync?pending=1", { method: "DELETE", headers: buildAuthHeaders() })
         .then(() => setSfPendingCount(0))
         .catch(() => { /* best-effort — worst case it shows up again next load */ });
     }
@@ -7731,7 +7731,7 @@ function ImportTransactions({ onImport, accountMap, config, transactions, ckCate
     setDone("");
     setSfLoading(true);
     try {
-      const res = await fetch("/api/simplefin-pending", { headers: buildAuthHeaders() });
+      const res = await fetch("/api/simplefin-sync?pending=1", { headers: buildAuthHeaders() });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
         setError(data.error || "Falha ao carregar pendências do SimpleFin.");
