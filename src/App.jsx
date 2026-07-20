@@ -580,7 +580,7 @@ function idleExpired() {
 // path, so the pending copy is discarded with a notice instead).
 
 // Single source for the version shown in the header and in diagnostics.
-const APP_VERSION = "v1.51.1";
+const APP_VERSION = "v1.52.0";
 
 const PENDING_SAVE_KEY = "household_pending_save";
 
@@ -2018,7 +2018,7 @@ const TABS = [
   { id: "analyze", label: "Trends", Icon: TrendingUp },
   { id: "transactions", label: "Txns", Icon: List },
   { id: "import", label: "Import", Icon: Upload },
-  { id: "preview", label: "Preview", Icon: Eye },
+  { id: "preview", label: "SimpleFin", Icon: Eye },
   { id: "settings", label: "Settings", Icon: Settings },
 ];
 
@@ -7984,6 +7984,18 @@ function formatSfRawCell(key, value) {
   return String(value);
 }
 
+// Numeric-aware compare so sorting "amount"/"posted" etc. behaves like a
+// number sort rather than lexicographic ("9" before "10"); falls back to a
+// locale string compare for anything that isn't numeric on both sides.
+function compareSfValues(a, b) {
+  const av = a === null || a === undefined ? "" : a;
+  const bv = b === null || b === undefined ? "" : b;
+  const an = typeof av === "number" ? av : (av !== "" && !isNaN(Number(av)) ? Number(av) : null);
+  const bn = typeof bv === "number" ? bv : (bv !== "" && !isNaN(Number(bv)) ? Number(bv) : null);
+  if (an !== null && bn !== null) return an - bn;
+  return String(av).localeCompare(String(bv));
+}
+
 // Read-only vitrine of the SimpleFin pending queue (household:*:simplefin-pending).
 // Shows the RAW fields exactly as SimpleFin's API returns them (one column
 // per field, columns derived from whatever the payload actually contains —
@@ -8000,6 +8012,15 @@ function SimpleFinPreview({ accountMap, money }) {
   // on-demand fetch straight from SimpleFin, same endpoint as Import's
   // "Sync now" — lets this tab show data even before/without the cron.
   const [source, setSource] = useState("pending");
+  // Sort/filter live entirely client-side over whatever rows are already
+  // loaded — no re-fetch, no server-side query. sortKey is a column key
+  // (raw field name, or "__account"/"__category" for the two suggested
+  // columns); filters maps column key -> substring typed into that
+  // column's header filter box (case-insensitive match against the
+  // formatted cell text).
+  const [sortKey, setSortKey] = useState(null);
+  const [sortDir, setSortDir] = useState("asc");
+  const [filters, setFilters] = useState({});
 
   const load = async (which) => {
     setLoading(true);
@@ -8067,34 +8088,89 @@ function SimpleFinPreview({ accountMap, money }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [accountMap]);
 
-  if (loading) return <div style={S.center}>Loading…</div>;
-
   // Union of every key present in any row's `raw` blob, ordered by
   // SF_RAW_COLUMN_ORDER first and any leftover/institution-specific keys
-  // (e.g. under `extra`) appended alphabetically after.
+  // (e.g. under `extra`) appended alphabetically after. Computed even while
+  // loading/erroring (rows is just []) so hook order below stays stable.
   const rawKeys = new Set();
   for (const t of rows) {
     for (const k of Object.keys(t.raw || {})) rawKeys.add(k);
   }
   const orderedKnown = SF_RAW_COLUMN_ORDER.filter((k) => rawKeys.has(k));
   const leftover = [...rawKeys].filter((k) => !SF_RAW_COLUMN_ORDER.includes(k)).sort();
-  const rawColumns = [...orderedKnown, ...leftover];
+
+  // One descriptor per column: raw SimpleFin fields plus the two suggested
+  // columns, each with a getValue (typed, for sorting) and getDisplay
+  // (string, for the cell + for filtering) so sort/filter behave
+  // consistently across both kinds of columns.
+  const columns = useMemo(() => ([
+    ...[...orderedKnown, ...leftover].map((k) => ({
+      key: k,
+      label: k,
+      getValue: (t) => (t.raw ? t.raw[k] : undefined),
+      getDisplay: (t) => formatSfRawCell(k, t.raw ? t.raw[k] : undefined),
+    })),
+    { key: "__account", label: "conta sugerida", suggested: true, getValue: (t) => t.account || "", getDisplay: (t) => t.account || "(unassigned)" },
+    { key: "__category", label: "categoria sugerida", suggested: true, getValue: (t) => t.category || "", getDisplay: (t) => t.category || "" },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  ]), [rows]);
+
+  const displayRows = useMemo(() => {
+    const activeFilters = Object.entries(filters).filter(([, v]) => v && v.trim() !== "");
+    let out = rows;
+    if (activeFilters.length > 0) {
+      out = out.filter((t) => activeFilters.every(([key, needle]) => {
+        const col = columns.find((c) => c.key === key);
+        if (!col) return true;
+        return col.getDisplay(t).toLowerCase().includes(needle.trim().toLowerCase());
+      }));
+    }
+    if (sortKey) {
+      const col = columns.find((c) => c.key === sortKey);
+      if (col) {
+        out = [...out].sort((a, b) => {
+          const cmp = compareSfValues(col.getValue(a), col.getValue(b));
+          return sortDir === "desc" ? -cmp : cmp;
+        });
+      }
+    }
+    return out;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rows, columns, filters, sortKey, sortDir]);
+
+  if (loading) return <div style={S.center}>Loading…</div>;
+
+  const toggleSort = (key) => {
+    if (sortKey !== key) {
+      setSortKey(key);
+      setSortDir("asc");
+    } else if (sortDir === "asc") {
+      setSortDir("desc");
+    } else {
+      setSortKey(null);
+      setSortDir("asc");
+    }
+  };
 
   const cellStyle = { padding: "6px 10px", borderBottom: "1px solid #1e2530", whiteSpace: "nowrap", fontSize: 12 };
-  const headerStyle = { ...cellStyle, position: "sticky", top: 0, background: "#12161c", color: "#8b94a3", fontWeight: 600, textAlign: "left", borderBottom: "1px solid #2a3140" };
+  const headerStyle = { ...cellStyle, position: "sticky", top: 0, background: "#12161c", color: "#8b94a3", fontWeight: 600, textAlign: "left", borderBottom: "1px solid #2a3140", cursor: "pointer", userSelect: "none" };
+  const filterCellStyle = { ...cellStyle, position: "sticky", top: 26, background: "#12161c", borderBottom: "1px solid #2a3140", padding: "4px 6px" };
+  const filterInputStyle = { width: 90, fontSize: 11, background: "#0b0e13", border: "1px solid #2a3140", borderRadius: 6, color: "#e5e7eb", padding: "3px 6px" };
 
   return (
     <div style={S.col}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
-        <h3 style={S.sectionTitle}>Preview</h3>
+        <h3 style={S.sectionTitle}>SimpleFin</h3>
         <button onClick={() => load("live")} disabled={loading} style={S.secondaryBtn}>
           Buscar ao vivo
         </button>
       </div>
       <div style={{ fontSize: 12, color: "#8b94a3", lineHeight: 1.4, padding: "8px 10px", borderRadius: 10, background: "#12161c", border: "1px solid #1e2530" }}>
         Tabela crua — exatamente os campos que a API do SimpleFin devolveu, mais
-        as duas últimas colunas com a conta/categoria que o app sugeriria. Nada
-        aqui foi importado — confirme na tab Import para gravar no ledger.
+        as duas últimas colunas com a conta/categoria que o app sugeriria. Clique
+        num cabeçalho para ordenar (de novo para inverter, de novo pra tirar o
+        sort) e use o campo abaixo dele para filtrar. Nada aqui foi importado —
+        confirme na tab Import para gravar no ledger.
         {!loading && !error && rows.length > 0 ? (
           <div style={{ marginTop: 4, color: "#5b9dff" }}>
             Fonte: {source === "live" ? "busca ao vivo (agora)" : "fila do cron diário"}
@@ -8109,23 +8185,49 @@ function SimpleFinPreview({ accountMap, money }) {
           <table style={{ borderCollapse: "collapse", width: "max-content", minWidth: "100%" }}>
             <thead>
               <tr>
-                {rawColumns.map((k) => (
-                  <th key={k} style={headerStyle}>{k}</th>
+                {columns.map((c) => (
+                  <th
+                    key={c.key}
+                    style={{ ...headerStyle, color: c.suggested ? "#5b9dff" : headerStyle.color }}
+                    onClick={() => toggleSort(c.key)}
+                    title="Clique para ordenar"
+                  >
+                    {c.label}{sortKey === c.key ? (sortDir === "asc" ? " ▲" : " ▼") : ""}
+                  </th>
                 ))}
-                <th style={{ ...headerStyle, color: "#5b9dff" }}>conta sugerida</th>
-                <th style={{ ...headerStyle, color: "#5b9dff" }}>categoria sugerida</th>
+              </tr>
+              <tr>
+                {columns.map((c) => (
+                  <th key={c.key} style={filterCellStyle}>
+                    <input
+                      type="text"
+                      value={filters[c.key] || ""}
+                      onChange={(e) => setFilters((prev) => ({ ...prev, [c.key]: e.target.value }))}
+                      onClick={(e) => e.stopPropagation()}
+                      placeholder="filtrar…"
+                      style={filterInputStyle}
+                    />
+                  </th>
+                ))}
               </tr>
             </thead>
             <tbody>
-              {rows.map((t) => (
+              {displayRows.map((t) => (
                 <tr key={t.id || `${t.date}-${t.description}-${t.amount}`}>
-                  {rawColumns.map((k) => (
-                    <td key={k} style={cellStyle}>{formatSfRawCell(k, t.raw ? t.raw[k] : undefined)}</td>
+                  {columns.map((c) => (
+                    <td key={c.key} style={{ ...cellStyle, color: c.suggested ? "#5b9dff" : cellStyle.color }}>
+                      {c.getDisplay(t)}
+                    </td>
                   ))}
-                  <td style={{ ...cellStyle, color: "#5b9dff" }}>{t.account || "(unassigned)"}</td>
-                  <td style={{ ...cellStyle, color: "#5b9dff" }}>{t.category}</td>
                 </tr>
               ))}
+              {displayRows.length === 0 ? (
+                <tr>
+                  <td colSpan={columns.length} style={{ ...cellStyle, textAlign: "center", color: "#8b94a3" }}>
+                    Nenhuma linha bate com os filtros atuais.
+                  </td>
+                </tr>
+              ) : null}
             </tbody>
           </table>
         </div>
