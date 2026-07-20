@@ -13,7 +13,9 @@
 // in the form https://<user>:<pass>@bridge.simplefin.org/simplefin. The
 // username/password are embedded in the URL itself (SimpleFin's own scheme,
 // no separate OAuth flow), so we just GET "<access url>/accounts" with those
-// credentials attached and SimpleFin returns { accounts: [{ transactions }] }.
+// credentials attached and SimpleFin returns { accounts: [{ transactions,
+// holdings }] } — this handler's live-fetch response also includes
+// `holdings` (mapped, minimal interpretation) alongside `transactions`.
 //
 // The actual fetch+mapping logic lives in lib/simplefin.js, shared with the
 // daily cron endpoint (api/cron/simplefin-sync.js, Phase 2) — this handler
@@ -100,5 +102,10 @@ export default async function handler(req, res) {
     transactions: result.transactions,
     accountCount: result.accountCount,
     errors: result.errors,
+    // account.holdings, minimally mapped (lib/simplefin.js mapHolding) —
+    // only present on a live fetch; the ?pending=1 queue above is
+    // transaction-only (it's an append-only cron queue, holdings is a
+    // point-in-time snapshot so it wouldn't make sense to stack there).
+    holdings: result.holdings,
   });
 }

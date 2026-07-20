@@ -1,4 +1,4 @@
-# Household Ledger · v1.52.0
+# Household Ledger · v1.53.0
 
 Aplicativo mobile-first de controle financeiro doméstico. Registra
 transações da casa (despesas e receitas) por categoria e conta, com
@@ -31,7 +31,55 @@ O `feature-auditor` deve conferir, como parte da checklist de auditoria, que
 o diff inclui o bump nos dois arquivos antes de aprovar — se faltar, isso é
 motivo de reprovação (devolver ao coder), não um detalhe opcional.
 
-Versão atual: **v1.52.0** — **feat: tab SimpleFin (ex-Preview) com sort e
+Versão atual: **v1.53.0** — **feat: tab SimpleFin mostra `account.holdings`
+cru** (`lib/simplefin.js`, `api/simplefin-sync.js`, `src/App.jsx`).
+Investigação em andamento: a conta Fidelity "Individual - TOD" não reporta
+trades de compra/venda de stock nem compra/maturidade de bond em
+`account.transactions` via SimpleFin — só dividend/interest/reinvestment-
+cash/transferência aparecem lá. Esses eventos, se existirem via SimpleFin,
+só podem estar em `account.holdings`, um array irmão de `transactions` no
+mesmo response `GET <access-url>/accounts` que o código nunca lia. Etapa 1
+(esta versão): `fetchSimplefinTransactions()` (`lib/simplefin.js`) agora
+também lê `account.holdings` de cada conta (mesmo padrão de
+"array-ou-ausente" já usado para `transactions`, pula holdings sem `id`) e
+mapeia cada um com `mapHolding()` — interpretação mínima, análoga a
+`mapTransaction`: só `{ id, sourceId, raw }`, com `raw` preservando o objeto
+original da SimpleFin mais os metadados de conta/org já usados no `raw` de
+transactions (`accountId`, `accountName`, `accountCurrency`, `orgName`,
+`orgDomain`) — nenhuma tentativa de inferir "compra"/"venda"/"maturidade" ou
+derivar uma data de evento ainda (isso fica para a Etapa 2, depois que o
+schema real dos dados da Fidelity for observado). O retorno de
+`fetchSimplefinTransactions()` ganhou a chave `holdings` (ao lado de
+`transactions`/`accountCount`/`errors`), e `GET /api/simplefin-sync` (sem
+`?pending=1`) agora inclui `holdings` na resposta JSON — só a busca ao vivo
+retorna holdings, a fila `?pending=1` do cron continua transactions-only
+(fila é append-only por natureza; holdings é um snapshot do estado atual da
+conta, não um evento incremental, então não faz sentido empilhar lá; `api/
+cron/simplefin-sync.js` não foi tocado). Na tab SimpleFin, nova sub-seção
+**"Holdings"** abaixo da tabela de transactions existente, com fetch/estado
+(loading/error/rows) próprios e independentes da tabela de cima — sempre
+via busca ao vivo (`GET /api/simplefin-sync`, nunca `?pending=1`, já que a
+fila nunca traz holdings), disparada ao montar a tab e com botão próprio
+"Atualizar holdings". Tabela crua no mesmo padrão visual/de interação da
+tabela de transactions (colunas derivadas da união de chaves em `raw` entre
+as linhas carregadas, `id` primeiro e o resto alfabético — sem uma "ordem
+preferida" chutada, já que o schema real ainda não é conhecido; clique no
+cabeçalho ordena asc → desc → sem-sort, numérico quando o valor é número;
+campo de texto abaixo do cabeçalho filtra por substring case-insensitive).
+A mecânica de "colunas derivadas de raw + sort + filtro + tabela sticky-
+header", que já existia quase idêntica só para a tabela de transactions,
+foi extraída para um hook `useSfRawTable(rows, { preferredOrder,
+extraColumns })` + componente `<SfRawTable columns={...} rows={...} .../>`
+reutilizados pelas duas tabelas (a de transactions passou a chamar esse
+mesmo hook/componente, sem mudança de comportamento visível) —
+`formatSfRawCell`/`compareSfValues` (funções de módulo já isoladas) seguem
+como estavam. **Próximo passo (Etapa 2, fora de escopo desta versão)**:
+com os dados reais de `holdings` observados, decidir como (e se) inferir
+eventos de compra/venda/maturidade — provavelmente via diff/snapshot entre
+syncs sucessivos, já que holdings é um estado pontual, não um log de
+eventos.
+
+Versão anterior: **v1.52.0** — **feat: tab SimpleFin (ex-Preview) com sort e
 filtro por coluna** (`src/App.jsx`). A tab mudou de nome de "Preview" para
 "SimpleFin" na navegação (label e `h3` interno). A tabela crua ganhou uma
 segunda linha de cabeçalho com um campo de texto por coluna (filtro por
@@ -2380,7 +2428,8 @@ shell de altura cheia (`#root` em `100lvh` + shell `height:100%`): só o
 
    **Tab SimpleFin (v1.50.0, PR #216, então chamada "Preview"; tabela crua
    desde v1.51.0; fallback ao vivo desde v1.51.1; renomeada + sort/filtro
-   por coluna na v1.52.0)** — tab na navegação principal, logo após Import,
+   por coluna na v1.52.0; sub-seção Holdings desde v1.53.0)** — tab na
+   navegação principal, logo após Import,
    ícone `Eye`. É uma **vitrine 100% read-only**: ao entrar na tab,
    busca automaticamente (sem precisar de clique) `GET
    /api/simplefin-sync?pending=1` (a fila do cron) e classifica cada
@@ -2421,6 +2470,29 @@ shell de altura cheia (`#root` em `100lvh` + shell `height:100%`): só o
    nem busca ao vivo trouxeram nada — sugestão de tentar "Buscar ao vivo"),
    erro (distingue "SimpleFin não configurado" de falha de rede, mesmas
    mensagens do fluxo de Import) e loading.
+
+   **Sub-seção Holdings (v1.53.0)** — abaixo da tabela de transactions,
+   mostra `account.holdings` cru (posições de investimento), a mesma
+   investigação descrita em "Versão atual" acima sobre por que a conta
+   Fidelity "Individual - TOD" não reporta trades/maturidades de bond em
+   `account.transactions`. Componente próprio (`SimpleFinHoldingsSection`)
+   com fetch/loading/error/rows independentes da tabela de transactions —
+   sempre busca ao vivo (`GET /api/simplefin-sync`, nunca `?pending=1`,
+   porque a fila do cron nunca inclui `holdings`), disparado ao montar a
+   tab, com botão próprio "Atualizar holdings". Mesma mecânica de
+   colunas/sort/filtro/tabela da tabela de transactions acima, mas via um
+   hook/componente compartilhado (`useSfRawTable` + `SfRawTable`, extraídos
+   nesta versão para eliminar a duplicação entre as duas tabelas) — colunas
+   derivadas da união de chaves em `raw` entre as linhas carregadas, com
+   `id` primeiro e o resto em ordem alfabética (sem uma "ordem preferida"
+   tipo `SF_RAW_COLUMN_ORDER`, já que o schema real de `holdings` que a
+   Fidelity/SimpleFin manda ainda não é conhecido — essa tabela existe
+   justamente para descobrir isso). Sem colunas de sugestão de conta/
+   categoria (não faz sentido para holdings) e sem nenhuma interpretação de
+   negócio sobre os dados — é puramente `mapHolding()` (`lib/simplefin.js`):
+   `{ id, sourceId, raw }`, com `raw` = objeto original da SimpleFin +
+   metadados de conta/org. Mesmos estados vazio/erro/loading da tabela de
+   transactions, mesmo padrão visual (`Empty`, `S.errorBar`).
 
    **Deduplicação (híbrida).** Na prévia, cada linha tem checkbox e as
    duplicadas vêm **desmarcadas** (badge `DUP`), com Select/Deselect all —
