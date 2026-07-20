@@ -1,4 +1,4 @@
-# Household Ledger · v1.51.0
+# Household Ledger · v1.51.1
 
 Aplicativo mobile-first de controle financeiro doméstico. Registra
 transações da casa (despesas e receitas) por categoria e conta, com
@@ -31,7 +31,16 @@ O `feature-auditor` deve conferir, como parte da checklist de auditoria, que
 o diff inclui o bump nos dois arquivos antes de aprovar — se faltar, isso é
 motivo de reprovação (devolver ao coder), não um detalhe opcional.
 
-Versão atual: **v1.51.0** — **feat: tab Preview mostra os campos crus do
+Versão atual: **v1.51.1** — **fix: tab Preview funciona sem depender do
+cron** (`src/App.jsx`). A tab só lia a fila `household:*:simplefin-pending`
+— populada exclusivamente pelo cron diário — então ficava vazia até o
+primeiro cron bem-sucedido rodar (ex. logo após corrigir os bugs de
+`start-date`/credenciais na URL, v1.50.1/v1.50.2). Agora, se a fila vier
+vazia, a tab automaticamente cai para uma busca ao vivo (mesmo endpoint do
+"Sync now" do Import); também ganhou um botão manual **"Buscar ao vivo"** e
+um indicador de fonte ("fila do cron diário" vs. "busca ao vivo (agora)").
+
+Versão anterior: **v1.51.0** — **feat: tab Preview mostra os campos crus do
 SimpleFin** (`lib/simplefin.js`, `src/App.jsx`). `mapTransaction()` agora
 preserva o objeto original do SimpleFin inteiro (mais metadados de conta/org
 — `accountId`, `accountName`, `accountBalance`, `orgName` etc.) num campo
@@ -2359,17 +2368,23 @@ shell de altura cheia (`#root` em `100lvh` + shell `height:100%`): só o
    de duplicata real, pois o dedup final (`markDuplicates`) sempre roda
    contra o ledger antes de importar.
 
-   **Tab Preview (v1.50.0, PR #216; tabela crua desde v1.51.0)** — nova tab
-   na navegação principal, logo após Import, ícone `Eye`. É uma **vitrine
-   100% read-only** da mesma fila de pendências do cron SimpleFin: ao entrar
-   na tab, busca automaticamente (sem precisar de clique) `GET
-   /api/simplefin-sync?pending=1` e classifica cada transação com o helper
-   `classifySimpleFinRows(transactions, accountMap)` (compartilhado com os
-   fluxos "Sync now"/"Revisar pendentes" do Import). Desde a v1.51.0, em vez
-   de reaproveitar `TxnRow`, renderiza uma **tabela com uma coluna por campo
-   cru do SimpleFin** — `mapTransaction()` (`lib/simplefin.js`) preserva o
-   objeto original da API inteiro num campo `raw` (mais metadados de
-   conta/org: `accountId`, `accountName`, `accountCurrency`, `accountBalance`,
+   **Tab Preview (v1.50.0, PR #216; tabela crua desde v1.51.0; fallback ao
+   vivo desde v1.51.1)** — nova tab na navegação principal, logo após
+   Import, ícone `Eye`. É uma **vitrine 100% read-only**: ao entrar na tab,
+   busca automaticamente (sem precisar de clique) `GET
+   /api/simplefin-sync?pending=1` (a fila do cron) e classifica cada
+   transação com o helper `classifySimpleFinRows(transactions, accountMap)`
+   (compartilhado com os fluxos "Sync now"/"Revisar pendentes" do Import).
+   **Desde a v1.51.1**, se essa fila vier vazia (cron ainda não rodou com
+   sucesso, ou nunca rodou), a tab cai automaticamente para uma busca ao
+   vivo (`GET /api/simplefin-sync`, sem `?pending=1` — mesmo endpoint do
+   "Sync now"); também há um botão manual **"Buscar ao vivo"** sempre
+   visível e um indicador de fonte ("fila do cron diário" vs. "busca ao
+   vivo (agora)") acima da tabela. Desde a v1.51.0, em vez de reaproveitar
+   `TxnRow`, renderiza uma **tabela com uma coluna por campo cru do
+   SimpleFin** — `mapTransaction()` (`lib/simplefin.js`) preserva o objeto
+   original da API inteiro num campo `raw` (mais metadados de conta/org:
+   `accountId`, `accountName`, `accountCurrency`, `accountBalance`,
    `orgName`, `orgDomain`), e a tab deriva as colunas dinamicamente da união
    de chaves presentes em `raw` em todas as linhas — ordem: campos
    conhecidos primeiro (`SF_RAW_COLUMN_ORDER`), qualquer campo
@@ -2379,14 +2394,15 @@ shell de altura cheia (`#root` em `100lvh` + shell `height:100%`): só o
    estudar como a API do SimpleFin realmente estrutura os dados. Tem um
    aviso fixo no topo deixando claro que são sugestões **não confirmadas**.
    **Não existe nenhuma ação de escrita** — sem editar, deletar, selecionar
-   ou confirmar/importar a partir dessa tab; para importar de fato, o
-   usuário continua usando a tab Import ("Sync now" ou "Revisar N
-   pendentes"), inalterada. **Importante**: `raw` nunca é persistido no
-   ledger — `confirm()` no Import o remove explicitamente
+   ou confirmar/importar a partir dessa tab (nem no modo "ao vivo"); para
+   importar de fato, o usuário continua usando a tab Import ("Sync now" ou
+   "Revisar N pendentes"), inalterada. **Importante**: `raw` nunca é
+   persistido no ledger — `confirm()` no Import o remove explicitamente
    (`{ _dup, raw, ...t }`) antes de chamar `onImport`, então o campo existe
-   só em memória para essas duas telas. Estados tratados: vazio (fila sem
-   itens), erro (distingue "SimpleFin não configurado" de falha de rede,
-   mesmas mensagens do fluxo de Import) e loading.
+   só em memória para essas duas telas. Estados tratados: vazio (nem fila
+   nem busca ao vivo trouxeram nada — sugestão de tentar "Buscar ao vivo"),
+   erro (distingue "SimpleFin não configurado" de falha de rede, mesmas
+   mensagens do fluxo de Import) e loading.
 
    **Deduplicação (híbrida).** Na prévia, cada linha tem checkbox e as
    duplicadas vêm **desmarcadas** (badge `DUP`), com Select/Deselect all —
