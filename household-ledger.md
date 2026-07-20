@@ -1,4 +1,4 @@
-# Household Ledger · v1.48.0
+# Household Ledger · v1.49.0
 
 Aplicativo mobile-first de controle financeiro doméstico. Registra
 transações da casa (despesas e receitas) por categoria e conta, com
@@ -31,7 +31,27 @@ O `feature-auditor` deve conferir, como parte da checklist de auditoria, que
 o diff inclui o bump nos dois arquivos antes de aprovar — se faltar, isso é
 motivo de reprovação (devolver ao coder), não um detalhe opcional.
 
-Versão atual: **v1.48.0** — **feat: Sync automático via SimpleFin (Fase 1)**
+Versão atual: **v1.49.0** — **feat: SimpleFin Fase 2 — sync automático via
+cron + fila de pendências** (PR #215, branch
+`claude/simplefin-credit-karma-automation-722ffq`). Lógica de fetch
+extraída para `lib/simplefin.js` (`fetchSimplefinTransactions()`,
+reaproveitada por `api/simplefin-sync.js` sem mudar o contrato externo).
+Novo `api/cron/simplefin-sync.js`, acionado 1x/dia pelo Vercel Cron
+(`vercel.json`, `"0 9 * * *"` UTC), protegido por `Authorization: Bearer
+<CRON_SECRET>` (fail-safe: sem a env var, sempre 401). O cron busca as
+transações e faz merge append-only por `id` numa chave Redis **separada**,
+`household:<storageKey>:simplefin-pending` — nunca escreve na chave
+principal de transações. Novo `api/simplefin-pending.js` (GET/DELETE,
+autenticado via `x-app-password` como os demais endpoints) expõe a fila
+para o client. Na tab Import, um aviso mostra "N transações pendentes de
+revisão" com botão "Revisar N pendentes" que injeta a fila no mesmo
+pipeline de prévia/dedup/confirmação já usado pelos outros métodos; após
+confirmar, a fila é limpa via DELETE. **Decisão de produto deliberada**: a
+gravação no ledger continua 100% manual — o cron nunca escreve
+diretamente nas transações, só popula a fila de pendências para revisão.
+Ver Roadmap Fase 7 e seção "UI" (tab Import) para detalhes.
+
+Versão anterior: **v1.48.0** — **feat: Sync automático via SimpleFin (Fase 1)**
 (PR #213, branch `claude/simplefin-credit-karma-automation-722ffq`). Novo
 endpoint `api/simplefin-sync.js` (GET autenticado, read-only, credencial via
 env var `SIMPLEFIN_ACCESS_URL`) que mapeia transações da SimpleFin Bridge
@@ -1401,12 +1421,24 @@ com TTL de 30 dias (`SET NX` — só o primeiro estado do dia). Aditivo, nunca
 lido pelo app; rede de segurança contra um save/restore ruim (restauração
 manual via Redis).
 
+**Fila de pendências do SimpleFin cron (v1.49.0)**: chave Redis auxiliar
+`household:<storageKey>:simplefin-pending`, payload `{ transactions: [...],
+lastFetchAt }`. Totalmente separada da chave principal
+`household:*:transactions` — não faz parte do contrato de dados de
+transações propriamente dito. Escrita apenas por
+`api/cron/simplefin-sync.js` (merge append-only por `id`, nunca sobrescreve
+o histórico da fila); lida/limpa via GET/DELETE em
+`api/simplefin-pending.js`. A gravação no ledger real segue manual — a
+fila só existe para alimentar a tela de revisão/import na tab Import.
+
 ### Variáveis de ambiente
 
 | Variável                 | Uso                                              |
 | ------------------------ | ------------------------------------------------ |
 | `REDIS_URL`              | conexão Redis                                    |
 | `APP_PASSWORD`           | senha de app (única forma de autenticação)       |
+| `SIMPLEFIN_ACCESS_URL`   | credencial SimpleFin Bridge (v1.48.0)            |
+| `CRON_SECRET`            | protege `api/cron/simplefin-sync.js` (v1.49.0); precisa ser configurada manualmente na Vercel — sem ela o endpoint sempre responde 401 (fail-safe) |
 
 *(Removidas na v1.30.0 junto com o login Google: `GOOGLE_CLIENT_ID`,
 `ALLOWED_EMAILS`, `ADMIN_EMAILS`, `VITE_GOOGLE_CLIENT_ID`,
@@ -2257,9 +2289,25 @@ shell de altura cheia (`#root` em `100lvh` + shell `height:100%`): só o
    (`markDuplicates`)/checkbox por linha/confirmação usado pelos outros dois
    métodos — não é um pipeline paralelo. Mensagens de erro específicas: env
    var ausente ("SimpleFin não configurado", 501) vs. falha de rede/resposta
-   não-OK do SimpleFin (502). Sem sync automático agendado nesta fase —
-   sempre disparado manualmente pelo botão; ver Roadmap Fase 7 para o
-   escopo cortado para a Fase 2.
+   não-OK do SimpleFin (502).
+
+   **Fila de pendências do cron (v1.49.0, PR #215, Fase 2)** — além do
+   "Sync now" manual, um Vercel Cron Job roda 1x/dia (`vercel.json`, 9h UTC)
+   chamando `api/cron/simplefin-sync.js`, que busca as transações via
+   `lib/simplefin.js` e grava numa fila Redis separada
+   (`household:*:simplefin-pending`) — nunca no ledger diretamente. Quando
+   há itens na fila, a tab Import mostra um aviso "N transações pendentes
+   de revisão" com botão **"Revisar N pendentes"**, que carrega a fila
+   (`GET /api/simplefin-pending`) e injeta as transações no **mesmo**
+   pipeline de prévia/dedup/checkbox/confirmação dos outros métodos. Após
+   confirmar o import, a fila é limpa automaticamente (`DELETE
+   /api/simplefin-pending`). **Decisão de produto deliberada**: não há
+   gravação automática/silenciosa no ledger — o cron só alimenta a fila,
+   a revisão manual pelo usuário continua obrigatória. Nota de
+   comportamento conhecido: usar "Sync now" enquanto há fila pendente não
+   limpa a fila (ela só é limpa pelo fluxo "Revisar pendentes"); sem risco
+   de duplicata real, pois o dedup final (`markDuplicates`) sempre roda
+   contra o ledger antes de importar.
 
    **Deduplicação (híbrida).** Na prévia, cada linha tem checkbox e as
    duplicadas vêm **desmarcadas** (badge `DUP`), com Select/Deselect all —
@@ -3675,8 +3723,20 @@ riscos reais de perda de dados.
   de prévia/dedup/checkbox/confirmação já existente (sem pipeline
   paralelo). Erros distintos na UI: credencial ausente (501) vs. falha de
   rede/SimpleFin (502).
-  - [ ] **Fase 2 (não iniciada)**: agendamento automático real (cron —
-    Vercel serverless não tem cron configurado nesta fase; hoje é sempre
-    sync manual via botão), UI de configuração de credencial SimpleFin na
-    Settings (hoje é hardcoded via env var, single-tenant), reconciliação
-    silenciosa sem prévia do usuário.
+  - [x] **Fase 2 — agendamento automático real** (v1.49.0, PR #215) — Vercel
+    Cron Job (`vercel.json`, `"0 9 * * *"` UTC, 1x/dia) chama
+    `api/cron/simplefin-sync.js` (protegido por `Authorization: Bearer
+    CRON_SECRET`, fail-safe 401 sem a env var), que popula uma fila de
+    pendências separada (`household:*:simplefin-pending`, merge
+    append-only por `id`) — nunca escreve na chave principal de
+    transações. Lógica de fetch compartilhada extraída para
+    `lib/simplefin.js`. Novo `api/simplefin-pending.js` (GET/DELETE) e
+    aviso + botão "Revisar N pendentes" na tab Import, reusando o mesmo
+    pipeline de prévia/dedup/confirmação. Ver seção "Modelo de dados" e
+    "UI" para detalhes.
+  - [ ] UI de configuração de credencial SimpleFin na Settings — ainda
+    hardcoded via env var `SIMPLEFIN_ACCESS_URL` (single-tenant).
+  - [x] ~~Reconciliação silenciosa sem prévia do usuário~~ — **descartado
+    por decisão de produto** (v1.49.0): o usuário optou explicitamente por
+    nunca gravar automaticamente no ledger; a fila de pendências do cron
+    sempre passa por revisão manual na mesma tela de prévia/confirmação.
