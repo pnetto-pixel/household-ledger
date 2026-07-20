@@ -1,4 +1,4 @@
-# Household Ledger · v1.52.0
+# Household Ledger · v1.53.0
 
 Aplicativo mobile-first de controle financeiro doméstico. Registra
 transações da casa (despesas e receitas) por categoria e conta, com
@@ -31,7 +31,24 @@ O `feature-auditor` deve conferir, como parte da checklist de auditoria, que
 o diff inclui o bump nos dois arquivos antes de aprovar — se faltar, isso é
 motivo de reprovação (devolver ao coder), não um detalhe opcional.
 
-Versão atual: **v1.52.0** — **feat: tab SimpleFin (ex-Preview) com sort e
+Versão atual: **v1.53.0** — **fix: tab SimpleFin expõe avisos por conta +
+resumo de contas retornadas** (`src/App.jsx`, `api/simplefin-sync.js`,
+`api/cron/simplefin-sync.js`). SimpleFin devolve `errors` por conta (ex.:
+conta precisando de reautenticação) junto com `transactions` — a tab
+SimpleFin descartava esse array silenciosamente, então uma conta específica
+podia parar de trazer transações (ex.: uma conta de investimento da
+Fidelity) sem nenhum aviso visível. Agora: (1) a tab mostra um banner
+amarelo com os avisos crus do SimpleFin quando existem; (2) a fila do cron
+(`household:*:simplefin-pending`) passa a persistir `errors` também, não só
+`transactions`; (3) a tab mostra uma linha "Contas retornadas" com a
+contagem de transações por `accountName`, pra ficar óbvio quando uma conta
+esperada não trouxe nada. Nenhuma mudança na lógica de fetch/mapeamento em
+si — SimpleFin pode simplesmente não devolver eventos de trade
+(compra/venda de stock, compra/maturidade de bond) para uma conta de
+investimento se ela não estiver mais autorizada; isso agora fica visível em
+vez de mascarado.
+
+Versão anterior: **v1.52.0** — **feat: tab SimpleFin (ex-Preview) com sort e
 filtro por coluna** (`src/App.jsx`). A tab mudou de nome de "Preview" para
 "SimpleFin" na navegação (label e `h3` interno). A tabela crua ganhou uma
 segunda linha de cabeçalho com um campo de texto por coluna (filtro por
