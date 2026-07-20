@@ -1,4 +1,4 @@
-# Household Ledger · v1.50.1
+# Household Ledger · v1.50.2
 
 Aplicativo mobile-first de controle financeiro doméstico. Registra
 transações da casa (despesas e receitas) por categoria e conta, com
@@ -31,7 +31,16 @@ O `feature-auditor` deve conferir, como parte da checklist de auditoria, que
 o diff inclui o bump nos dois arquivos antes de aprovar — se faltar, isso é
 motivo de reprovação (devolver ao coder), não um detalhe opcional.
 
-Versão atual: **v1.50.1** — **fix: SimpleFin busca últimos 30 dias**
+Versão atual: **v1.50.2** — **fix: remove credenciais da URL antes do fetch
+do SimpleFin** (`lib/simplefin.js`). O `fetch()` do Node/Vercel (undici)
+recusa construir uma requisição a partir de uma URL que ainda carrega
+`usuário:senha@host` embutidos — mesmo enviando a mesma credencial via
+header `Authorization` — e falhava com "Request cannot be constructed from
+a URL that includes credentials". Agora o `username`/`password` são lidos
+da Access URL para montar o header Basic Auth e depois removidos da URL
+antes do `fetch`, corrigindo tanto o "Sync now" manual quanto o cron.
+
+Versão anterior: **v1.50.1** — **fix: SimpleFin busca últimos 30 dias**
 (`lib/simplefin.js`). A chamada a `<access url>/accounts` não passava
 nenhum parâmetro de data, e o SimpleFin Bridge por padrão retorna pouca ou
 nenhuma transação sem um `start-date` explícito — por isso a fila de
