@@ -52,8 +52,10 @@ removido na v1.30.0). Auto-lock de cliente após 30 min de inatividade
 - Namespace `household:*:transactions` (chave derivada por usuário a partir
   de `auth.storageKey`, reescrita de `portfolio:...:holdings` para
   `household:...:transactions`). Snapshots diários aditivos em
-  `household:*:transactions:snapshot:YYYY-MM-DD` (TTL 30d, nunca lidos pelo
-  app). Meta de concorrência em `household:*:transactions:meta` (v1.47.1,
+  `household:*:transactions:snapshot:YYYY-MM-DD` (TTL 7d — reduzido de 30d
+  pra caber no free tier de 30MB do Redis Cloud, compartilhado com o app
+  portfolio; lidos só por `api/snapshots.js`, restore manual na Settings).
+  Meta de concorrência em `household:*:transactions:meta` (v1.47.1,
   string `savedAt|clientId` — o CAS Lua NÃO decodifica o blob JSON; cjson
   rejeita surrogates sem par que o JS aceita, o que já travou um ledger em
   409 eterno). PUT sanitiza surrogates sem par (→ U+FFFD) antes de gravar.

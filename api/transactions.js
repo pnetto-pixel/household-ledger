@@ -28,14 +28,20 @@
 // device involved).
 //
 // Snapshots: the first successful PUT of each (UTC) day also writes an
-// immutable copy under "<key>:snapshot:YYYY-MM-DD" with a 30-day TTL, as an
+// immutable copy under "<key>:snapshot:YYYY-MM-DD" with a 7-day TTL, as an
 // automatic safety net against a bad save/restore. SET NX keeps only the
-// day's first state; snapshots are additive and never read by the app.
+// day's first state; snapshots are additive and read only by
+// api/snapshots.js (Settings restore UI).
+//
+// Kept short (7d, not 30d) because each snapshot duplicates the full
+// transactions blob — on the shared Redis Cloud free tier (30MB, split with
+// the portfolio app) 30 days of daily snapshots was the single largest
+// consumer of the quota.
 
 import { getRedis } from '../lib/redis.js';
 import { authenticate } from '../lib/auth.js';
 
-const SNAPSHOT_TTL_SECONDS = 30 * 24 * 60 * 60;
+const SNAPSHOT_TTL_SECONDS = 7 * 24 * 60 * 60;
 
 // Atomic compare-and-set for the optimistic-concurrency PUT. The old
 // JS-side "GET savedAt → compare → SET" left a window where two devices

@@ -6,7 +6,7 @@
 // concurrency and server-side validation still apply.
 //
 // Snapshots are written by api/transactions.js on the first successful PUT
-// of each UTC day under "<transactionsKey>:snapshot:YYYY-MM-DD" (TTL 30d).
+// of each UTC day under "<transactionsKey>:snapshot:YYYY-MM-DD" (TTL 7d).
 // This endpoint only lists/reads them for the Settings UI.
 
 import { getRedis } from '../lib/redis.js';
@@ -65,7 +65,7 @@ export default async function handler(req, res) {
       });
     }
 
-    // List available snapshot dates. TTL caps this at ~30 keys per user, so
+    // List available snapshot dates. TTL caps this at ~7 keys per user, so
     // KEYS on the exact prefix is fine here.
     const keys = await redis.keys(`${baseKey}:snapshot:*`);
     const snapshots = keys
