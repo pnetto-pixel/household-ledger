@@ -2143,6 +2143,16 @@ shell de altura cheia (`#root` em `100lvh` + shell `height:100%`): só o
    naturalmente). Eixo X = dia do mês; eixo Y = valor cumulativo em formato
    `$X.XK`. Exibe ReferenceLine "Today" quando o mês exibido é o mês corrente
    do calendário. Transfers sempre excluídas em ambos os modos; `cursor={false}`.
+   **Fix v1.53.1 (PR #225)**: no cold load mobile, o `ResponsiveContainer`
+   do recharts mede o container uma única vez no mount, e o card monta no
+   exato instante em que o fetch inicial termina — antes do layout mobile
+   assentar (toolbar do browser, `100lvh`) — travando o chart num tamanho
+   transiente errado até algo forçar reflow. Fix: montagem do
+   `ResponsiveContainer`/`AreaChart` adiada por double `requestAnimationFrame`
+   (estado `ready`), com placeholder de `height: 220` idêntico enquanto
+   `!ready`. **Padrão a reaplicar** se o mesmo sintoma aparecer em outro
+   card com `ResponsiveContainer` que monte no instante em que `loading`
+   vira `false` (ex.: `MonthlyBarCard`, `CategoryStackedBarCard`).
    Abaixo do DailyPaceCard, bloco
    **"by Category"**: gastos do mês selecionado por categoria, ordenados do
    maior para o menor (só categorias com gasto > 0; Transfer e categorias de
@@ -3949,3 +3959,22 @@ riscos reais de perda de dados.
     por decisão de produto** (v1.49.0): o usuário optou explicitamente por
     nunca gravar automaticamente no ledger; a fila de pendências do cron
     sempre passa por revisão manual na mesma tela de prévia/confirmação.
+- [x] **Fix: `DailyPaceCard` ("Daily Spending Pace", Home) com dimensões
+  erradas no cold load mobile** (PR #225, v1.53.1) — no primeiro
+  carregamento no celular, o gráfico às vezes renderizava achatado/cortado,
+  corrigindo sozinho só ao trocar de tab ou alternar o toggle Income/Expense.
+  Causa raiz: o `ResponsiveContainer` (recharts) mede o container uma única
+  vez no mount; como `DailyPaceCard` monta no exato instante em que
+  `loading` vira `false` (fim do fetch inicial), essa medição podia
+  acontecer antes do layout mobile assentar (resize da toolbar do browser,
+  resolução de `100lvh`), travando o chart num tamanho transiente errado até
+  algo forçar reflow (troca de tab remonta via `key={tab}` no
+  `TabErrorBoundary`; o toggle Income/Expense força reflow sem remount).
+  Fix: a montagem do `ResponsiveContainer`/`AreaChart` passou a ser adiada
+  por um double `requestAnimationFrame` (novo estado `ready`, cleanup com
+  `cancelAnimationFrame`), com placeholder de `height: 220` idêntico
+  enquanto `!ready` — sem pulo de layout. Só `src/App.jsx` alterado; sem
+  mudança em `dashboardPaceData`, API/Redis, modelo de transação ou outros
+  gráficos. Padrão de "deferred mount via double rAF" documentado na seção
+  UI/Home (item 1, `DailyPaceCard`) para reaproveitar caso o mesmo sintoma
+  apareça em outro card com `ResponsiveContainer`.
