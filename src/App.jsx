@@ -580,7 +580,7 @@ function idleExpired() {
 // path, so the pending copy is discarded with a notice instead).
 
 // Single source for the version shown in the header and in diagnostics.
-const APP_VERSION = "v1.53.0";
+const APP_VERSION = "v1.53.1";
 
 const PENDING_SAVE_KEY = "household_pending_save";
 
@@ -3360,6 +3360,21 @@ function ChartTooltip({ active, payload, label, mode = "currency", fmtValue, for
 // ===========================================================================
 
 function DailyPaceCard({ paceData, hideValues, fmtK, paceView, setPaceView }) {
+  // Defer mounting the ResponsiveContainer until after the mobile layout has
+  // settled. On cold load, this card mounts the instant the initial fetch
+  // resolves, which can race the browser's first layout pass (toolbar
+  // resize, 100lvh resolution). ResponsiveContainer only measures once on
+  // mount, so a transient measurement here produces a permanently wrong
+  // chart size until something else forces a reflow (tab switch, toggle).
+  // A double rAF waits for two full paint cycles before rendering the chart.
+  const [ready, setReady] = useState(false);
+  useEffect(() => {
+    let raf1 = requestAnimationFrame(() => {
+      raf1 = requestAnimationFrame(() => setReady(true));
+    });
+    return () => cancelAnimationFrame(raf1);
+  }, []);
+
   if (!paceData || paceData.data.length === 0) return null;
   const { data, curLabel, prevLabel, todayDay, projectedTotal, prevTotal } = paceData;
   const isInc = paceView === "income";
@@ -3412,6 +3427,7 @@ function DailyPaceCard({ paceData, hideValues, fmtK, paceView, setPaceView }) {
           </div>
         )}
         <div style={{ height: 220 }}>
+          {ready && (
           <ResponsiveContainer width="100%" height="100%">
             <AreaChart data={data} margin={{ top: 8, right: 16, left: 0, bottom: 4 }}>
               <defs>
@@ -3480,6 +3496,7 @@ function DailyPaceCard({ paceData, hideValues, fmtK, paceView, setPaceView }) {
               />
             </AreaChart>
           </ResponsiveContainer>
+          )}
         </div>
       </div>
     </>
