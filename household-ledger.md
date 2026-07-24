@@ -1,4 +1,4 @@
-# Household Ledger · v1.53.0
+# Household Ledger · v1.53.1
 
 Aplicativo mobile-first de controle financeiro doméstico. Registra
 transações da casa (despesas e receitas) por categoria e conta, com
@@ -31,7 +31,23 @@ O `feature-auditor` deve conferir, como parte da checklist de auditoria, que
 o diff inclui o bump nos dois arquivos antes de aprovar — se faltar, isso é
 motivo de reprovação (devolver ao coder), não um detalhe opcional.
 
-Versão atual: **v1.53.0** — **feat: tab SimpleFin mostra `account.holdings`
+Versão atual: **v1.53.1** — **fix: Daily Spending Pace com dimensões
+erradas no cold load mobile** (`src/App.jsx`, `DailyPaceCard`). No primeiro
+carregamento no celular, o card às vezes renderizava o gráfico com o
+tamanho errado (achatado/cortado), corrigindo sozinho só ao trocar de tab ou
+alternar Income/Expense. Causa: `ResponsiveContainer` (recharts) mede o
+container só uma vez, no mount; como `DailyPaceCard` monta no exato
+instante em que o fetch inicial termina, essa medição podia acontecer antes
+do layout mobile assentar (resize da toolbar do browser, resolução de
+`100lvh`), travando o chart num tamanho transiente errado. Fix: o card agora
+adia a montagem do `ResponsiveContainer` com `useState`+`useEffect` (double
+`requestAnimationFrame`, já que um frame só pode não bastar no Safari iOS),
+mostrando um placeholder vazio com a mesma altura (`height: 220`) até o
+layout assentar. Escopo limitado a este componente — não mexe em
+`dashboardPaceData`, `TabErrorBoundary`/`key={tab}`, `index.html`/`100lvh`,
+nem em outros gráficos.
+
+Versão anterior: **v1.53.0** — **feat: tab SimpleFin mostra `account.holdings`
 cru** (`lib/simplefin.js`, `api/simplefin-sync.js`, `src/App.jsx`).
 Investigação em andamento: a conta Fidelity "Individual - TOD" não reporta
 trades de compra/venda de stock nem compra/maturidade de bond em
