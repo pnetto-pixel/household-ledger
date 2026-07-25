@@ -1,4 +1,4 @@
-# Household Ledger · v1.54.0
+# Household Ledger · v1.54.1
 
 Aplicativo mobile-first de controle financeiro doméstico. Registra
 transações da casa (despesas e receitas) por categoria e conta, com
@@ -31,7 +31,34 @@ O `feature-auditor` deve conferir, como parte da checklist de auditoria, que
 o diff inclui o bump nos dois arquivos antes de aprovar — se faltar, isso é
 motivo de reprovação (devolver ao coder), não um detalhe opcional.
 
-Versão atual: **v1.54.0** — **remove: tab "SimpleFin" (preview)**
+Versão atual: **v1.54.1** — **fix: totais e Daily Spending Pace errados no
+cold load (corrida do `/api/config`)** (`src/App.jsx`). Corrige de verdade o
+bug que a v1.53.1 tentou resolver com o diagnóstico errado (ver abaixo). No
+primeiro carregamento, o card hero mostrava Income/Expenses errados e o
+Daily Spending Pace desenhava a curva errada; só um refresh (ou trocar de
+tab, ou alternar Income/Expense) acertava. **Não era layout: era
+classificação.** `INCOME_CATEGORIES` é um `let` de módulo, lido em tempo de
+chamada por `isIncome()`/`computeTotals()`, mas **não é dependência React** —
+os ~12 `useMemo` que classificam transações têm deps
+`[transactions, year, month, …]` e nenhum inclui `config`. Se
+`/api/config` resolve **depois** de `/api/transactions`, todos esses memos
+computam com as listas DEFAULT e **congelam** o resultado errado: uma
+categoria de income customizada (fora de `DEFAULT_INCOME_CATEGORIES`) fica
+contada como despesa até algo não-relacionado invalidar o memo. O sinal
+diagnóstico é preciso: o balanço hero fica **correto** nos dois renders (o
+bucket só troca de lado, o net não muda) — quem erra é o split
+income/expense e o gráfico. Fix: novo estado `configLoaded`, setado no
+`finally` de `loadConfig()` (inclusive em falha/timeout), e o gate de render
+passou de `loading` para `loading || !configLoaded` — garantindo que as
+listas estejam finais antes da primeira computação, o que conserta todos os
+memos de uma vez sem precisar passar `config` como prop por cada componente
+de gráfico. O fetch de `/api/config` também ganhou `AbortSignal.timeout`
+(25s) para que uma requisição pendurada não trave o app em "Loading…"; em
+falha cai nos defaults, como antes. O deferred-mount por double rAF
+introduzido na v1.53.1 foi **revertido** (era inerte para esta causa e só
+atrasava o paint em 2 frames).
+
+Versão anterior: **v1.54.0** — **remove: tab "SimpleFin" (preview)**
 (`src/App.jsx`). Removidos `TABS` entry `preview`, o branch de render que
 montava `SimpleFinPreview`, e os componentes `SimpleFinPreview`,
 `SimpleFinHoldingsSection`, `SF_RAW_COLUMN_ORDER`, `useSfRawTable` e
@@ -40,21 +67,16 @@ automático (`classifySimpleFinRows`, `syncSimpleFin`,
 `loadSimpleFinPending`, o card "SimpleFin (auto)" em `ImportTransactions`,
 nem as rotas/API server-side do SimpleFin).
 
-Versão anterior: **v1.53.1** — **fix: Daily Spending Pace com dimensões
-erradas no cold load mobile** (`src/App.jsx`, `DailyPaceCard`). No primeiro
-carregamento no celular, o card às vezes renderizava o gráfico com o
-tamanho errado (achatado/cortado), corrigindo sozinho só ao trocar de tab ou
-alternar Income/Expense. Causa: `ResponsiveContainer` (recharts) mede o
-container só uma vez, no mount; como `DailyPaceCard` monta no exato
-instante em que o fetch inicial termina, essa medição podia acontecer antes
-do layout mobile assentar (resize da toolbar do browser, resolução de
-`100lvh`), travando o chart num tamanho transiente errado. Fix: o card agora
-adia a montagem do `ResponsiveContainer` com `useState`+`useEffect` (double
-`requestAnimationFrame`, já que um frame só pode não bastar no Safari iOS),
-mostrando um placeholder vazio com a mesma altura (`height: 220`) até o
-layout assentar. Escopo limitado a este componente — não mexe em
-`dashboardPaceData`, `TabErrorBoundary`/`key={tab}`, `index.html`/`100lvh`,
-nem em outros gráficos.
+Versão anterior: **v1.53.1** — **fix (diagnóstico incorreto, substituído
+pela v1.54.1)**: atribuía o sintoma à medição única do `ResponsiveContainer`
+no mount, e adiava a montagem do chart com double `requestAnimationFrame`.
+A hipótese não se sustentou: o bug reapareceu **no desktop** (onde não há
+toolbar móvel nem `100lvh` para assentar) e com **os dados divergindo entre
+load e refresh**, o que layout não explica. Os dois "workarounds" que
+pareciam confirmar a teoria de reflow — trocar de tab e alternar
+Income/Expense — na verdade apenas **invalidavam o memo** (remount via
+`key={tab}`; mudança da dep `paceView`), forçando o recálculo com o config
+já carregado. Mantido aqui como registro do erro de diagnóstico.
 
 Versão anterior: **v1.53.0** — **feat: tab SimpleFin mostra `account.holdings`
 cru** (`lib/simplefin.js`, `api/simplefin-sync.js`, `src/App.jsx`).
@@ -2152,16 +2174,21 @@ shell de altura cheia (`#root` em `100lvh` + shell `height:100%`): só o
    naturalmente). Eixo X = dia do mês; eixo Y = valor cumulativo em formato
    `$X.XK`. Exibe ReferenceLine "Today" quando o mês exibido é o mês corrente
    do calendário. Transfers sempre excluídas em ambos os modos; `cursor={false}`.
-   **Fix v1.53.1 (PR #225)**: no cold load mobile, o `ResponsiveContainer`
-   do recharts mede o container uma única vez no mount, e o card monta no
-   exato instante em que o fetch inicial termina — antes do layout mobile
-   assentar (toolbar do browser, `100lvh`) — travando o chart num tamanho
-   transiente errado até algo forçar reflow. Fix: montagem do
-   `ResponsiveContainer`/`AreaChart` adiada por double `requestAnimationFrame`
-   (estado `ready`), com placeholder de `height: 220` idêntico enquanto
-   `!ready`. **Padrão a reaplicar** se o mesmo sintoma aparecer em outro
-   card com `ResponsiveContainer` que monte no instante em que `loading`
-   vira `false` (ex.: `MonthlyBarCard`, `CategoryStackedBarCard`).
+   **Fix v1.54.1 (PR #226)**: no cold load o card desenhava a curva errada
+   (e o hero mostrava Income/Expenses errados), acertando só no refresh.
+   Causa: corrida do `/api/config` — `dashboardPaceData` chama `isIncome()`,
+   que lê o `let` de módulo `INCOME_CATEGORIES`, mas suas deps são
+   `[transactions, year, month, catFilter, paceView]`, sem `config`. Se o
+   config chega depois das transações, o memo congela o resultado calculado
+   com as listas default. Fix no App (não neste card): gate de render
+   `loading || !configLoaded`. **Invariante a respeitar**: qualquer memo que
+   chame `isIncome`/`isTransfer`/`computeTotals` depende implicitamente de
+   `config`; como esses helpers leem estado mutável de módulo, o React não
+   detecta a mudança. Hoje isso é garantido pelo gate no boot — se um dia o
+   config puder mudar **depois** do boot sem remount, esses memos precisarão
+   de `config` na dep list (ver Fase 7).
+   O deferred-mount por double rAF da v1.53.1 foi revertido — o
+   `ResponsiveContainer` volta a montar direto.
    Abaixo do DailyPaceCard, bloco
    **"by Category"**: gastos do mês selecionado por categoria, ordenados do
    maior para o menor (só categorias com gasto > 0; Transfer e categorias de
@@ -3968,22 +3995,38 @@ riscos reais de perda de dados.
     por decisão de produto** (v1.49.0): o usuário optou explicitamente por
     nunca gravar automaticamente no ledger; a fila de pendências do cron
     sempre passa por revisão manual na mesma tela de prévia/confirmação.
-- [x] **Fix: `DailyPaceCard` ("Daily Spending Pace", Home) com dimensões
-  erradas no cold load mobile** (PR #225, v1.53.1) — no primeiro
-  carregamento no celular, o gráfico às vezes renderizava achatado/cortado,
-  corrigindo sozinho só ao trocar de tab ou alternar o toggle Income/Expense.
-  Causa raiz: o `ResponsiveContainer` (recharts) mede o container uma única
-  vez no mount; como `DailyPaceCard` monta no exato instante em que
-  `loading` vira `false` (fim do fetch inicial), essa medição podia
-  acontecer antes do layout mobile assentar (resize da toolbar do browser,
-  resolução de `100lvh`), travando o chart num tamanho transiente errado até
-  algo forçar reflow (troca de tab remonta via `key={tab}` no
-  `TabErrorBoundary`; o toggle Income/Expense força reflow sem remount).
-  Fix: a montagem do `ResponsiveContainer`/`AreaChart` passou a ser adiada
-  por um double `requestAnimationFrame` (novo estado `ready`, cleanup com
-  `cancelAnimationFrame`), com placeholder de `height: 220` idêntico
-  enquanto `!ready` — sem pulo de layout. Só `src/App.jsx` alterado; sem
-  mudança em `dashboardPaceData`, API/Redis, modelo de transação ou outros
-  gráficos. Padrão de "deferred mount via double rAF" documentado na seção
-  UI/Home (item 1, `DailyPaceCard`) para reaproveitar caso o mesmo sintoma
-  apareça em outro card com `ResponsiveContainer`.
+- [x] **Fix: totais do hero e `DailyPaceCard` errados no cold load — corrida
+  do `/api/config`** (PR #226, v1.54.1) — no primeiro carregamento (mobile
+  **e** desktop) o hero mostrava Income/Expenses errados e o Daily Spending
+  Pace desenhava a curva errada; um refresh corrigia. Causa raiz:
+  `INCOME_CATEGORIES` é um `let` de módulo mutado por `applyConfig()` e lido
+  em tempo de chamada por `isIncome()`/`computeTotalsCore()`, mas **não é
+  dependência React** — os ~12 `useMemo` que classificam transações
+  (`heroComparisons`, `dashboardPaceData`, `catExpenses`, `catChanges`,
+  `availableCats`, os memos de `Charts`, `YearInReviewCard`, `summary` de
+  `Transactions`) têm deps sem `config`. Quando `/api/config` resolve depois
+  de `/api/transactions`, todos computam com `DEFAULT_INCOME_CATEGORIES` e
+  congelam: uma categoria de income customizada fica somada às despesas.
+  Assinatura numérica do bug: income e expenses deslocam pelo **mesmo**
+  valor em direções opostas e o **net não muda** — por isso o saldo hero
+  parecia certo nos dois renders e o bug passou despercebido.
+  Fix: estado `configLoaded` (setado no `finally` de `loadConfig`, inclusive
+  em falha/timeout) e gate de render `loading || !configLoaded`, garantindo
+  que as listas estejam finais antes da primeira computação — conserta todos
+  os memos de uma vez sem threading de `config` por componente. Adicionado
+  `AbortSignal.timeout(25000)` ao fetch de config para que uma requisição
+  pendurada não trave o app em "Loading…". Revertido o deferred-mount por
+  double rAF da v1.53.1 (diagnóstico incorreto — ver "Versão anterior" no
+  topo). Regressão coberta em `src/ledger.test.js` fixando a aritmética
+  exata (default vs config do usuário). Só `src/App.jsx` +
+  `src/ledger.test.js`; sem mudança em API/Redis ou modelo de transação.
+- [ ] **Tornar a dependência de `config` explícita nos memos de
+  classificação** — hoje a correção acima depende de um invariante frágil:
+  "config nunca muda depois do boot sem remount". Isso vale por acidente
+  (para editar categorias o usuário vai em Settings e voltar para Home
+  remonta a árvore via `key={tab}` no `TabErrorBoundary`), mas não é
+  garantido por construção. Opções: (a) passar `config` como prop para
+  `Dashboard`/`Charts`/`Transactions`/`YearInReviewCard` e incluí-lo nas dep
+  lists; (b) mover as listas para um Context e consumir via hook, eliminando
+  o estado mutável de módulo. (b) é mais limpo e mata a classe inteira de
+  bug, mas toca muitos call sites de `isIncome`/`isTransfer`.

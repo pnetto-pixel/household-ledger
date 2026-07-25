@@ -580,7 +580,7 @@ function idleExpired() {
 // path, so the pending copy is discarded with a notice instead).
 
 // Single source for the version shown in the header and in diagnostics.
-const APP_VERSION = "v1.54.0";
+const APP_VERSION = "v1.54.1";
 
 const PENDING_SAVE_KEY = "household_pending_save";
 
@@ -720,6 +720,8 @@ export default function App() {
   // User-managed lists (accounts + categories) — loaded from /api/config.
   // Seeded from the module defaults so the UI has values before the fetch.
   const [config, setConfig] = useState(() => currentConfig());
+  // False until /api/config has resolved (or failed). See loadConfig.
+  const [configLoaded, setConfigLoaded] = useState(false);
 
   // Format a money value, respecting the global eye toggle.
   const money = useCallback(
@@ -1450,11 +1452,25 @@ export default function App() {
   }, []);
 
   // ---- Config (accounts + categories) load / save --------------------------
+  // `configLoaded` gates the first render of everything that classifies rows
+  // (see the loading gate below). INCOME_CATEGORIES is module-level mutable
+  // state read at call time by isIncome()/computeTotals(), but it is NOT a
+  // React dependency: the memos that classify transactions key off
+  // [transactions, year, month, ...] only. So if this fetch resolves AFTER the
+  // transactions fetch, every one of those memos computes with the DEFAULT
+  // category lists and then keeps that stale result — a custom income category
+  // stays counted as an expense until something unrelated invalidates the memo
+  // (tab switch, Expense/Income toggle). Waiting here guarantees the lists are
+  // final before the first computation, which is what makes all of those memos
+  // correct without threading `config` through every chart component.
   const loadConfig = useCallback(async () => {
     try {
       const res = await fetch("/api/config", {
         method: "GET",
         headers: buildAuthHeaders(),
+        // Bounded so a hung config request can never block the app forever —
+        // on timeout we fall through to the defaults, same as any other failure.
+        signal: AbortSignal.timeout?.(25000),
       });
       if (!res.ok) return;
       const data = await res.json();
@@ -1464,6 +1480,10 @@ export default function App() {
       }
     } catch {
       // Silently ignore — defaults already seeded.
+    } finally {
+      // Always release the gate, including on failure: degraded-but-rendering
+      // (defaults) beats a permanent "Loading…".
+      setConfigLoaded(true);
     }
   }, []);
 
@@ -1773,7 +1793,7 @@ export default function App() {
 
       <main style={S.main}>
         <TabErrorBoundary key={tab}>
-        {loading ? (
+        {loading || !configLoaded ? (
           <div style={S.center}>Loading…</div>
         ) : tab === "home" ? (
           <Dashboard transactions={transactions} money={money} hideValues={hideValues} isWide={isWide} budgets={budgets} />
@@ -3357,21 +3377,6 @@ function ChartTooltip({ active, payload, label, mode = "currency", fmtValue, for
 // ===========================================================================
 
 function DailyPaceCard({ paceData, hideValues, fmtK, paceView, setPaceView }) {
-  // Defer mounting the ResponsiveContainer until after the mobile layout has
-  // settled. On cold load, this card mounts the instant the initial fetch
-  // resolves, which can race the browser's first layout pass (toolbar
-  // resize, 100lvh resolution). ResponsiveContainer only measures once on
-  // mount, so a transient measurement here produces a permanently wrong
-  // chart size until something else forces a reflow (tab switch, toggle).
-  // A double rAF waits for two full paint cycles before rendering the chart.
-  const [ready, setReady] = useState(false);
-  useEffect(() => {
-    let raf1 = requestAnimationFrame(() => {
-      raf1 = requestAnimationFrame(() => setReady(true));
-    });
-    return () => cancelAnimationFrame(raf1);
-  }, []);
-
   if (!paceData || paceData.data.length === 0) return null;
   const { data, curLabel, prevLabel, todayDay, projectedTotal, prevTotal } = paceData;
   const isInc = paceView === "income";
@@ -3424,7 +3429,6 @@ function DailyPaceCard({ paceData, hideValues, fmtK, paceView, setPaceView }) {
           </div>
         )}
         <div style={{ height: 220 }}>
-          {ready && (
           <ResponsiveContainer width="100%" height="100%">
             <AreaChart data={data} margin={{ top: 8, right: 16, left: 0, bottom: 4 }}>
               <defs>
@@ -3493,7 +3497,6 @@ function DailyPaceCard({ paceData, hideValues, fmtK, paceView, setPaceView }) {
               />
             </AreaChart>
           </ResponsiveContainer>
-          )}
         </div>
       </div>
     </>
