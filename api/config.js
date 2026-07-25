@@ -6,9 +6,14 @@
 // Storage: derives a household-scoped key from auth.storageKey, same pattern
 // as api/budgets.js but with the ":config" suffix.
 // "portfolio:<scope>:<hash>:holdings" -> "household:<scope>:<hash>:config"
+//
+// POST ?googleLogin=1 { credential }: unauthenticated Google OAuth login —
+// dobrado neste arquivo (em vez de api/auth-google.js separado) para
+// respeitar o limite de 12 Serverless Functions do plano Vercel Hobby, mesmo
+// padrão usado por api/simplefin-sync.js?pending=1.
 
 import { getRedis } from '../lib/redis.js';
-import { authenticate } from '../lib/auth.js';
+import { authenticate, loginWithGoogle } from '../lib/auth.js';
 
 function configKeyFromAuth(auth) {
   if (!auth?.storageKey) return null;
@@ -40,6 +45,19 @@ function sanitize(config) {
 }
 
 export default async function handler(req, res) {
+  if (req.method === 'POST' && req.query?.googleLogin === '1') {
+    try {
+      const result = await loginWithGoogle(req);
+      if (!result.ok) {
+        return res.status(result.status).json({ error: result.error });
+      }
+      return res.status(200).json({ token: result.token, email: result.email });
+    } catch (err) {
+      console.error('googleLogin handler error:', err);
+      return res.status(500).json({ error: err.message });
+    }
+  }
+
   const auth = await authenticate(req);
   if (!auth.ok) {
     return res.status(auth.status).json({ error: auth.error });

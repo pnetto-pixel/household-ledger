@@ -33,7 +33,9 @@ motivo de reprovação (devolver ao coder), não um detalhe opcional.
 
 Versão atual: **v1.55.0** — **feat: login via Google OAuth (Google Identity
 Services), substitui a senha de app compartilhada** (`lib/auth.js`,
-`api/auth-google.js` novo, `src/App.jsx`, `index.html`). Allowlist fixa de 2
+endpoint `POST /api/config?googleLogin=1` (dobrado em `api/config.js` para
+respeitar o limite de 12 Serverless Functions do Vercel Hobby), `src/App.jsx`,
+`index.html`). Allowlist fixa de 2
 emails (`pnetto@gmail.com`, `belasp@hotmail.com`, via env `ALLOWED_EMAILS`).
 O client carrega o script `accounts.google.com/gsi/client` (tag, sem
 dependência nova) e troca o ID token do Google por uma sessão própria do
