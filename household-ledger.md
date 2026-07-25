@@ -1,4 +1,4 @@
-# Household Ledger · v1.53.1
+# Household Ledger · v1.54.0
 
 Aplicativo mobile-first de controle financeiro doméstico. Registra
 transações da casa (despesas e receitas) por categoria e conta, com
@@ -31,7 +31,16 @@ O `feature-auditor` deve conferir, como parte da checklist de auditoria, que
 o diff inclui o bump nos dois arquivos antes de aprovar — se faltar, isso é
 motivo de reprovação (devolver ao coder), não um detalhe opcional.
 
-Versão atual: **v1.53.1** — **fix: Daily Spending Pace com dimensões
+Versão atual: **v1.54.0** — **remove: tab "SimpleFin" (preview)**
+(`src/App.jsx`). Removidos `TABS` entry `preview`, o branch de render que
+montava `SimpleFinPreview`, e os componentes `SimpleFinPreview`,
+`SimpleFinHoldingsSection`, `SF_RAW_COLUMN_ORDER`, `useSfRawTable` e
+`SfRawTable` (únicos consumidores exclusivos). Não afeta o fluxo de sync
+automático (`classifySimpleFinRows`, `syncSimpleFin`,
+`loadSimpleFinPending`, o card "SimpleFin (auto)" em `ImportTransactions`,
+nem as rotas/API server-side do SimpleFin).
+
+Versão anterior: **v1.53.1** — **fix: Daily Spending Pace com dimensões
 erradas no cold load mobile** (`src/App.jsx`, `DailyPaceCard`). No primeiro
 carregamento no celular, o card às vezes renderizava o gráfico com o
 tamanho errado (achatado/cortado), corrigindo sozinho só ao trocar de tab ou
