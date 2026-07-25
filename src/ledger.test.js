@@ -51,7 +51,7 @@ describe("computeTotalsCore", () => {
     expect(t.net).toBe(-10);
   });
 
-  it("misclassifies a custom income category when handed the DEFAULT list (the v1.53.2 bug)", () => {
+  it("misclassifies a custom income category when handed the DEFAULT list (the v1.54.1 bug)", () => {
     // Reproduces the cold-load bug exactly. A household whose saved config adds
     // an income category the module defaults don't know about renders once with
     // the defaults if /api/config resolves after /api/transactions. The rows are

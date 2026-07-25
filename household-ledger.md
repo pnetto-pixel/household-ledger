@@ -1,4 +1,4 @@
-# Household Ledger · v1.53.2
+# Household Ledger · v1.54.1
 
 Aplicativo mobile-first de controle financeiro doméstico. Registra
 transações da casa (despesas e receitas) por categoria e conta, com
@@ -31,7 +31,7 @@ O `feature-auditor` deve conferir, como parte da checklist de auditoria, que
 o diff inclui o bump nos dois arquivos antes de aprovar — se faltar, isso é
 motivo de reprovação (devolver ao coder), não um detalhe opcional.
 
-Versão atual: **v1.53.2** — **fix: totais e Daily Spending Pace errados no
+Versão atual: **v1.54.1** — **fix: totais e Daily Spending Pace errados no
 cold load (corrida do `/api/config`)** (`src/App.jsx`). Corrige de verdade o
 bug que a v1.53.1 tentou resolver com o diagnóstico errado (ver abaixo). No
 primeiro carregamento, o card hero mostrava Income/Expenses errados e o
@@ -58,8 +58,17 @@ falha cai nos defaults, como antes. O deferred-mount por double rAF
 introduzido na v1.53.1 foi **revertido** (era inerte para esta causa e só
 atrasava o paint em 2 frames).
 
+Versão anterior: **v1.54.0** — **remove: tab "SimpleFin" (preview)**
+(`src/App.jsx`). Removidos `TABS` entry `preview`, o branch de render que
+montava `SimpleFinPreview`, e os componentes `SimpleFinPreview`,
+`SimpleFinHoldingsSection`, `SF_RAW_COLUMN_ORDER`, `useSfRawTable` e
+`SfRawTable` (únicos consumidores exclusivos). Não afeta o fluxo de sync
+automático (`classifySimpleFinRows`, `syncSimpleFin`,
+`loadSimpleFinPending`, o card "SimpleFin (auto)" em `ImportTransactions`,
+nem as rotas/API server-side do SimpleFin).
+
 Versão anterior: **v1.53.1** — **fix (diagnóstico incorreto, substituído
-pela v1.53.2)**: atribuía o sintoma à medição única do `ResponsiveContainer`
+pela v1.54.1)**: atribuía o sintoma à medição única do `ResponsiveContainer`
 no mount, e adiava a montagem do chart com double `requestAnimationFrame`.
 A hipótese não se sustentou: o bug reapareceu **no desktop** (onde não há
 toolbar móvel nem `100lvh` para assentar) e com **os dados divergindo entre
@@ -2165,7 +2174,7 @@ shell de altura cheia (`#root` em `100lvh` + shell `height:100%`): só o
    naturalmente). Eixo X = dia do mês; eixo Y = valor cumulativo em formato
    `$X.XK`. Exibe ReferenceLine "Today" quando o mês exibido é o mês corrente
    do calendário. Transfers sempre excluídas em ambos os modos; `cursor={false}`.
-   **Fix v1.53.2 (PR #226)**: no cold load o card desenhava a curva errada
+   **Fix v1.54.1 (PR #226)**: no cold load o card desenhava a curva errada
    (e o hero mostrava Income/Expenses errados), acertando só no refresh.
    Causa: corrida do `/api/config` — `dashboardPaceData` chama `isIncome()`,
    que lê o `let` de módulo `INCOME_CATEGORIES`, mas suas deps são
@@ -3987,7 +3996,7 @@ riscos reais de perda de dados.
     nunca gravar automaticamente no ledger; a fila de pendências do cron
     sempre passa por revisão manual na mesma tela de prévia/confirmação.
 - [x] **Fix: totais do hero e `DailyPaceCard` errados no cold load — corrida
-  do `/api/config`** (PR #226, v1.53.2) — no primeiro carregamento (mobile
+  do `/api/config`** (PR #226, v1.54.1) — no primeiro carregamento (mobile
   **e** desktop) o hero mostrava Income/Expenses errados e o Daily Spending
   Pace desenhava a curva errada; um refresh corrigia. Causa raiz:
   `INCOME_CATEGORIES` é um `let` de módulo mutado por `applyConfig()` e lido
