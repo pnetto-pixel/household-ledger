@@ -51,6 +51,31 @@ describe("computeTotalsCore", () => {
     expect(t.net).toBe(-10);
   });
 
+  it("misclassifies a custom income category when handed the DEFAULT list (the v1.53.2 bug)", () => {
+    // Reproduces the cold-load bug exactly. A household whose saved config adds
+    // an income category the module defaults don't know about renders once with
+    // the defaults if /api/config resolves after /api/transactions. The rows are
+    // identical either way — only the list differs — and the whole bucket swings
+    // from expenses to income, leaving net untouched. That last part is why the
+    // bug hid for so long: the hero BALANCE is correct in both renders, so only
+    // the income/expense split and the pace chart look wrong.
+    const rows = [
+      { category: "Salary", amount: 6714.22 },
+      { category: "Rental Income", amount: 4211.16 }, // not in DEFAULT_INCOME_CATEGORIES
+      { category: "Groceries", amount: -3830.42 },
+    ];
+    const withDefaults = computeTotalsCore(rows, INCOME);
+    const withUserConfig = computeTotalsCore(rows, [...INCOME, "Rental Income"]);
+
+    expect(withDefaults.income).toBeCloseTo(6714.22);
+    expect(withDefaults.expenses).toBeCloseTo(-3830.42 + 4211.16);
+    expect(withUserConfig.income).toBeCloseTo(10925.38);
+    expect(withUserConfig.expenses).toBeCloseTo(-3830.42);
+    // The tell: the split moves by the bucket's total, net does not move at all.
+    expect(withUserConfig.income - withDefaults.income).toBeCloseTo(4211.16);
+    expect(withUserConfig.net).toBeCloseTo(withDefaults.net);
+  });
+
   it("keeps refund-dominated expense buckets positive (the v1.5.10 bug)", () => {
     // Refund larger than the period's spend: expenses must be POSITIVE and
     // contribute positively to net — income − expenses or Math.abs would flip it.
