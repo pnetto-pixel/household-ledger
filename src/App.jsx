@@ -1872,7 +1872,7 @@ function Login({ onAuthed, notice = "" }) {
     setBusy(true);
     setErr("");
     try {
-      const res = await fetch("/api/auth-google", {
+      const res = await fetch("/api/config?googleLogin=1", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ credential: response.credential }),
