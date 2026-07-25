@@ -522,13 +522,16 @@ const usd0 = new Intl.NumberFormat("en-US", {
 });
 
 // ---------------------------------------------------------------------------
-// Auth headers (shared app password)
+// Auth headers (Google-login session token)
 // ---------------------------------------------------------------------------
+// The client never re-sends the Google ID token (it expires in ~1h and this
+// PWA stays open for hours — see lib/auth.js history note). It sends the
+// opaque, server-issued session token minted at login instead.
 
 function buildAuthHeaders() {
   const headers = { "Content-Type": "application/json" };
-  const pwd = localStorage.getItem("household_pwd");
-  if (pwd) headers["x-app-password"] = pwd;
+  const token = localStorage.getItem("household_session");
+  if (token) headers["x-session-token"] = token;
   return headers;
 }
 
@@ -580,7 +583,7 @@ function idleExpired() {
 // path, so the pending copy is discarded with a notice instead).
 
 // Single source for the version shown in the header and in diagnostics.
-const APP_VERSION = "v1.54.0";
+const APP_VERSION = "v1.55.0";
 
 const PENDING_SAVE_KEY = "household_pending_save";
 
@@ -674,15 +677,15 @@ export default function App() {
   // localStorage state; the actual password removal happens in the mount
   // effect below (initializers stay side-effect free).
   const [authed, setAuthed] = useState(
-    () => !!localStorage.getItem("household_pwd") && !idleExpired()
+    () => !!localStorage.getItem("household_session") && !idleExpired()
   );
   // True when the last de-auth was the idle lock (vs. explicit logout /
   // rotated password) — drives the notice on the login screen.
   const [idleLocked, setIdleLocked] = useState(
-    () => !!localStorage.getItem("household_pwd") && idleExpired()
+    () => !!localStorage.getItem("household_session") && idleExpired()
   );
   useEffect(() => {
-    if (idleLocked && !authed) localStorage.removeItem("household_pwd");
+    if (idleLocked && !authed) localStorage.removeItem("household_session");
   }, []); // mount only — boot-time purge of an expired session's password
   const [transactions, setTransactions] = useState([]);
   const [tab, setTab] = useState("home");
@@ -745,7 +748,7 @@ export default function App() {
       });
       if (res.status === 401 || res.status === 403) {
         setAuthed(false);
-        localStorage.removeItem("household_pwd");
+        localStorage.removeItem("household_session");
         setError("Authentication required.");
         return;
       }
@@ -910,7 +913,7 @@ export default function App() {
         // Wrong/rotated password — re-authenticating is the only fix. A
         // queued save would just hit the same wall; drop it.
         queuedSaveRef.current = null;
-        localStorage.removeItem("household_pwd");
+        localStorage.removeItem("household_session");
         setAuthed(false);
         return;
       }
@@ -1065,7 +1068,7 @@ export default function App() {
   // the lock and is restored/saved after the next login (same path as an
   // offline close).
   const lockForIdle = useCallback(() => {
-    localStorage.removeItem("household_pwd");
+    localStorage.removeItem("household_session");
     setIdleLocked(true);
     setAuthed(false);
     setTransactions([]);
@@ -1729,7 +1732,7 @@ export default function App() {
   }, []);
 
   const logout = useCallback(() => {
-    localStorage.removeItem("household_pwd");
+    localStorage.removeItem("household_session");
     setAuthed(false);
     setTransactions([]);
   }, []);
@@ -1838,64 +1841,108 @@ export default function App() {
 // Login
 // ===========================================================================
 
+// Loads the Google Identity Services script once (script tag, not an npm
+// dependency — keeps package.json untouched). Resolves once
+// `window.google.accounts.id` is ready; a second call while already loading
+// reuses the same in-flight promise.
+let gisLoadPromise = null;
+function loadGoogleIdentityServices() {
+  if (window.google?.accounts?.id) return Promise.resolve();
+  if (gisLoadPromise) return gisLoadPromise;
+  gisLoadPromise = new Promise((resolve, reject) => {
+    const script = document.createElement("script");
+    script.src = "https://accounts.google.com/gsi/client";
+    script.async = true;
+    script.defer = true;
+    script.onload = () => resolve();
+    script.onerror = () => reject(new Error("Failed to load Google Sign-In"));
+    document.head.appendChild(script);
+  });
+  return gisLoadPromise;
+}
+
 function Login({ onAuthed, notice = "" }) {
-  const [pwd, setPwd] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
+  const buttonRef = useRef(null);
 
-  const submit = async (e) => {
-    e.preventDefault();
-    if (!pwd.trim()) return;
+  // Exchanges the Google ID token for this app's own session token — see
+  // lib/auth.js for why the ID token itself is never reused after this.
+  const handleCredential = useCallback(async (response) => {
     setBusy(true);
     setErr("");
     try {
-      // Validate the password by attempting a load.
-      const res = await fetch("/api/transactions", {
-        method: "GET",
-        headers: { "Content-Type": "application/json", "x-app-password": pwd.trim() },
+      const res = await fetch("/api/auth-google", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ credential: response.credential }),
       });
-      if (res.ok) {
-        localStorage.setItem("household_pwd", pwd.trim());
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && data.token) {
+        localStorage.setItem("household_session", data.token);
         onAuthed();
-      } else if (res.status === 401 || res.status === 403) {
-        setErr("Invalid password.");
       } else {
-        const j = await res.json().catch(() => ({}));
-        setErr(j.error || `Error ${res.status}`);
+        setErr(data.error || `Sign-in failed (${res.status})`);
       }
     } catch (e2) {
-      setErr(e2.message);
+      setErr(e2.message || "Sign-in failed");
     } finally {
       setBusy(false);
     }
-  };
+  }, [onAuthed]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const clientId = import.meta.env.VITE_GOOGLE_CLIENT_ID;
+    if (!clientId) {
+      setErr("Google sign-in is not configured (missing VITE_GOOGLE_CLIENT_ID).");
+      return;
+    }
+    loadGoogleIdentityServices()
+      .then(() => {
+        if (cancelled || !window.google?.accounts?.id) return;
+        window.google.accounts.id.initialize({
+          client_id: clientId,
+          callback: handleCredential,
+        });
+        if (buttonRef.current) {
+          window.google.accounts.id.renderButton(buttonRef.current, {
+            theme: "filled_black",
+            size: "large",
+            width: 280,
+            text: "signin_with",
+          });
+        }
+      })
+      .catch((e2) => !cancelled && setErr(e2.message));
+    return () => {
+      cancelled = true;
+    };
+  }, [handleCredential]);
 
   return (
     <div style={{ ...S.app, justifyContent: "center" }}>
       <div style={S.loginCard}>
         <h1 style={{ margin: "0 0 4px", fontSize: 22 }}>Household Ledger</h1>
         <p style={{ margin: "0 0 20px", color: "#8b94a3", fontSize: 14 }}>
-          Sign in to continue
+          Sign in with your Google account to continue
         </p>
 
         {notice ? (
           <div style={{ color: "#fbbf24", fontSize: 13, margin: "0 0 12px" }}>{notice}</div>
         ) : null}
 
-        <form onSubmit={submit}>
-          <input
-            type="password"
-            value={pwd}
-            onChange={(e) => setPwd(e.target.value)}
-            placeholder="App password"
-            style={S.input}
-            autoComplete="current-password"
-          />
-          {err ? <div style={{ color: "#f87171", fontSize: 13, marginTop: 8 }}>{err}</div> : null}
-          <button type="submit" disabled={busy} style={{ ...S.primaryBtn, marginTop: 14 }}>
-            {busy ? "Checking…" : "Enter"}
-          </button>
-        </form>
+        <div ref={buttonRef} style={{ display: "flex", justifyContent: "center", minHeight: 40 }} />
+        {busy ? (
+          <div style={{ color: "#8b94a3", fontSize: 13, marginTop: 12, textAlign: "center" }}>
+            Signing in…
+          </div>
+        ) : null}
+        {err ? (
+          <div style={{ color: "#f87171", fontSize: 13, marginTop: 12, textAlign: "center" }}>
+            {err}
+          </div>
+        ) : null}
       </div>
     </div>
   );

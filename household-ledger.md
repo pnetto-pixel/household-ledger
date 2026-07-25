@@ -1,4 +1,4 @@
-# Household Ledger · v1.54.0
+# Household Ledger · v1.55.0
 
 Aplicativo mobile-first de controle financeiro doméstico. Registra
 transações da casa (despesas e receitas) por categoria e conta, com
@@ -31,7 +31,28 @@ O `feature-auditor` deve conferir, como parte da checklist de auditoria, que
 o diff inclui o bump nos dois arquivos antes de aprovar — se faltar, isso é
 motivo de reprovação (devolver ao coder), não um detalhe opcional.
 
-Versão atual: **v1.54.0** — **remove: tab "SimpleFin" (preview)**
+Versão atual: **v1.55.0** — **feat: login via Google OAuth (Google Identity
+Services), substitui a senha de app compartilhada** (`lib/auth.js`,
+`api/auth-google.js` novo, `src/App.jsx`, `index.html`). Allowlist fixa de 2
+emails (`pnetto@gmail.com`, `belasp@hotmail.com`, via env `ALLOWED_EMAILS`).
+O client carrega o script `accounts.google.com/gsi/client` (tag, sem
+dependência nova) e troca o ID token do Google por uma sessão própria do
+servidor (token opaco de 32 bytes, guardado em Redis
+`household:session:<token>`, TTL 30 dias, enviado depois via header
+`x-session-token` em vez de `x-app-password`). Isso evita repetir o bug da
+v1.30.0 (ID token do Google expira em ~1h e o app fica aberto por horas —
+saves falhavam silenciosamente); agora o ID token só é usado uma vez, no
+login. `storageKey` continua fixo e compartilhado entre os dois emails —
+derivado da mesma seed de antes (`APP_PASSWORD`/`HOUSEHOLD_ID`), só que não é
+mais usado para autenticar, apenas para nomear a chave no Redis — nenhuma
+migração de dado foi necessária. Envs novas: `GOOGLE_CLIENT_ID` (server,
+valida `aud` do token contra o tokeninfo do Google),
+`VITE_GOOGLE_CLIENT_ID` (client, id do botão), `ALLOWED_EMAILS` (opcional,
+default já cobre os 2 emails). `APP_PASSWORD` não é mais checado como
+credencial (pode continuar setado no Vercel — só é lido, se presente, para
+reproduzir a mesma `storageKey` de antes).
+
+Versão anterior: **v1.54.0** — **remove: tab "SimpleFin" (preview)**
 (`src/App.jsx`). Removidos `TABS` entry `preview`, o branch de render que
 montava `SimpleFinPreview`, e os componentes `SimpleFinPreview`,
 `SimpleFinHoldingsSection`, `SF_RAW_COLUMN_ORDER`, `useSfRawTable` e
