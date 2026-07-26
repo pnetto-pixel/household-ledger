@@ -2213,10 +2213,11 @@ escapar da exclusão de totais (invariante de `Transfer` quebrada). Sem
 usa a `category` que já vinha do arquivo.
 
 A seção **Category mapping**, na tab **Settings** (antiga Audit; desde a
-v1.17.0/PR #128 movida para o final da tab, com menos destaque), edita esse
-mapa por token (dropdown das categorias correntes + `Transfer` + `Other
-Income`) — sem preview de impacto e sem cascata retroativa: a mudança só
-afeta **novos imports** a partir de então (decisão confirmada com o
+v1.17.0/PR #128 movida para o final da tab, com menos destaque; **desde a
+v1.63.0/PR #248** fundida com "Account aliases" num único card, ver UI),
+edita esse mapa por token (dropdown das categorias correntes + `Transfer` +
+`Other Income`) — sem preview de impacto e sem cascata retroativa: a mudança
+só afeta **novos imports** a partir de então (decisão confirmada com o
 usuário; ver UI e Roadmap Fase 5).
 
 ### Regras de categoria por descrição/provider (PR #117, v1.14.0 — unificada
@@ -2289,9 +2290,12 @@ antigo, onde rodava por último com prioridade máxima), salva via `PUT
 /api/category-description-rules` e esvazia a config legada (marcador de "já
 migrado" — rodar de novo não duplica).
 
-A seção **Description rules**, na tab **Settings**, permite add / edição
-inline / delete com confirmação em 2 cliques / reordenar (↑/↓, já que a
-ordem é semântica); o select de categoria de destino não lista `Transfer`;
+A seção **Description rules**, na tab **Settings** (posição 2, logo após
+"Suggested rules" desde a v1.63.0/PR #248; **desde a v1.63.0** também em
+formato de tabela compacta, mesmo padrão de `TxnTable`, em vez de cards
+empilhados), permite add / edição inline / delete com confirmação em 2
+cliques / reordenar (↑/↓, já que a ordem é semântica); o select de
+categoria de destino não lista `Transfer`;
 um aviso explica a precedência sobre o mapa CK (exceto Transfer). **Desde o
 PR #135**, cada regra tem também um checkbox **"Allow removing from
 Transfer"** (`allowTransferOverride`, default desmarcado) que, quando
@@ -3205,30 +3209,45 @@ shell de altura cheia (`#root` em `100lvh` + shell `height:100%`): só o
    modelo de transação — reorganização de composição de UI React.
    `src/App.jsx` foi o único arquivo alterado.
 
-   **Ordem das seções dentro de Settings** (de cima para baixo):
+   **Ordem das seções dentro de Settings** (de cima para baixo, **desde a
+   v1.63.0/PR #248**):
    1. **Suggested rules** (topo)
-   2. **Account aliases**
-   3. **SimpleFin accounts** — tabela única (`SimplefinAccountsSection`,
+   2. **Description rules** — subiu para a posição 2 (logo após "Suggested
+      rules"; antes ficava mais abaixo, posição 5 na ordem anterior); desde
+      a v1.63.0 também virou tabela compacta (mesmo padrão de `TxnTable`)
+      em vez de cards empilhados.
+   3. **Account aliases & Category mapping** — card único fundido na
+      v1.63.0/PR #248: `AccountAliasesSection` + `CkCategoryMapSection` num
+      mesmo card com divisor interno (antes eram dois cards separados, e
+      "Category mapping" ficava no final da tab). Os `id`s internos
+      `account-aliases-section`/`category-mapping-section` foram
+      preservados (usados pelo scroll dos botões de sugestão em "Suggested
+      rules").
+   4. **SimpleFin accounts** — tabela única (`SimplefinAccountsSection`,
       desde a v1.59.0/PR #240 — ver detalhe abaixo); até a v1.58.0 eram três
       seções separadas nesta posição: **Card mapping** (`AccountMapSection`,
       migrado do antigo `SettingsModal`), **Ignored SimpleFin accounts**
-      (v1.57.0) e **Account types** (v1.58.0)
-   4. **Accounts & Categories** — card único com **Accounts**, **Expense
+      (v1.57.0) e **Account types** (v1.58.0). **Desde a v1.63.0**, uma
+      coluna "source" (SimpleFin vs Credit Karma) foi cogitada nesta tabela
+      mas **cancelada** — hoje esse dado só existe por transação
+      (`sourceId`/feed de origem), não por conta; ver item de roadmap
+      pendente.
+   5. **Budgets** (`BudgetsSection`)
+   6. **Accounts & Categories** — card único com **Accounts**, **Expense
       categories** e **Income categories** empilhadas, cada uma separada por
       um divisor (desde a v1.18.0/PR #132; antes eram dois cards distintos —
       um "Accounts" e um "Categories" com Expense+Income, este último criado
       no PR #131/v1.17.1; e antes disso, três `ManagedList` cards colapsáveis
       separados, migrados do antigo `SettingsModal`)
-   5. **Description rules** — desde o PR #135 (v1.20.0), absorveu a antiga
-      seção dedicada **"Apple Daily Cash rule"** (removida por completo — ver
-      abaixo)
-   6. **Category mapping** — **movida para o final da tab** (antes vinha logo
-      após "Account aliases"), com menos destaque/prioridade visual; continua
-      colapsável e **fechada por padrão**.
-   7. **Data & Backup** (desde a v1.20.3, PR #140; restore desde a v1.20.4) —
-      novo card no final da tab, com dois botões: **"Backup transactions"**
-      baixa localmente um JSON `household-transactions-backup-YYYY-MM-DD.json`
-      com `{ transactions: [...], exportedAt }`, export puro do array de
+   7. **Data Management** — card único fundido na v1.63.0/PR #248:
+      **"Daily snapshots"** (`SnapshotsSection`) + **"Data & Backup"**
+      (`DataBackupSection`) num mesmo card com divisor interno (antes eram
+      dois cards separados no final da tab). "Daily snapshots" (desde a
+      v1.43.0, PR #199) lista e restaura snapshots via `api/snapshots.js`;
+      "Backup transactions" (desde a v1.20.3, PR #140; restore desde a
+      v1.20.4) baixa localmente um JSON
+      `household-transactions-backup-YYYY-MM-DD.json` com
+      `{ transactions: [...], exportedAt }`, export puro do array de
       transactions já em memória (mesmo dado de `GET /api/transactions`),
       100% client-side, feedback "Downloaded N transactions." por ~2s;
       **"Restore from backup"** abre um seletor de arquivo, lê o JSON
@@ -4675,6 +4694,19 @@ riscos reais de perda de dados.
     PR #51. Ver também item de UI abaixo (filtros de header no import).
   - [ ] UI de configuração de credencial SimpleFin na Settings — ainda
     hardcoded via env var `SIMPLEFIN_ACCESS_URL` (single-tenant).
+  - [ ] **Coluna "source" (SimpleFin vs Credit Karma) na tabela
+    `SimplefinAccountsSection`** — cogitada e cancelada na v1.63.0/PR #248:
+    hoje esse dado só existe por transação (feed/`sourceId`), não por conta;
+    exigiria inferir a partir das transações da conta ou introduzir um campo
+    novo no modelo de conta.
+- [x] **Reorganização da tab Settings** (v1.63.0, PR #248) —
+  `SimplefinAccountsSection` e `DescriptionRulesSection` convertidas de
+  cards empilhados para tabela compacta (padrão `TxnTable`); "Daily
+  snapshots" + "Data & Backup" fundidos em "Data Management"; "Account
+  aliases" + "Category mapping" fundidos num único card; "Description
+  rules" subiu para a posição 2 (logo após "Suggested rules"). Ver seção
+  UI (item 5. Settings) para a nova ordem completa. Nenhuma mudança de
+  contrato de API/Redis ou de modelo de transação.
   - [ ] **Follow-ups da v1.56.0** (não bloqueantes, achados na auditoria):
     o piso da penalidade de descrição deixa um par de mesmo valor/conta/dia
     sem token em comum pontuando 65 → ruído no bucket "Review"; e confirmar
