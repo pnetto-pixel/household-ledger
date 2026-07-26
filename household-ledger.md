@@ -1,4 +1,4 @@
-# Household Ledger · v1.56.3
+# Household Ledger · v1.56.4
 
 Aplicativo mobile-first de controle financeiro doméstico. Registra
 transações da casa (despesas e receitas) por categoria e conta, com
@@ -31,7 +31,35 @@ O `feature-auditor` deve conferir, como parte da checklist de auditoria, que
 o diff inclui o bump nos dois arquivos antes de aprovar — se faltar, isso é
 motivo de reprovação (devolver ao coder), não um detalhe opcional.
 
-Versão atual: **v1.56.3** — **fix: linha do SimpleFin sem data travava TODO
+Versão atual: **v1.56.4** — **fix: save que falha por motivo transitório
+nunca era re-tentado, e a razão sumia num toast de 5s** (`src/App.jsx`).
+
+Contexto: a v1.56.3 atacou uma causa possível do "unsaved…" permanente (linha
+sem data → 400). Não era essa — `repairUnsavableRows` rodou e não achou nada
+para consertar, e o erro persistiu. O problema real é do **mecanismo de
+recuperação**, não de um dado específico:
+
+- **Nada re-tentava um save falho.** Os únicos gatilhos eram reconectar
+  (`online`), fechar o app (`pagehide`/`visibilitychange`) ou fazer outra
+  edição (`scheduleSave`). Um 5xx, timeout ou queda de rede deixava
+  `dirty: true` e mais nada acontecia — a mudança voltava para o espelho
+  pendente, o boot seguinte restaurava, o save falhava de novo, e o ciclo se
+  repetia indefinidamente. Agora há **retry automático com backoff**
+  (2s → 5s → 15s → 30s), cancelado no sucesso e rearmado a cada edição nova.
+  **4xx é excluído de propósito**: o payload é que está errado, re-enviar os
+  mesmos bytes falha igual.
+- **A razão da falha era descartada.** Só um `setSaveError` transitório de 5s,
+  e o header mostrava "● unsaved…" sem explicação — foi exatamente por isso
+  que o bug precisou de várias rodadas para ser diagnosticado. Agora a falha
+  vai para o banner persistente, com diagnóstico no mesmo padrão da mensagem
+  de conflito 409: versão, contagem de linhas, tamanho do payload e a
+  tentativa atual (ex.: `[v1.56.4 · 2.481 rows · 892 KB · attempt 2/4]`).
+- **Timeout do cliente era menor que o do servidor.** O PUT abortava em 25s,
+  mas `api/transactions.js` tem `maxDuration: 30` no `vercel.json` — um save
+  lento porém bem-sucedido virava "falha" no cliente enquanto o servidor
+  seguia escrevendo. Subiu para 35s, acima do teto do servidor.
+
+Versão anterior: **v1.56.3** — **fix: linha do SimpleFin sem data travava TODO
 save do ledger; SimpleFin vira o método padrão do Import**
 (`lib/simplefin.js`, `src/ledger.js`, `src/App.jsx`).
 

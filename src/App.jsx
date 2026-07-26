@@ -586,9 +586,12 @@ function idleExpired() {
 // path, so the pending copy is discarded with a notice instead).
 
 // Single source for the version shown in the header and in diagnostics.
-const APP_VERSION = "v1.56.3";
+const APP_VERSION = "v1.56.4";
 
 const PENDING_SAVE_KEY = "household_pending_save";
+
+// Backoff schedule for retrying a transiently-failed save.
+const SAVE_RETRY_DELAYS = [2000, 5000, 15000, 30000];
 
 // Per-page-load id sent with every PUT so the server can tell "this same
 // page instance wrote last" from "another device wrote". Deliberately NOT
@@ -890,6 +893,21 @@ export default function App() {
   // pre-first `expectedSavedAt` and 409 against our own write.
   const saveInFlightRef = useRef(false);
   const queuedSaveRef = useRef(null); // { next, keepalive } | null
+  // Automatic retry for a save that failed for a TRANSIENT reason (5xx,
+  // network drop, timeout). Without this the only things that ever retried
+  // were reconnecting, closing the app, or making another edit — so one
+  // transient failure left the ledger dirty forever: the change went back to
+  // the pending mirror, the next boot restored it, the save failed again, and
+  // the reason vanished with the 5s toast. "unsaved…" with no explanation and
+  // no way out. 4xx is excluded on purpose: the payload itself is the
+  // problem, so retrying it just fails identically.
+  const saveRetryRef = useRef({ attempts: 0, timer: null });
+  const cancelSaveRetry = useCallback(() => {
+    if (saveRetryRef.current.timer) clearTimeout(saveRetryRef.current.timer);
+    saveRetryRef.current = { attempts: 0, timer: null };
+  }, []);
+  // Row count + payload size of the PUT being attempted, for the failure message.
+  const lastSaveShapeRef = useRef("");
 
   const save = useCallback(async function saveSerialized(next, { keepalive = false } = {}) {
     if (!navigator.onLine) {
@@ -909,6 +927,10 @@ export default function App() {
         expectedSavedAt: savedAtRef.current,
         clientId: CLIENT_ID,
       });
+      // Field diagnostics for a failed save — same idea as the 409 conflict
+      // message: a recurring failure should describe itself well enough to
+      // act on from a screenshot, instead of just saying "Save failed".
+      lastSaveShapeRef.current = `${APP_VERSION} · ${next.length} rows · ${Math.round(body.length / 1024)} KB`;
       const res = await fetch("/api/transactions", {
         method: "PUT",
         headers: buildAuthHeaders(),
@@ -921,7 +943,10 @@ export default function App() {
         // saveInFlightRef forever and wedge every future save. If the PUT
         // actually landed and only the response was lost, the retry's stale
         // expectedSavedAt is forgiven server-side (same clientId).
-        signal: AbortSignal.timeout?.(25000),
+        // Must exceed api/transactions.js's maxDuration (30s in vercel.json):
+        // aborting at 25s turned a slow-but-successful write into a client
+        // "failure" while the server kept going.
+        signal: AbortSignal.timeout?.(35000),
       });
       if (res.status === 401 || res.status === 403) {
         // Wrong/rotated password — re-authenticating is the only fix. A
@@ -977,6 +1002,7 @@ export default function App() {
       savedAtRef.current = at;
       setSavedAt(at);
       clearPendingSave();
+      cancelSaveRetry();
       setSaveError(null);
       setError("");
     } catch (err) {
@@ -985,11 +1011,35 @@ export default function App() {
       // Without this, a failed save (500, network drop with navigator.onLine
       // still true) left dirty=false and the change was silently lost.
       setDirty(true);
-      setSaveError(err.message || "Save failed");
+      const detail = err.message || "Save failed";
+      const shape = lastSaveShapeRef.current;
+      setSaveError(detail);
       if (err.permanent) {
-        setError(`The server rejected this ledger, so nothing can be saved until it's fixed: ${err.message}`);
+        // The payload is the problem — retrying sends the same bytes and
+        // fails identically, so stop and say so permanently.
+        cancelSaveRetry();
+        setError(`The server rejected this ledger, so nothing can be saved until it's fixed: ${detail} [${shape}]`);
       } else {
-        setTimeout(() => setSaveError(null), 5000);
+        const attempt = saveRetryRef.current.attempts + 1;
+        if (attempt <= SAVE_RETRY_DELAYS.length) {
+          const delay = SAVE_RETRY_DELAYS[attempt - 1];
+          saveRetryRef.current.attempts = attempt;
+          setError(
+            `Save failed (${detail}) — retrying in ${Math.round(delay / 1000)}s… [attempt ${attempt}/${SAVE_RETRY_DELAYS.length} · ${shape}]`
+          );
+          saveRetryRef.current.timer = setTimeout(() => {
+            saveRetryRef.current.timer = null;
+            saveSerialized(transactionsRef.current);
+          }, delay);
+        } else {
+          // Out of retries: leave it on screen. The ledger stays dirty and the
+          // pending mirror keeps the work, but the user needs to know that
+          // nothing is being written and what to report.
+          cancelSaveRetry();
+          setError(
+            `Save keeps failing after ${SAVE_RETRY_DELAYS.length} retries: ${detail}. Your changes are kept locally and will be retried when you reopen the app or reconnect. [${shape}]`
+          );
+        }
       }
     } finally {
       saveInFlightRef.current = false;
@@ -1000,19 +1050,20 @@ export default function App() {
         saveSerialized(queued.next, { keepalive: queued.keepalive });
       }
     }
-  }, [load, tryMergeSave]);
+  }, [load, tryMergeSave, cancelSaveRetry]);
 
   const scheduleSave = useCallback(
     (next) => {
       setDirty(true);
       setSaveError(null);
+      cancelSaveRetry();
       // Mirror the pending array to localStorage so it survives closing the
       // app before the save lands (offline, crash, failed PUT).
       writePendingSave(next, savedAtRef.current);
       if (debounceRef.current) clearTimeout(debounceRef.current);
       debounceRef.current = setTimeout(() => save(next), 800);
     },
-    [save]
+    [save, cancelSaveRetry]
   );
 
   // Re-schedule the save of transactions restored from the pending mirror —
