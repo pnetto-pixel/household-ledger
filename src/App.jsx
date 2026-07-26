@@ -697,7 +697,7 @@ function idleExpired() {
 // path, so the pending copy is discarded with a notice instead).
 
 // Single source for the version shown in the header and in diagnostics.
-const APP_VERSION = "v1.62.0";
+const APP_VERSION = "v1.63.0";
 
 const PENDING_SAVE_KEY = "household_pending_save";
 
@@ -6279,45 +6279,51 @@ function SimplefinAccountRow({ acc, mappedAccount, type, exactIgnored, legacyPat
     : (exactIgnored ? "Unignore" : isLegacyIgnored ? "Unignore (legacy rule)" : "Ignore");
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 8, padding: "10px 10px", borderRadius: 10, background: "#161a20" }}>
-      <div style={{ fontSize: 13, color: "#e5e7eb", overflowWrap: "anywhere", lineHeight: 1.35, display: "flex", alignItems: "center", flexWrap: "wrap", gap: 6 }}>
-        <span style={{ width: 8, height: 8, borderRadius: "50%", display: "inline-block", background: ignored ? "#8b94a3" : (mappedAccount ? "#34d399" : "#fbbf24"), flexShrink: 0 }} />
-        <span>{label} {acc.last4 ? <span style={{ color: "#8b94a3" }}>· ••{acc.last4}</span> : null}</span>
-        {isLegacyIgnored ? (
-          <span style={{ fontSize: 10, color: "#fbbf24", background: "rgba(251,191,36,0.12)", border: "1px solid rgba(251,191,36,0.3)", borderRadius: 999, padding: "1px 7px" }}>
-            Ignored (legacy rule)
-          </span>
+    <tr>
+      <td style={S.td}>
+        <div style={{ fontSize: 13, color: "#e5e7eb", overflowWrap: "anywhere", lineHeight: 1.35, display: "flex", alignItems: "center", flexWrap: "wrap", gap: 6 }}>
+          <span style={{ width: 8, height: 8, borderRadius: "50%", display: "inline-block", background: ignored ? "#8b94a3" : (mappedAccount ? "#34d399" : "#fbbf24"), flexShrink: 0 }} />
+          <span>{label} {acc.last4 ? <span style={{ color: "#8b94a3" }}>· ••{acc.last4}</span> : null}</span>
+          {isLegacyIgnored ? (
+            <span style={{ fontSize: 10, color: "#fbbf24", background: "rgba(251,191,36,0.12)", border: "1px solid rgba(251,191,36,0.3)", borderRadius: 999, padding: "1px 7px" }}>
+              Ignored (legacy rule)
+            </span>
+          ) : null}
+        </div>
+        {confirming && legacyConfirmText ? (
+          <div style={{ fontSize: 11, color: "#fbbf24", lineHeight: 1.4, marginTop: 4 }}>{legacyConfirmText}</div>
         ) : null}
-      </div>
-      <div style={{ fontSize: 11, color: "#8b94a3" }}>
-        {acc.count ? `${acc.count} txn${acc.count === 1 ? "" : "s"} imported` : "No imported transactions yet"}
-        {acc.balance != null ? ` · balance ${money(acc.balance)}` : ""}
-      </div>
-      {confirming && legacyConfirmText ? (
-        <div style={{ fontSize: 11, color: "#fbbf24", lineHeight: 1.4 }}>{legacyConfirmText}</div>
-      ) : null}
-      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+      </td>
+      <td style={S.td}>
         <select
           value={mappedAccount}
           disabled={ignored}
           onChange={(e) => onSetMapping(acc.accountUrn, e.target.value)}
-          style={{ ...S.cellSelect, flex: "1 1 140px", maxWidth: "none", opacity: ignored ? 0.5 : 1 }}
+          style={{ ...S.cellSelect, opacity: ignored ? 0.5 : 1 }}
         >
           <option value="">— Unassigned —</option>
           {ACCOUNTS.map((a) => (
             <option key={a}>{a}</option>
           ))}
         </select>
+      </td>
+      <td style={S.td}>
         <select
           value={sfDisplayType(type)}
           disabled={ignored}
           onChange={(e) => onSetType(acc.accountUrn, e.target.value)}
-          style={{ ...S.select, flex: "1 1 130px", opacity: ignored ? 0.5 : 1 }}
+          style={{ ...S.cellSelect, opacity: ignored ? 0.5 : 1 }}
         >
           {SF_ACCOUNT_TYPE_OPTIONS.map((o) => (
             <option key={o.value} value={o.value}>{o.label}</option>
           ))}
         </select>
+      </td>
+      <td style={{ ...S.td, fontSize: 11, color: "#8b94a3", whiteSpace: "nowrap" }}>
+        {acc.count ? `${acc.count} txn${acc.count === 1 ? "" : "s"}` : "No txns"}
+        {acc.balance != null ? ` · ${money(acc.balance)}` : ""}
+      </td>
+      <td style={{ ...S.td, textAlign: "right", whiteSpace: "nowrap" }}>
         <button
           type="button"
           onClick={handleToggle}
@@ -6325,17 +6331,16 @@ function SimplefinAccountRow({ acc, mappedAccount, type, exactIgnored, legacyPat
           style={{
             ...S.secondaryBtn,
             width: "auto",
-            flex: "0 0 auto",
-            padding: "8px 14px",
-            fontSize: 13,
+            padding: "6px 10px",
+            fontSize: 12,
             color: exactIgnored ? "#93c5fd" : (confirming ? "#f87171" : "#cbd5e1"),
             borderColor: exactIgnored ? "rgba(96,165,250,0.4)" : (confirming ? "rgba(248,113,113,0.5)" : undefined),
           }}
         >
           {buttonLabel}
         </button>
-      </div>
-    </div>
+      </td>
+    </tr>
   );
 }
 
@@ -6428,25 +6433,38 @@ function SimplefinAccountsSection({ sfBalances, transactions, accountMap, config
       ) : enriched.length === 0 ? (
         <Empty>No SimpleFin accounts synced yet — visit Home or Import to sync first.</Empty>
       ) : (
-        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-          {enriched.map((acc) => {
-            const exactIgnored = ignoredPatterns.includes(acc.accountUrn);
-            return (
-              <SimplefinAccountRow
-                key={acc.accountUrn}
-                acc={acc}
-                mappedAccount={accountMap[acc.accountUrn] || ""}
-                type={typeOverrides[acc.accountUrn] || ""}
-                exactIgnored={exactIgnored}
-                legacyPatterns={legacyPatternsByUrn.get(acc.accountUrn) || []}
-                money={money}
-                onSetMapping={onSetMapping}
-                onSetType={onSetType}
-                onSetIgnored={onSetIgnored}
-                onRemoveLegacyPatterns={onRemoveLegacyPatterns}
-              />
-            );
-          })}
+        <div style={{ ...S.card, padding: 0, overflow: "auto" }}>
+          <table style={S.table}>
+            <thead>
+              <tr>
+                <th style={S.th}>Name</th>
+                <th style={S.th}>Mapped account</th>
+                <th style={S.th}>Type</th>
+                <th style={S.th}>Txns/Balance</th>
+                <th style={{ ...S.th, textAlign: "right" }}>Ignore</th>
+              </tr>
+            </thead>
+            <tbody>
+              {enriched.map((acc) => {
+                const exactIgnored = ignoredPatterns.includes(acc.accountUrn);
+                return (
+                  <SimplefinAccountRow
+                    key={acc.accountUrn}
+                    acc={acc}
+                    mappedAccount={accountMap[acc.accountUrn] || ""}
+                    type={typeOverrides[acc.accountUrn] || ""}
+                    exactIgnored={exactIgnored}
+                    legacyPatterns={legacyPatternsByUrn.get(acc.accountUrn) || []}
+                    money={money}
+                    onSetMapping={onSetMapping}
+                    onSetType={onSetType}
+                    onSetIgnored={onSetIgnored}
+                    onRemoveLegacyPatterns={onRemoveLegacyPatterns}
+                  />
+                );
+              })}
+            </tbody>
+          </table>
         </div>
       )}
     </CollapsibleCard>
@@ -6587,12 +6605,11 @@ function AccountAliasesSection({ transactions, accountMap, aliases, onSave, pref
   };
 
   return (
-    <CollapsibleCard
-      id="account-aliases-section"
-      title="Account aliases"
-      badge={ACCOUNTS.length}
-      openSignal={prefillFragment && prefillFragment.nonce}
-    >
+    <div id="account-aliases-section">
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+        <span style={{ ...S.sectionTitle, margin: 0, fontSize: 13, fontWeight: 600 }}>Account aliases</span>
+        <span style={{ fontSize: 11, color: "#8b94a3" }}>{ACCOUNTS.length}</span>
+      </div>
       <div style={{ fontSize: 12, color: "#8b94a3", margin: "0 0 10px", lineHeight: 1.5 }}>
         Fragments matched (case/punctuation-insensitive) against the source
         account/card field when a transaction has no card mapping for its URN.
@@ -6660,7 +6677,7 @@ function AccountAliasesSection({ transactions, accountMap, aliases, onSave, pref
           </button>
         ) : null}
       </div>
-    </CollapsibleCard>
+    </div>
   );
 }
 
@@ -7221,7 +7238,11 @@ function SnapshotsSection({ onRestore }) {
   };
 
   return (
-    <CollapsibleCard title="Daily snapshots" badge={snapshots ? snapshots.length : ""}>
+    <div>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+        <span style={{ ...S.sectionTitle, margin: 0, fontSize: 13, fontWeight: 600 }}>Daily snapshots</span>
+        {snapshots && snapshots.length ? <span style={{ fontSize: 11, color: "#8b94a3" }}>{snapshots.length}</span> : null}
+      </div>
       <div style={{ fontSize: 11, color: "#8b94a3", marginBottom: 10 }}>
         Automatic safety copies: the first save of each day stores an
         immutable snapshot (kept for 30 days). Restoring replaces the current
@@ -7256,7 +7277,7 @@ function SnapshotsSection({ onRestore }) {
           ))}
         </div>
       )}
-    </CollapsibleCard>
+    </div>
   );
 }
 
@@ -7397,13 +7418,33 @@ function SettingsTab({
         onReviewToken={handleReviewToken}
         onCreateRule={handleCreateRule}
       />
-      <AccountAliasesSection
+      <DescriptionRulesSection
+        rules={categoryDescriptionRules}
+        onSave={onSaveCategoryDescriptionRules}
+        config={config}
+        prefill={rulePrefill}
         transactions={transactions}
-        accountMap={accountMap}
-        aliases={accountAliases}
-        onSave={onSaveAccountAliases}
-        prefillFragment={aliasPrefill}
       />
+      <CollapsibleCard
+        title="Account aliases & Category mapping"
+        openSignal={(aliasPrefill && aliasPrefill.nonce) || (categoryHighlight && categoryHighlight.nonce)}
+      >
+        <AccountAliasesSection
+          transactions={transactions}
+          accountMap={accountMap}
+          aliases={accountAliases}
+          onSave={onSaveAccountAliases}
+          prefillFragment={aliasPrefill}
+        />
+        <div style={{ borderTop: "1px solid #2a313c", margin: "14px 0" }} />
+        <CkCategoryMapSection
+          transactions={transactions}
+          map={ckCategoryMap}
+          onSave={onSaveCkCategoryMap}
+          config={config}
+          highlightToken={categoryHighlight}
+        />
+      </CollapsibleCard>
       <SimplefinAccountsSection
         sfBalances={sfBalances}
         transactions={transactions}
@@ -7457,22 +7498,11 @@ function SettingsTab({
           onReorder={(names) => onReorderCategories("income", names)}
         />
       </CollapsibleCard>
-      <DescriptionRulesSection
-        rules={categoryDescriptionRules}
-        onSave={onSaveCategoryDescriptionRules}
-        config={config}
-        prefill={rulePrefill}
-        transactions={transactions}
-      />
-      <CkCategoryMapSection
-        transactions={transactions}
-        map={ckCategoryMap}
-        onSave={onSaveCkCategoryMap}
-        config={config}
-        highlightToken={categoryHighlight}
-      />
-      <DataBackupSection transactions={transactions} onRestore={onRestoreTransactions} />
-      <SnapshotsSection onRestore={onRestoreTransactions} />
+      <CollapsibleCard title="Data Management">
+        <DataBackupSection transactions={transactions} onRestore={onRestoreTransactions} />
+        <div style={{ borderTop: "1px solid #2a313c", margin: "14px 0" }} />
+        <SnapshotsSection onRestore={onRestoreTransactions} />
+      </CollapsibleCard>
     </div>
   );
 }
@@ -7543,7 +7573,8 @@ function DataBackupSection({ transactions, onRestore }) {
   };
 
   return (
-    <CollapsibleCard title="Data & Backup">
+    <div>
+      <div style={{ ...S.sectionTitle, margin: "0 0 4px", fontSize: 13, fontWeight: 600 }}>Data & Backup</div>
       <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
         <button type="button" style={S.primaryBtn} onClick={handleBackup}>
           Backup transactions
@@ -7566,7 +7597,7 @@ function DataBackupSection({ transactions, onRestore }) {
           ? `Downloaded ${justDownloaded} transaction${justDownloaded === 1 ? "" : "s"}.`
           : "Backup downloads a local JSON copy of all your transactions. Restore replaces all currently loaded transactions with the contents of a backup file."}
       </div>
-    </CollapsibleCard>
+    </div>
   );
 }
 
@@ -7613,12 +7644,11 @@ function CkCategoryMapSection({ transactions, map, onSave, config, highlightToke
   };
 
   return (
-    <CollapsibleCard
-      id="category-mapping-section"
-      title="Category mapping"
-      badge={tokens.length}
-      openSignal={highlightToken && highlightToken.nonce}
-    >
+    <div id="category-mapping-section">
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+        <span style={{ ...S.sectionTitle, margin: 0, fontSize: 13, fontWeight: 600 }}>Category mapping</span>
+        <span style={{ fontSize: 11, color: "#8b94a3" }}>{tokens.length}</span>
+      </div>
       <div style={{ fontSize: 12, color: "#8b94a3", margin: "0 0 10px", lineHeight: 1.5 }}>
         Where each Credit Karma category token lands in the ledger. Transfer
         and Income (both handled by dedicated rules before this table) are
@@ -7659,7 +7689,7 @@ function CkCategoryMapSection({ transactions, map, onSave, config, highlightToke
       >
         Save mapping
       </button>
-    </CollapsibleCard>
+    </div>
   );
 }
 
@@ -7813,111 +7843,131 @@ function DescriptionRulesSection({ rules, onSave, config, prefill, transactions 
         transactions keep their current category.
       </div>
 
-      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-        {draft.map((r, idx) => (
-          <div
-            key={r.id || idx}
-            style={r.allowTransferOverride ? S.overrideRuleCard : S.descRuleCard}
-          >
-            <input
-              type="text"
-              value={r.pattern}
-              onChange={(e) => updateRule(idx, { pattern: e.target.value })}
-              placeholder="e.g. starbucks"
-              style={S.input}
-            />
-            <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-              <select
-                value={r.matchField}
-                onChange={(e) => updateRule(idx, { matchField: e.target.value })}
-                style={{ ...S.select, flex: 1 }}
-              >
-                <option value="description">Description</option>
-                <option value="provider">Provider</option>
-                <option value="both">Both</option>
-              </select>
-              <select
-                value={r.destinationCategory}
-                onChange={(e) => updateRule(idx, { destinationCategory: e.target.value })}
-                style={{ ...S.select, flex: 1 }}
-              >
-                {destinationOptions.map((c) => (
-                  <option key={c} value={c}>{c}</option>
-                ))}
-              </select>
-            </div>
-            <label style={S.overrideCheckboxRow}>
-              <input
-                type="checkbox"
-                checked={!!r.allowTransferOverride}
-                onChange={(e) => updateRule(idx, {
-                  allowTransferOverride: e.target.checked,
-                  ...(e.target.checked ? {} : { providerPattern: "" }),
-                })}
-              />
-              Allow removing from Transfer
-            </label>
-            {r.allowTransferOverride ? (
-              <>
-                <input
-                  type="text"
-                  value={r.providerPattern || ""}
-                  onChange={(e) => updateRule(idx, { providerPattern: e.target.value })}
-                  placeholder="Provider/account pattern (e.g. Apple Card)"
-                  style={S.input}
-                />
-                <div style={S.overrideNote}>
-                  This rule can move a transaction OUT of Transfer on future imports.
-                </div>
-                {!String(r.providerPattern || "").trim() ? (
-                  <div style={S.overrideError}>
-                    Provider pattern is required when this rule can override Transfer.
-                  </div>
-                ) : null}
-              </>
-            ) : null}
-            <div style={{ display: "flex", gap: 6, alignItems: "center", justifyContent: "flex-end" }}>
-              <button
-                type="button"
-                onClick={() => reorder(idx, -1)}
-                disabled={idx === 0}
-                title="Move up"
-                style={{ ...S.iconBtnSmall, opacity: idx === 0 ? 0.35 : 1, cursor: idx === 0 ? "not-allowed" : "pointer" }}
-              >
-                <ChevronUp size={15} />
-              </button>
-              <button
-                type="button"
-                onClick={() => reorder(idx, 1)}
-                disabled={idx === draft.length - 1}
-                title="Move down"
-                style={{ ...S.iconBtnSmall, opacity: idx === draft.length - 1 ? 0.35 : 1, cursor: idx === draft.length - 1 ? "not-allowed" : "pointer" }}
-              >
-                <ChevronDown size={15} />
-              </button>
-              <button
-                type="button"
-                onClick={() => (confirmDelete === idx ? deleteRule(idx) : setConfirmDelete(idx))}
-                onBlur={() => setConfirmDelete((c) => (c === idx ? null : c))}
-                title="Delete rule"
-                style={{
-                  ...S.iconBtnSmall,
-                  color: "#f87171",
-                  borderColor: confirmDelete === idx ? "#f87171" : "#232a33",
-                  fontSize: 12,
-                  width: confirmDelete === idx ? "auto" : undefined,
-                  padding: confirmDelete === idx ? "0 8px" : undefined,
-                }}
-              >
-                {confirmDelete === idx ? "Confirm?" : <Trash2 size={15} />}
-              </button>
-            </div>
-          </div>
-        ))}
-        {draft.length === 0 ? (
-          <div style={{ fontSize: 12, color: "#636366", padding: "4px 0" }}>No rules yet.</div>
-        ) : null}
-      </div>
+      {draft.length === 0 ? (
+        <div style={{ fontSize: 12, color: "#636366", padding: "4px 0" }}>No rules yet.</div>
+      ) : (
+        <div style={{ ...S.card, padding: 0, overflow: "auto" }}>
+          <table style={S.table}>
+            <thead>
+              <tr>
+                <th style={S.th}>Pattern</th>
+                <th style={S.th}>Match field</th>
+                <th style={S.th}>Destination</th>
+                <th style={S.th}>Allow override</th>
+                <th style={{ ...S.th, textAlign: "right" }}>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {draft.map((r, idx) => (
+                <React.Fragment key={r.id || idx}>
+                  <tr style={r.allowTransferOverride ? { background: "rgba(248,113,113,0.06)" } : undefined}>
+                    <td style={S.td}>
+                      <input
+                        type="text"
+                        value={r.pattern}
+                        onChange={(e) => updateRule(idx, { pattern: e.target.value })}
+                        placeholder="e.g. starbucks"
+                        style={S.input}
+                      />
+                    </td>
+                    <td style={S.td}>
+                      <select
+                        value={r.matchField}
+                        onChange={(e) => updateRule(idx, { matchField: e.target.value })}
+                        style={S.cellSelect}
+                      >
+                        <option value="description">Description</option>
+                        <option value="provider">Provider</option>
+                        <option value="both">Both</option>
+                      </select>
+                    </td>
+                    <td style={S.td}>
+                      <select
+                        value={r.destinationCategory}
+                        onChange={(e) => updateRule(idx, { destinationCategory: e.target.value })}
+                        style={S.cellSelect}
+                      >
+                        {destinationOptions.map((c) => (
+                          <option key={c} value={c}>{c}</option>
+                        ))}
+                      </select>
+                    </td>
+                    <td style={S.td}>
+                      <label style={{ ...S.overrideCheckboxRow, margin: 0 }}>
+                        <input
+                          type="checkbox"
+                          checked={!!r.allowTransferOverride}
+                          onChange={(e) => updateRule(idx, {
+                            allowTransferOverride: e.target.checked,
+                            ...(e.target.checked ? {} : { providerPattern: "" }),
+                          })}
+                        />
+                      </label>
+                    </td>
+                    <td style={{ ...S.td, textAlign: "right", whiteSpace: "nowrap" }}>
+                      <button
+                        type="button"
+                        onClick={() => reorder(idx, -1)}
+                        disabled={idx === 0}
+                        title="Move up"
+                        style={{ ...S.iconBtnSmall, opacity: idx === 0 ? 0.35 : 1, cursor: idx === 0 ? "not-allowed" : "pointer" }}
+                      >
+                        <ChevronUp size={15} />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => reorder(idx, 1)}
+                        disabled={idx === draft.length - 1}
+                        title="Move down"
+                        style={{ ...S.iconBtnSmall, opacity: idx === draft.length - 1 ? 0.35 : 1, cursor: idx === draft.length - 1 ? "not-allowed" : "pointer" }}
+                      >
+                        <ChevronDown size={15} />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => (confirmDelete === idx ? deleteRule(idx) : setConfirmDelete(idx))}
+                        onBlur={() => setConfirmDelete((c) => (c === idx ? null : c))}
+                        title="Delete rule"
+                        style={{
+                          ...S.iconBtnSmall,
+                          color: "#f87171",
+                          borderColor: confirmDelete === idx ? "#f87171" : "#232a33",
+                          fontSize: 12,
+                          width: confirmDelete === idx ? "auto" : undefined,
+                          padding: confirmDelete === idx ? "0 8px" : undefined,
+                        }}
+                      >
+                        {confirmDelete === idx ? "Confirm?" : <Trash2 size={15} />}
+                      </button>
+                    </td>
+                  </tr>
+                  {r.allowTransferOverride ? (
+                    <tr style={{ background: "rgba(248,113,113,0.06)" }}>
+                      <td style={S.td} colSpan={5}>
+                        <input
+                          type="text"
+                          value={r.providerPattern || ""}
+                          onChange={(e) => updateRule(idx, { providerPattern: e.target.value })}
+                          placeholder="Provider/account pattern (e.g. Apple Card)"
+                          style={S.input}
+                        />
+                        <div style={S.overrideNote}>
+                          This rule can move a transaction OUT of Transfer on future imports.
+                        </div>
+                        {!String(r.providerPattern || "").trim() ? (
+                          <div style={S.overrideError}>
+                            Provider pattern is required when this rule can override Transfer.
+                          </div>
+                        ) : null}
+                      </td>
+                    </tr>
+                  ) : null}
+                </React.Fragment>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
 
       {/* Add rule */}
       <div style={{ marginTop: 10, borderTop: "1px solid #1e2530", paddingTop: 10, display: "flex", flexDirection: "column", gap: 6 }}>
