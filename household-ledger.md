@@ -1,4 +1,4 @@
-# Household Ledger · v1.56.1
+# Household Ledger · v1.56.2
 
 Aplicativo mobile-first de controle financeiro doméstico. Registra
 transações da casa (despesas e receitas) por categoria e conta, com
@@ -31,7 +31,38 @@ O `feature-auditor` deve conferir, como parte da checklist de auditoria, que
 o diff inclui o bump nos dois arquivos antes de aprovar — se faltar, isso é
 motivo de reprovação (devolver ao coder), não um detalhe opcional.
 
-Versão atual: **v1.56.1** — **fix: SimpleFin exclui a conta Fidelity do sync
+Versão atual: **v1.56.2** — **fix: linhas de duplicata colapsavam na prévia
+do import, e o resumo mentia depois de "Select all"** (`src/App.jsx`). Dois
+bugs achados no primeiro sync real com a v1.56.x:
+
+- **Linhas viravam traços âmbar.** Na prévia, cada linha `certain`/`uncertain`
+  é envolvida por `S.importDupWrap`, que usa `overflow: "hidden"` para
+  arredondar os cantos do conteúdo interno. Pela spec de flexbox, um item cujo
+  `overflow` não é `visible` tem seu tamanho mínimo automático
+  (`min-height: auto`) trocado por `0` — o que libera o `flex-shrink: 1`
+  padrão a colapsar o item até sobrar só a borda, dentro do container da
+  prévia (`S.list`, flex column, `maxHeight: 300`). Linhas comuns não têm
+  `overflow`, mantêm `min-height: auto` e por isso nunca colapsaram: só as de
+  duplicata quebravam, e quanto mais linhas no bucket, mais fina cada uma.
+  Fix: `flexShrink: 0` em `importDupWrap` (mantendo o `overflow`, que é o que
+  arredonda os cantos).
+- **O resumo afirmava o default, não o estado.** Os segmentos eram
+  `"{N} duplicates auto-unchecked"` e `"{N} to review (kept checked)"` —
+  descrições de como a seleção *nasce*, renderizadas como se fossem fato
+  corrente. Depois de um "Select all" (ou de marcar uma duplicata na mão), o
+  texto seguia dizendo que as duplicatas estavam desmarcadas enquanto o botão
+  importava todas — dava para importar o lote inteiro acreditando que as 123
+  duplicatas tinham ficado de fora. Agora os rótulos são neutros
+  (`"{N} duplicates"`, `"{N} to review"`) e um aviso vermelho
+  `"⚠ {N} duplicates checked for import"` aparece sempre que uma duplicata
+  `certain` estiver marcada (novo memo `dupSelectedCount`). "Select all"
+  continua literal — é ação explícita do usuário —, só deixou de ser
+  silenciosa.
+- Bônus no mesmo diff: o resumo mostrava `"0 parsed · 169 valid"` no método
+  SimpleFin, onde não existe arquivo e `rawRows` é sempre vazio. O segmento
+  "parsed" agora é omitido nesse método.
+
+Versão anterior: **v1.56.1** — **fix: SimpleFin exclui a conta Fidelity do sync
 e prioriza `memo` na descrição da Amazon** (`lib/simplefin.js`). Duas regras
 específicas de instituição, aplicadas em `fetchSimplefinTransactions`/
 `mapTransaction` (compartilhado pelo "Sync now" e pelo cron):
