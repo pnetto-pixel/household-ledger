@@ -1,4 +1,4 @@
-# Household Ledger · v1.61.1
+# Household Ledger · v1.62.0
 
 Aplicativo mobile-first de controle financeiro doméstico. Registra
 transações da casa (despesas e receitas) por categoria e conta, com
@@ -31,7 +31,17 @@ O `feature-auditor` deve conferir, como parte da checklist de auditoria, que
 o diff inclui o bump nos dois arquivos antes de aprovar — se faltar, isso é
 motivo de reprovação (devolver ao coder), não um detalhe opcional.
 
-Versão atual: **v1.61.1** (PR #245, SHA
+Versão atual: **v1.62.0** — corrige `markDuplicates` (`src/ledger.js`) para
+não vetar automaticamente candidatas a duplicata quando ambos os lados vêm
+do SimpleFin ("sf") com `sourceId` diferentes (cartões podem reemitir o id
+na transição pending → posted; o veto de PR #51 agora só se aplica a pares
+do mesmo feed legado/"ck"). Também adiciona filtros de coluna (conta,
+categoria, data) nos headers da tabela de import (desktop), reaproveitando
+`HeaderFilter`/`DateHeaderFilter`, e ordena a preview de import por data
+decrescente com tie-break estável — a tab Transactions ganhou o mesmo
+tie-break estável por índice original (`src/App.jsx`).
+
+Anterior: **v1.61.1** (PR #245, SHA
 cdf7d4e84f56a81d7c121d44fdee7a24cc723ec1) — **"Account aliases" em Settings
 vira lista compacta** (linhas colapsadas por conta, expande ao clicar para
 editar fragments; sugestão de "Suggested rules" expande todas as linhas)
