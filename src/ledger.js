@@ -546,6 +546,10 @@ export function scoreDuplicateCandidate(a, b) {
 //   _dupScore   number | null (100 for id/fingerprint matches)
 //   _dupReasons string[] — short PT explanations for the preview
 //   _dupMatch   { id, date, description, account, amount, existing } | null
+//   _dupNearMiss { ...same shape as _dupMatch, dayDiff, score } | null — only
+//               set on a row that stayed "new": the closest same-amount
+//               existing row, kept for diagnostics even though it didn't
+//               score high enough (or was >5 days apart) to count as a match.
 //
 // Matching order per row:
 //   1. shared source id with any unconsumed known row → certain. Id overlap is
@@ -594,6 +598,7 @@ export function markDuplicates(rows, existing) {
     let score = null;
     let reasons = [];
     let match = null;
+    let nearMiss = null;
 
     let idHit = null;
     for (const id of sourceIdsOf(r)) {
@@ -640,10 +645,18 @@ export function markDuplicates(rows, existing) {
       } else {
         let best = null;
         let bestEntry = null;
+        // Closest same-amount candidate by day gap, kept even when it's
+        // disqualified (score < DUP_SCORE_REVIEW, or scoreDuplicateCandidate
+        // returned null for being >5 days apart). Without this, a row that
+        // stays "new" gives no clue WHY the near-identical existing row
+        // didn't match — surfaced to the UI as _dupNearMiss so the gap (date,
+        // account, or description) is visible instead of guessed at.
+        let closest = null;
         for (const e of candidates) {
           const s = scoreDuplicateCandidate(r, e.t);
-          if (!s) continue;
-          if (!best || s.score > best.score) { best = s; bestEntry = e; }
+          if (s && (!best || s.score > best.score)) { best = s; bestEntry = e; }
+          const dayDiff = Math.abs(dateToDayInt(r.date) - dateToDayInt(e.t.date));
+          if (!closest || dayDiff < closest.dayDiff) closest = { entry: e, dayDiff, score: s ? s.score : null };
         }
         if (best && best.score >= DUP_SCORE_REVIEW) {
           bestEntry.consumed = true;
@@ -651,6 +664,8 @@ export function markDuplicates(rows, existing) {
           score = best.score;
           reasons = best.reasons;
           match = summarize(bestEntry);
+        } else if (closest) {
+          nearMiss = { ...summarize(closest.entry), dayDiff: closest.dayDiff, score: closest.score };
         }
       }
     }
@@ -663,6 +678,7 @@ export function markDuplicates(rows, existing) {
       _dupScore: score,
       _dupReasons: reasons,
       _dupMatch: match,
+      _dupNearMiss: nearMiss,
     };
   });
 }
