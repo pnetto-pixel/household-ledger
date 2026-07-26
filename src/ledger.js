@@ -288,6 +288,48 @@ export function matchAccountWithAliases(rawValue, aliasesArray, accounts) {
 
 // Content fingerprint for de-duplication: day + signed cents + normalized
 // description + account. Used when a source transaction id isn't available.
+// ---------------------------------------------------------------------------
+// Save-blocking row repair
+// ---------------------------------------------------------------------------
+
+// The server validates EVERY row on PUT /api/transactions and rejects the
+// whole ledger with a 400 if one is malformed (`findInvalidRow`). That makes a
+// single bad row permanently fatal: the save fails, the change goes back into
+// the local pending mirror, the next load restores it, and it fails again —
+// the ledger can never be saved until the row is fixed. Nothing on the server
+// can carry a bad row (it would have been rejected on the way in), so the only
+// place one can appear is a client-side import or the pending mirror.
+//
+// Repairing beats blocking: a row with no usable date still holds a real
+// amount/description the user wants, and `buildRow` has always applied the
+// same today-fallback on the CSV path.
+const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+export function repairUnsavableRows(transactions, fallbackDate) {
+  const rows = Array.isArray(transactions) ? transactions : [];
+  const fallback = ISO_DATE_RE.test(String(fallbackDate || ""))
+    ? fallbackDate
+    : new Date().toISOString().slice(0, 10);
+  let repaired = 0;
+  const out = rows.map((t) => {
+    if (!t || typeof t !== "object") return t;
+    const badDate = typeof t.date !== "string" || !ISO_DATE_RE.test(t.date);
+    const amount = Number(t.amount);
+    const badAmount = typeof t.amount !== "number" || !Number.isFinite(t.amount);
+    if (!badDate && !badAmount) return t;
+    repaired++;
+    return {
+      ...t,
+      ...(badDate ? { date: fallback } : null),
+      ...(badAmount ? { amount: Number.isFinite(amount) ? amount : 0 } : null),
+    };
+  });
+  // Rows that aren't objects at all can't be repaired into anything
+  // meaningful — drop them rather than let them wedge the ledger forever.
+  const cleaned = out.filter((t) => t && typeof t === "object");
+  return { transactions: cleaned, repaired: repaired + (out.length - cleaned.length) };
+}
+
 export function txnFingerprint(t) {
   const amt = Math.round((Number(t.amount) || 0) * 100);
   const desc = String(t.description || "").toLowerCase().replace(/\s+/g, " ").trim();

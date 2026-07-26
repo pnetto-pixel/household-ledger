@@ -78,6 +78,7 @@ import {
   markDuplicates,
   descWords,
   mergeTransactions,
+  repairUnsavableRows,
 } from "./ledger.js";
 
 // ---------------------------------------------------------------------------
@@ -585,7 +586,7 @@ function idleExpired() {
 // path, so the pending copy is discarded with a notice instead).
 
 // Single source for the version shown in the header and in diagnostics.
-const APP_VERSION = "v1.56.2";
+const APP_VERSION = "v1.56.3";
 
 const PENDING_SAVE_KEY = "household_pending_save";
 
@@ -767,9 +768,20 @@ export default function App() {
       // failed save), but only if the server hasn't moved since it was based.
       const pending = readPendingSave();
       if (pending && (pending.baseSavedAt || null) === serverSavedAt) {
-        setTransactions(pending.transactions);
-        pendingRestoreRef.current = pending.transactions;
-        setError("Unsaved changes from your previous session were restored and will be saved.");
+        // Repair rows the server would reject before re-queueing the save.
+        // Without this a single malformed row (e.g. a synced transaction that
+        // arrived with no date) is terminal: the PUT 400s on the whole
+        // ledger, the change lands back in the pending mirror, and the next
+        // load restores and re-fails it — "unsaved…" forever, with every
+        // later edit stuck behind it too.
+        const { transactions: fixed, repaired } = repairUnsavableRows(pending.transactions, todayISO());
+        setTransactions(fixed);
+        pendingRestoreRef.current = fixed;
+        setError(
+          repaired > 0
+            ? `Unsaved changes from your previous session were restored and will be saved. ${repaired} row(s) had a missing/invalid date or amount that the server rejects — those were repaired so the ledger can save again; check them in the Transactions tab.`
+            : "Unsaved changes from your previous session were restored and will be saved."
+        );
       } else {
         if (pending) {
           clearPendingSave();
@@ -951,7 +963,13 @@ export default function App() {
       }
       if (!res.ok) {
         const j = await res.json().catch(() => ({}));
-        throw new Error(j.error || `Save failed (${res.status})`);
+        const err = new Error(j.error || `Save failed (${res.status})`);
+        // 4xx = the payload itself is the problem (e.g. a malformed row the
+        // server refuses). Retrying can't fix it, so this must NOT be shown
+        // as a 5-second toast the user scrolls past: it blocks every future
+        // save until the data is corrected.
+        err.permanent = res.status >= 400 && res.status < 500;
+        throw err;
       }
       const data = await res.json();
       const at = data.savedAt || new Date().toISOString();
@@ -968,7 +986,11 @@ export default function App() {
       // still true) left dirty=false and the change was silently lost.
       setDirty(true);
       setSaveError(err.message || "Save failed");
-      setTimeout(() => setSaveError(null), 5000);
+      if (err.permanent) {
+        setError(`The server rejected this ledger, so nothing can be saved until it's fixed: ${err.message}`);
+      } else {
+        setTimeout(() => setSaveError(null), 5000);
+      }
     } finally {
       saveInFlightRef.current = false;
       setSaving(false);
@@ -7583,11 +7605,11 @@ function buildRow(raw, mapping, profile, accountMap) {
 
 
 function ImportTransactions({ onImport, accountMap, config, transactions, ckCategoryMap, categoryDescriptionRules, money, hideValues, onConfirmDuplicateMatch }) {
-  // Three methods: Credit Karma (auto-mapped, day-to-day), CSV (manual
-  // mapping, one-time history backfill), and SimpleFin (on-demand pull via
-  // api/simplefin-sync.js — complementary to the manual CK import, not a
-  // replacement; there's no background/cron sync, just a "Sync now" button).
-  const [method, setMethod] = useState("ck");
+  // Three methods, in the order they're actually used now: SimpleFin
+  // (on-demand/cron pull via api/simplefin-sync.js — the day-to-day path
+  // since v1.56.0, so it leads and is the default), Credit Karma (CSV
+  // export, auto-mapped) and CSV (manual mapping, one-time history backfill).
+  const [method, setMethod] = useState("sf");
   const profile = BANK_PROFILES.find((p) => p.id === (method === "ck" ? "credit-karma" : "generic"));
   // Every amount rendered by the preview goes through the app's privacy-eye
   // helper (the preview used to print raw usd.format, ignoring the toggle).
@@ -7839,9 +7861,9 @@ function ImportTransactions({ onImport, accountMap, config, transactions, ckCate
   };
 
   const methods = [
+    { id: "sf", title: "SimpleFin (auto)", desc: "Pulls transactions from SimpleFin on demand — complements, doesn't replace, the CSV/Credit Karma import." },
     { id: "ck", title: "Credit Karma", desc: "Daily export — auto-mapped, sign preserved." },
     { id: "csv", title: "CSV", desc: "Manual mapping — for backfilling old history." },
-    { id: "sf", title: "SimpleFin (auto)", desc: "Pulls transactions from SimpleFin on demand — complements, doesn't replace, the CSV/Credit Karma import." },
   ];
 
   // SimpleFin sync: hits the server endpoint, then runs the returned rows
