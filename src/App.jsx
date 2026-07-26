@@ -697,7 +697,7 @@ function idleExpired() {
 // path, so the pending copy is discarded with a notice instead).
 
 // Single source for the version shown in the header and in diagnostics.
-const APP_VERSION = "v1.60.1";
+const APP_VERSION = "v1.61.0";
 
 const PENDING_SAVE_KEY = "household_pending_save";
 
@@ -8157,6 +8157,60 @@ function buildRow(raw, mapping, profile, accountMap) {
 // txnFingerprint / descOverlap / dateToDayInt / markDuplicates now live in
 // src/ledger.js (imported above).
 
+// The "uncertain" (review) band's side-by-side compare + confirm button —
+// shared between the desktop table and mobile card layouts of the import
+// preview (ImportTransactions) so the two don't drift out of sync.
+function ImportDupReviewPanel({ t, match, fmtMoney, hideValues, confirmed, onConfirm }) {
+  return (
+    <div onClick={(e) => e.stopPropagation()}>
+      <div style={S.importDupCompare}>
+        <div style={S.importDupCol}>
+          <div style={S.importDupColHead}>Já no ledger</div>
+          <div style={S.importDupColLine}>{match.date || "—"}</div>
+          <div style={S.importDupColLine}>{match.description || "—"}</div>
+          <div style={S.importDupColLine}>{match.account || "Unassigned"}</div>
+        </div>
+        <div style={S.importDupCol}>
+          <div style={{ ...S.importDupColHead, color: "#60a5fa" }}>Esta linha</div>
+          <div style={S.importDupColLine}>{t.date || "—"}</div>
+          <div style={S.importDupColLine}>{t.description || "—"}</div>
+          <div style={S.importDupColLine}>{t.account || "Unassigned"}</div>
+        </div>
+      </div>
+      <div style={S.importDupActions}>
+        {/* The two amounts are identical by construction (the score gate
+            requires the same signed cents), so one masked-aware line says
+            it once instead of twice. */}
+        <span style={{ color: "#8b94a3" }}>
+          {hideValues ? "Mesmo valor nos dois lados" : `Mesmo valor: ${fmtMoney(t.amount)}`}
+        </span>
+        {confirmed ? (
+          <span style={{ color: "#34d399" }}>Marcada como duplicata — não será importada.</span>
+        ) : match.existing && t.sourceId ? (
+          <button type="button" onClick={onConfirm} style={S.importDupBtn}>
+            Marcar como duplicata da existente
+          </button>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+// Renders WHY a "new" row was NOT matched to the closest same-amount existing
+// row (see _dupNearMiss in src/ledger.js) — turns "still shows up as new" bug
+// reports into a self-diagnosable fact (date gap vs account vs description)
+// instead of a guessing game between the user and whoever reads the report.
+function ImportNearMissHint({ nearMiss, fmtMoney, hideValues }) {
+  if (!nearMiss) return null;
+  const dayLabel = nearMiss.dayDiff === 0 ? "mesmo dia" : `${nearMiss.dayDiff} dia${nearMiss.dayDiff === 1 ? "" : "s"} de diferença`;
+  const scoreLabel = nearMiss.score == null ? "mais de 5 dias de diferença (fora da janela)" : `pontuação ${nearMiss.score}/100 (mínimo 60 para "review")`;
+  return (
+    <div style={{ fontSize: 11, color: "#6b7280", marginTop: 2, fontStyle: "italic" }}>
+      Candidata mais próxima não bateu: {nearMiss.date || "—"} · {nearMiss.account || "Unassigned"}
+      {hideValues ? "" : ` · ${fmtMoney(nearMiss.amount)}`} · {dayLabel} · {scoreLabel}
+    </div>
+  );
+}
 
 function ImportTransactions({ onImport, accountMap, config, transactions, ckCategoryMap, categoryDescriptionRules, money, hideValues, onConfirmDuplicateMatch, onSfSynced }) {
   // Three methods, in the order they're actually used now: SimpleFin
@@ -8168,6 +8222,9 @@ function ImportTransactions({ onImport, accountMap, config, transactions, ckCate
   // Every amount rendered by the preview goes through the app's privacy-eye
   // helper (the preview used to print raw usd.format, ignoring the toggle).
   const fmtMoney = money || ((n) => usd.format(n || 0));
+  // Same desktop/mobile split as the Transactions tab (TxnTable vs TxnRow) —
+  // reusing it here is what makes the preview list match that tab's density.
+  const wide = useMediaWide();
 
   const [rawRows, setRawRows] = useState([]);
   const [headers, setHeaders] = useState([]);
@@ -8399,7 +8456,7 @@ function ImportTransactions({ onImport, accountMap, config, transactions, ckCate
     // transaction shape.
     const toImport = displayRows
       .filter((r) => selected.has(r.id))
-      .map(({ _dup, _dupState, _dupScore, _dupReasons, _dupMatch, raw, ...t }) => t);
+      .map(({ _dup, _dupState, _dupScore, _dupReasons, _dupMatch, _dupNearMiss, raw, ...t }) => t);
     onImport(toImport);
     setDone(`Imported ${toImport.length} transactions${dupCount ? ` · ${dupCount} duplicate(s) detected` : ""}.`);
     // These rows came from the server-side pending queue (cron-fetched, not
@@ -8513,43 +8570,47 @@ function ImportTransactions({ onImport, accountMap, config, transactions, ckCate
         </div>
       </div>
 
-      {/* File dropzone — CK/CSV only. SimpleFin has no file, just a sync button. */}
+      {/* SimpleFin: no file to drag, so this is a slim control bar, not the
+          CSV dropzone below — the big dashed drop target only makes sense
+          where there's something to drop. */}
       {method === "sf" ? (
-        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 8, padding: "26px 16px", borderRadius: 16, textAlign: "center", border: "1.5px dashed #2a313c", background: "#12161c" }}>
-          <RefreshCw size={22} color="#8b94a3" />
-          <span style={{ fontSize: 14, color: "#cbd5e1", overflowWrap: "anywhere" }}>
-            {fileName || "Pull the latest transactions from SimpleFin"}
-          </span>
+        <div style={{ display: "flex", flexDirection: "column", gap: 8, padding: "10px 14px", borderRadius: 12, background: "#12161c", border: "1px solid #1e2530" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+            <RefreshCw size={16} color="#8b94a3" style={{ flexShrink: 0 }} />
+            <span style={{ fontSize: 13, color: "#cbd5e1", overflowWrap: "anywhere", flex: 1, minWidth: 160 }}>
+              {fileName || "Pull the latest transactions from SimpleFin"}
+            </span>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              {sfPendingCount > 0 ? (
+                <button
+                  onClick={loadSimpleFinPending}
+                  disabled={sfLoading}
+                  style={{ ...S.primaryBtn, opacity: sfLoading ? 0.6 : 1, cursor: sfLoading ? "not-allowed" : "pointer", padding: "7px 16px", minHeight: 32, fontSize: 13 }}
+                >
+                  {sfLoading ? "Carregando…" : `Revisar ${sfPendingCount} pendente${sfPendingCount === 1 ? "" : "s"}`}
+                </button>
+              ) : null}
+              <button
+                onClick={syncSimpleFin}
+                disabled={sfLoading}
+                style={{
+                  ...(sfPendingCount > 0 ? S.secondaryBtn : S.primaryBtn),
+                  opacity: sfLoading ? 0.6 : 1,
+                  cursor: sfLoading ? "not-allowed" : "pointer",
+                  padding: "7px 16px",
+                  minHeight: 32,
+                  fontSize: 13,
+                }}
+              >
+                {sfLoading ? "Syncing…" : "Sync now"}
+              </button>
+            </div>
+          </div>
           {sfPendingCount > 0 ? (
             <div style={{ fontSize: 12, color: "#fbbf24", background: "#241d0f", border: "1px solid #4a3a12", borderRadius: 10, padding: "6px 10px", lineHeight: 1.4 }}>
               {sfPendingCount} transaç{sfPendingCount === 1 ? "ão" : "ões"} do SimpleFin (sync automático diário) pendente{sfPendingCount === 1 ? "" : "s"} de revisão.
             </div>
           ) : null}
-          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "center" }}>
-            {sfPendingCount > 0 ? (
-              <button
-                onClick={loadSimpleFinPending}
-                disabled={sfLoading}
-                style={{ ...S.primaryBtn, opacity: sfLoading ? 0.6 : 1, cursor: sfLoading ? "not-allowed" : "pointer", padding: "8px 20px", minHeight: 36, fontSize: 13 }}
-              >
-                {sfLoading ? "Carregando…" : `Revisar ${sfPendingCount} pendente${sfPendingCount === 1 ? "" : "s"}`}
-              </button>
-            ) : null}
-            <button
-              onClick={syncSimpleFin}
-              disabled={sfLoading}
-              style={{
-                ...(sfPendingCount > 0 ? S.secondaryBtn : S.primaryBtn),
-                opacity: sfLoading ? 0.6 : 1,
-                cursor: sfLoading ? "not-allowed" : "pointer",
-                padding: "8px 20px",
-                minHeight: 36,
-                fontSize: 13,
-              }}
-            >
-              {sfLoading ? "Syncing…" : "Sync now"}
-            </button>
-          </div>
         </div>
       ) : (
         <label
@@ -8638,110 +8699,172 @@ function ImportTransactions({ onImport, accountMap, config, transactions, ckCate
               </div>
             ) : null}
           </div>
-          <div style={{ ...S.list, maxHeight: 300, overflowY: "auto" }}>
-            {(() => {
-              const previewRows = displayRows.filter((t) =>
-                dupFilter === "dup" ? t._dupState === "certain"
-                  : dupFilter === "review" ? t._dupState === "uncertain"
-                  : dupFilter === "new" ? t._dupState === "new"
-                  : true
-              );
-              return (
-                <>
-            {previewRows.slice(0, 400).map((t) => {
-              const checked = selected.has(t.id);
-              const autoCategory = t.autoCategory ?? t.category;
-              const edited = t.category !== autoCategory;
-              const certain = t._dupState === "certain";
-              const review = t._dupState === "uncertain";
-              const match = t._dupMatch;
-              const confirmed = confirmedDups.has(t.id);
-              const reasons = (t._dupReasons || []).join(" · ");
-              return (
-                <div key={t.id} style={certain || review ? S.importDupWrap(review) : undefined}>
-                <div
-                  onClick={() => toggleRow(t.id)}
-                  style={{ ...S.txnRow, cursor: "pointer", gap: 10, opacity: checked ? 1 : 0.5, border: certain || review ? "none" : undefined }}
-                >
-                  <input type="checkbox" checked={checked} onChange={() => toggleRow(t.id)} onClick={(e) => e.stopPropagation()} style={S.checkbox} />
-                  <div style={{ minWidth: 0, flex: 1 }}>
-                    <div style={{ fontSize: 14, color: "#e5e7eb", overflowWrap: "anywhere" }}>
-                      {t.description || t.category}
-                      {certain ? <span title={reasons} style={S.dupBadge(false)}>DUP</span> : null}
-                      {review ? <span title={reasons} style={S.dupBadge(true)}>DUP?</span> : null}
-                      {edited ? <span title={`Auto-detected as ${autoCategory}`} style={{ marginLeft: 6, fontSize: 10, fontWeight: 700, color: "#60a5fa", border: "1px solid #1d3a5f", borderRadius: 6, padding: "1px 5px", verticalAlign: "1px" }}>EDITED</span> : null}
-                    </div>
-                    <div style={{ fontSize: 11, color: "#8b94a3", display: "flex", alignItems: "center", gap: 6, marginTop: 3 }}>
-                      <span style={{ whiteSpace: "nowrap" }}>{t.date}{t.account ? ` · ${t.account}` : ""}</span>
-                      <select
-                        value={t.category}
-                        onClick={(e) => e.stopPropagation()}
-                        onChange={(e) => setCategoryOverride(t.id, autoCategory, e.target.value)}
-                        style={S.importCatSelect}
-                      >
-                        {CATEGORIES.map((c) => (
-                          <option key={c} value={c}>{c}</option>
-                        ))}
-                      </select>
-                    </div>
-                  </div>
-                  <span style={{ fontSize: 14, color: "#cbd5e1", whiteSpace: "nowrap" }}>{fmtMoney(t.amount)}</span>
-                </div>
-                {(certain || review) && reasons ? (
-                  <div style={S.importDupReasons}>{reasons}</div>
-                ) : null}
-                {/* Uncertain band only: show what it looks like next to the row
-                    it probably duplicates, so the decision isn't a coin flip. */}
-                {review && match ? (
-                  <div style={S.importDupCompare} onClick={(e) => e.stopPropagation()}>
-                    <div style={S.importDupCol}>
-                      <div style={S.importDupColHead}>Já no ledger</div>
-                      <div style={S.importDupColLine}>{match.date || "—"}</div>
-                      <div style={S.importDupColLine}>{match.description || "—"}</div>
-                      <div style={S.importDupColLine}>{match.account || "Unassigned"}</div>
-                    </div>
-                    <div style={S.importDupCol}>
-                      <div style={{ ...S.importDupColHead, color: "#60a5fa" }}>Esta linha</div>
-                      <div style={S.importDupColLine}>{t.date || "—"}</div>
-                      <div style={S.importDupColLine}>{t.description || "—"}</div>
-                      <div style={S.importDupColLine}>{t.account || "Unassigned"}</div>
-                    </div>
-                  </div>
-                ) : null}
-                {review && match ? (
-                  <div style={S.importDupActions}>
-                    {/* The two amounts are identical by construction (the score
-                        gate requires the same signed cents), so one masked-aware
-                        line says it once instead of twice. */}
-                    <span style={{ color: "#8b94a3" }}>
-                      {hideValues ? "Mesmo valor nos dois lados" : `Mesmo valor: ${fmtMoney(t.amount)}`}
-                    </span>
-                    {confirmed ? (
-                      <span style={{ color: "#34d399" }}>Marcada como duplicata — não será importada.</span>
-                    ) : match.existing && t.sourceId ? (
-                      <button
-                        type="button"
-                        onClick={(e) => { e.stopPropagation(); confirmDuplicate(t); }}
-                        style={S.importDupBtn}
-                      >
-                        Marcar como duplicata da existente
-                      </button>
-                    ) : null}
-                  </div>
-                ) : null}
-                </div>
-              );
-            })}
-            {previewRows.length > 400 ? (
-              <div style={{ fontSize: 11, color: "#fbbf24", padding: "8px 4px", textAlign: "center" }}>
+          {(() => {
+            const previewRows = displayRows.filter((t) =>
+              dupFilter === "dup" ? t._dupState === "certain"
+                : dupFilter === "review" ? t._dupState === "uncertain"
+                : dupFilter === "new" ? t._dupState === "new"
+                : true
+            );
+            const shown = previewRows.slice(0, 400);
+            const overflowNotice = previewRows.length > 400 ? (
+              <div style={{ fontSize: 11, color: "#fbbf24", padding: "8px 12px", textAlign: "center" }}>
                 Preview limited to the first 400 of {previewRows.length} rows — rows beyond it are
                 not shown here but are still counted, selected and imported per the totals above.
               </div>
-            ) : null}
-                </>
+            ) : null;
+
+            // Desktop: the SAME table shape as the Transactions tab (TxnTable)
+            // — no internal scroll cap, so it grows with the page's single
+            // scroll instead of hiding rows behind a fixed-height box, and
+            // reads/edits many more rows per screen than the card layout.
+            if (wide) {
+              return (
+                <div style={{ ...S.card, padding: 0, overflow: "visible" }}>
+                  <table style={S.table}>
+                    <thead>
+                      <tr>
+                        <th style={{ ...S.th, width: 36, textAlign: "center" }} />
+                        <th style={S.th}>Date</th>
+                        <th style={S.th}>Description</th>
+                        <th style={S.th}>Account</th>
+                        <th style={S.th}>Category</th>
+                        <th style={{ ...S.th, textAlign: "right" }}>Amount</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {shown.map((t) => {
+                        const checked = selected.has(t.id);
+                        const autoCategory = t.autoCategory ?? t.category;
+                        const edited = t.category !== autoCategory;
+                        const certain = t._dupState === "certain";
+                        const review = t._dupState === "uncertain";
+                        const reasons = (t._dupReasons || []).join(" · ");
+                        const rowBg = review ? "rgba(251,191,36,0.06)" : selected.has(t.id) ? "#1a1f2e" : "transparent";
+                        return (
+                          <React.Fragment key={t.id}>
+                            <tr onClick={() => toggleRow(t.id)} style={{ cursor: "pointer", opacity: checked ? 1 : 0.5, background: rowBg }}>
+                              <td style={{ ...S.td, textAlign: "center" }}>
+                                <input type="checkbox" checked={checked} onChange={() => toggleRow(t.id)} onClick={(e) => e.stopPropagation()} style={S.checkbox} />
+                              </td>
+                              <td style={{ ...S.td, color: "#cbd5e1", whiteSpace: "nowrap" }}>{t.date}</td>
+                              <td style={{ ...S.td, color: "#e5e7eb", whiteSpace: "normal", overflowWrap: "anywhere", minWidth: 260 }}>
+                                {t.description || t.category}
+                                {certain ? <span title={reasons} style={S.dupBadge(false)}>DUP</span> : null}
+                                {review ? <span title={reasons} style={S.dupBadge(true)}>DUP?</span> : null}
+                                {edited ? <span title={`Auto-detected as ${autoCategory}`} style={{ marginLeft: 6, fontSize: 10, fontWeight: 700, color: "#60a5fa", border: "1px solid #1d3a5f", borderRadius: 6, padding: "1px 5px", verticalAlign: "1px" }}>EDITED</span> : null}
+                                {(certain || review) && reasons ? (
+                                  <div style={{ fontSize: 11, color: "#8b94a3", marginTop: 2, fontWeight: 400, whiteSpace: "normal" }}>{reasons}</div>
+                                ) : null}
+                                {!certain && !review ? (
+                                  <ImportNearMissHint nearMiss={t._dupNearMiss} fmtMoney={fmtMoney} hideValues={hideValues} />
+                                ) : null}
+                              </td>
+                              <td style={S.td}>{t.account || <span style={{ color: "#6b7280" }}>Unassigned</span>}</td>
+                              <td style={S.td} onClick={(e) => e.stopPropagation()}>
+                                <select
+                                  value={t.category}
+                                  onChange={(e) => setCategoryOverride(t.id, autoCategory, e.target.value)}
+                                  style={S.cellSelect}
+                                >
+                                  {CATEGORIES.map((c) => (
+                                    <option key={c} value={c}>{c}</option>
+                                  ))}
+                                </select>
+                              </td>
+                              <td style={{ ...S.td, textAlign: "right", color: "#cbd5e1", whiteSpace: "nowrap" }}>{fmtMoney(t.amount)}</td>
+                            </tr>
+                            {review && t._dupMatch ? (
+                              <tr style={{ background: "rgba(251,191,36,0.04)" }}>
+                                <td style={S.td} />
+                                <td colSpan={5} style={S.td}>
+                                  <ImportDupReviewPanel
+                                    t={t}
+                                    match={t._dupMatch}
+                                    fmtMoney={fmtMoney}
+                                    hideValues={hideValues}
+                                    confirmed={confirmedDups.has(t.id)}
+                                    onConfirm={() => confirmDuplicate(t)}
+                                  />
+                                </td>
+                              </tr>
+                            ) : null}
+                          </React.Fragment>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                  {overflowNotice}
+                </div>
               );
-            })()}
-          </div>
+            }
+
+            // Mobile: card-per-row, unchanged from before.
+            return (
+              <div style={S.list}>
+                {shown.map((t) => {
+                  const checked = selected.has(t.id);
+                  const autoCategory = t.autoCategory ?? t.category;
+                  const edited = t.category !== autoCategory;
+                  const certain = t._dupState === "certain";
+                  const review = t._dupState === "uncertain";
+                  const confirmed = confirmedDups.has(t.id);
+                  const reasons = (t._dupReasons || []).join(" · ");
+                  return (
+                    <div key={t.id} style={certain || review ? S.importDupWrap(review) : undefined}>
+                      <div
+                        onClick={() => toggleRow(t.id)}
+                        style={{ ...S.txnRow, cursor: "pointer", gap: 10, opacity: checked ? 1 : 0.5, border: certain || review ? "none" : undefined }}
+                      >
+                        <input type="checkbox" checked={checked} onChange={() => toggleRow(t.id)} onClick={(e) => e.stopPropagation()} style={S.checkbox} />
+                        <div style={{ minWidth: 0, flex: 1 }}>
+                          <div style={{ fontSize: 14, color: "#e5e7eb", overflowWrap: "anywhere" }}>
+                            {t.description || t.category}
+                            {certain ? <span title={reasons} style={S.dupBadge(false)}>DUP</span> : null}
+                            {review ? <span title={reasons} style={S.dupBadge(true)}>DUP?</span> : null}
+                            {edited ? <span title={`Auto-detected as ${autoCategory}`} style={{ marginLeft: 6, fontSize: 10, fontWeight: 700, color: "#60a5fa", border: "1px solid #1d3a5f", borderRadius: 6, padding: "1px 5px", verticalAlign: "1px" }}>EDITED</span> : null}
+                          </div>
+                          <div style={{ fontSize: 11, color: "#8b94a3", display: "flex", alignItems: "center", gap: 6, marginTop: 3 }}>
+                            <span style={{ whiteSpace: "nowrap" }}>{t.date}{t.account ? ` · ${t.account}` : ""}</span>
+                            <select
+                              value={t.category}
+                              onClick={(e) => e.stopPropagation()}
+                              onChange={(e) => setCategoryOverride(t.id, autoCategory, e.target.value)}
+                              style={S.importCatSelect}
+                            >
+                              {CATEGORIES.map((c) => (
+                                <option key={c} value={c}>{c}</option>
+                              ))}
+                            </select>
+                          </div>
+                        </div>
+                        <span style={{ fontSize: 14, color: "#cbd5e1", whiteSpace: "nowrap" }}>{fmtMoney(t.amount)}</span>
+                      </div>
+                      {(certain || review) && reasons ? (
+                        <div style={S.importDupReasons}>{reasons}</div>
+                      ) : null}
+                      {!certain && !review ? (
+                        <div style={{ padding: "0 4px" }}>
+                          <ImportNearMissHint nearMiss={t._dupNearMiss} fmtMoney={fmtMoney} hideValues={hideValues} />
+                        </div>
+                      ) : null}
+                      {review && t._dupMatch ? (
+                        <ImportDupReviewPanel
+                          t={t}
+                          match={t._dupMatch}
+                          fmtMoney={fmtMoney}
+                          hideValues={hideValues}
+                          confirmed={confirmed}
+                          onConfirm={() => confirmDuplicate(t)}
+                        />
+                      ) : null}
+                    </div>
+                  );
+                })}
+                {overflowNotice}
+              </div>
+            );
+          })()}
           <div style={S.importActionsBar}>
             <button
               onClick={confirm}

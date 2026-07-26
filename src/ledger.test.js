@@ -519,6 +519,48 @@ describe("markDuplicates", () => {
   });
 });
 
+describe("markDuplicates — _dupNearMiss (diagnostics for rows that stay \"new\")", () => {
+  it("captures the closest same-amount existing row when it's just too many days apart to count", () => {
+    const prev = [{ date: "2026-07-02", amount: -25.5, description: "Grocery Store", account: "Chase Reserve" }];
+    const rows = [{ date: "2026-07-09", amount: -25.5, description: "Grocery Store", account: "Chase Reserve" }];
+    const out = markDuplicates(rows, prev);
+    expect(out[0]._dupState).toBe("new");
+    expect(out[0]._dupNearMiss).toMatchObject({ date: "2026-07-02", account: "Chase Reserve", dayDiff: 7, score: null });
+  });
+
+  it("captures the closest candidate even when disqualified by account/description, not just date", () => {
+    // Same shape as the real bug report: memo-based description shares tokens
+    // with the existing row via providerDescription, but a 40-point account
+    // mismatch alone is enough to keep the total under DUP_SCORE_REVIEW.
+    const prev = [{ date: "2026-07-15", amount: -29.99, description: "AMAZON.COM*RT4XY1", account: "Groceries" }];
+    const rows = [{
+      date: "2026-07-15", amount: -29.99, description: "100 Pack Mini Sunscreen",
+      providerDescription: "AMAZON.COM*RT4XY1ABC", account: "Amazon Card",
+    }];
+    const out = markDuplicates(rows, prev);
+    expect(out[0]._dupState).toBe("new");
+    expect(out[0]._dupNearMiss.account).toBe("Groceries");
+    expect(out[0]._dupNearMiss.dayDiff).toBe(0);
+    expect(out[0]._dupNearMiss.score).toBeLessThan(DUP_SCORE_REVIEW);
+  });
+
+  it("is null when no existing row shares the same signed cents at all", () => {
+    const prev = [{ date: "2026-07-02", amount: -25.5, description: "Grocery Store", account: "Chase Reserve" }];
+    const rows = [{ date: "2026-07-02", amount: -25.49, description: "Grocery Store", account: "Chase Reserve" }];
+    const out = markDuplicates(rows, prev);
+    expect(out[0]._dupState).toBe("new");
+    expect(out[0]._dupNearMiss).toBe(null);
+  });
+
+  it("is null once the row is matched (certain or uncertain)", () => {
+    const prev = [{ date: "2026-07-01", amount: -10, description: "Coffee Shop", account: "Apple" }];
+    const rows = [{ date: "2026-07-01", amount: -10, description: "Coffee Shop", account: "Apple" }];
+    const out = markDuplicates(rows, prev);
+    expect(out[0]._dupState).toBe("certain");
+    expect(out[0]._dupNearMiss).toBe(null);
+  });
+});
+
 describe("resolveImportCategory", () => {
   const CATS = ["Groceries", "Restaurant", "Other", "Shopping", TRANSFER_CATEGORY, "Other Income"];
   const ctx = (rules, map) => ({

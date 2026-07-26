@@ -1,4 +1,4 @@
-# Household Ledger · v1.60.1
+# Household Ledger · v1.61.0
 
 Aplicativo mobile-first de controle financeiro doméstico. Registra
 transações da casa (despesas e receitas) por categoria e conta, com
@@ -31,7 +31,51 @@ O `feature-auditor` deve conferir, como parte da checklist de auditoria, que
 o diff inclui o bump nos dois arquivos antes de aprovar — se faltar, isso é
 motivo de reprovação (devolver ao coder), não um detalhe opcional.
 
-Versão atual: **v1.60.1** — **fix: duplicatas da Amazon não eram detectadas
+Versão atual: **v1.61.0** — **diagnóstico "candidata mais próxima" para
+duplicatas invisíveis + redesenho da tela de import** (`src/ledger.js`,
+`src/App.jsx`).
+
+O fix da v1.60.1 (`providerDescription`) resolveu a causa que ele mirava, mas
+o relato seguinte mostrou que as mesmas 4 transações da Amazon continuavam
+caindo em `new`. Reproduzindo o caso à mão: o melhor cenário possível do fix
+melhora o score de 65 para 80 — ainda dentro da faixa `uncertain`, nunca
+`certain`, e **80 é bem acima de 60**. Se a transação real ainda cai em
+`new` (score < 60), tem que existir uma penalidade adicional que o fix não
+tocava — o candidato mais provável é uma divergência na `account` (a conta
+já classificada da transação existente é diferente do nome do banco que o
+SimpleFin usa), que sozinha já custa 40 pontos.
+
+Em vez de arriscar um quarto fix às cegas, `markDuplicates` (`src/ledger.js`)
+agora expõe esse fato diretamente: toda linha que fica em `new` carrega um
+`_dupNearMiss` — a existing row de mesmo valor mais próxima por data,
+mantida mesmo quando foi desqualificada (por data > 5 dias, conta diferente
+ou descrição sem sobreposição), com `{ date, description, account, amount,
+dayDiff, score }`. Quando não há sequer uma existing row com o mesmo valor
+em centavos, `_dupNearMiss` é `null` — o que já é diagnóstico (o valor não
+bate, não é uma questão de data/conta/descrição). A tela de import
+(`ImportNearMissHint` em `src/App.jsx`) mostra essa linha, discreta e em
+itálico, abaixo de qualquer linha "new": "Candidata mais próxima não bateu:
+{data} · {conta} · {valor} · {Xd de diferença} · {pontuação/motivo}" — dá pra
+ver o motivo exato (data, conta ou descrição) sem precisar de mais um
+round-trip de screenshot.
+
+De quebra, três ajustes de layout pedidos junto com o relato: (1) a caixa do
+"Sync now" do SimpleFin era um dropzone grande com padding de 26px —
+virou uma barra fina (10px/14px) já que não é uma área de drag-and-drop como
+o CSV; (2) o preview de import tinha um cap de `maxHeight:300 +
+overflowY:auto` que, combinado com `S.importActionsBar` (sticky no fundo do
+`<main>` de tela cheia), deixava um vão preto enorme entre a lista curta e o
+botão — removido, a lista agora cresce com o scroll único da página, mesmo
+padrão já usado na tab Transactions; (3) no desktop (`useMediaWide`, ≥900px)
+o preview agora usa uma `<table>` no mesmo estilo de `S.table`/`TxnTable` da
+tab Transactions (linha com checkbox/Date/Description/Account/Category/
+Amount) em vez do card empilhado — mais denso, mais linhas visíveis por
+tela, consistente com o resto do app. Mobile (<900px) continua com o layout
+de cards. A faixa "Review" (side-by-side + botão "marcar como duplicata")
+virou o componente compartilhado `ImportDupReviewPanel`, usado pelos dois
+layouts para não divergir.
+
+Versão anterior: **v1.60.1** — **fix: duplicatas da Amazon não eram detectadas
 depois da mudança para `memo`** (`lib/simplefin.js`, `src/ledger.js`,
 `src/App.jsx`).
 
