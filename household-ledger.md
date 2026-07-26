@@ -31,9 +31,11 @@ O `feature-auditor` deve conferir, como parte da checklist de auditoria, que
 o diff inclui o bump nos dois arquivos antes de aprovar — se faltar, isso é
 motivo de reprovação (devolver ao coder), não um detalhe opcional.
 
-Versão atual: **v1.61.1** — **"Account aliases" em Settings vira lista
-compacta** (linhas colapsadas por conta, expande ao clicar para editar
-fragments; sugestão de "Suggested rules" expande todas as linhas) (`src/App.jsx`).
+Versão atual: **v1.61.1** (PR #245, SHA
+cdf7d4e84f56a81d7c121d44fdee7a24cc723ec1) — **"Account aliases" em Settings
+vira lista compacta** (linhas colapsadas por conta, expande ao clicar para
+editar fragments; sugestão de "Suggested rules" expande todas as linhas)
+(`src/App.jsx`).
 
 Anterior: **v1.61.0** — diagnóstico "candidata mais próxima" para
 duplicatas invisíveis + redesenho da tela de import (`src/ledger.js`,
@@ -3212,6 +3214,17 @@ shell de altura cheia (`#root` em `100lvh` + shell `height:100%`): só o
    lógica de negócio mudou (`saveAccountAliasesAndApply`, `computeAliasImpact`,
    `buildAliasArray`, `applyAliasConfig`, `matchAccount`, `classifyAccount`,
    `api/account-aliases.js` — tudo igual, só mudou onde é renderizado).
+
+   **Desde a v1.61.1 (PR #245)**, `AccountAliasesSection`/`AccountAliasRow`
+   viraram uma lista compacta: cada conta é uma linha colapsada por padrão
+   (nome + resumo curto de fragments + chevron), em vez do card grande
+   sempre expandido; clicar na linha expande e revela a edição completa
+   (chips removíveis + input "add fragment" + botão "+"). Quando chega um
+   `prefillFragment` do "Suggested rules" (nonce muda), todas as linhas se
+   expandem automaticamente para a sugestão ficar visível. `draft`/`dirty`/
+   `setFrags`, `computeAliasImpact` e o fluxo Preview impact → Confirm &
+   apply, além do endpoint `/api/account-aliases`, não mudaram — só a
+   apresentação (novos tokens `S.aliasRow`/`S.aliasRowHeader`).
 
    Logo abaixo, a tabela **SimpleFin accounts** (`SimplefinAccountsSection`,
    ver detalhe a seguir) e o card **Accounts & Categories** com as três
