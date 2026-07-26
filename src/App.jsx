@@ -697,7 +697,7 @@ function idleExpired() {
 // path, so the pending copy is discarded with a notice instead).
 
 // Single source for the version shown in the header and in diagnostics.
-const APP_VERSION = "v1.61.0";
+const APP_VERSION = "v1.61.1";
 
 const PENDING_SAVE_KEY = "household_pending_save";
 
@@ -6449,7 +6449,7 @@ function SimplefinAccountsSection({ sfBalances, transactions, accountMap, config
 
 // One account's editable alias fragments: chips with a remove (x) button,
 // plus an add box. Lowercased on add to match how they're compared.
-function AccountAliasRow({ account, fragments, onChange, suggestedFragment }) {
+function AccountAliasRow({ account, fragments, onChange, suggestedFragment, expanded, onToggle }) {
   const [adding, setAdding] = useState("");
   // "Use this fragment" (Suggested rules panel) pre-fills every account row's
   // add box with the suggested text — the user still picks which account it
@@ -6466,47 +6466,66 @@ function AccountAliasRow({ account, fragments, onChange, suggestedFragment }) {
   };
   const removeFrag = (f) => onChange(fragments.filter((x) => x !== f));
 
+  const summary =
+    fragments.length === 0
+      ? "No aliases"
+      : fragments.length <= 2
+      ? fragments.join(", ")
+      : `${fragments.slice(0, 2).join(", ")} +${fragments.length - 2}`;
+
   return (
-    <div style={{ background: "#161a20", border: "1px solid #1e2530", borderRadius: 10, padding: "8px 10px", marginBottom: 6 }}>
-      <div style={{ fontSize: 13, color: "#e5e7eb", fontWeight: 600, marginBottom: 6 }}>{account}</div>
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 6 }}>
-        {fragments.length === 0 ? (
-          <span style={{ fontSize: 11, color: "#8b94a3" }}>No aliases</span>
-        ) : (
-          fragments.map((f) => (
-            <span
-              key={f}
-              style={{ display: "inline-flex", alignItems: "center", gap: 4, background: "#0f1216", border: "1px solid #2a313c", borderRadius: 999, padding: "3px 8px", fontSize: 11, color: "#cbd5e1" }}
+    <div style={S.aliasRow}>
+      <button type="button" onClick={onToggle} style={S.aliasRowHeader}>
+        <span style={{ fontSize: 13, color: "#e5e7eb", fontWeight: 600 }}>{account}</span>
+        <span style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
+          <span style={{ fontSize: 11, color: "#8b94a3", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: 160 }}>
+            {summary}
+          </span>
+          {expanded ? <ChevronDown size={15} color="#8b94a3" /> : <ChevronRight size={15} color="#8b94a3" />}
+        </span>
+      </button>
+      {expanded ? (
+        <div style={{ padding: "0 10px 10px" }}>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 6 }}>
+            {fragments.length === 0 ? (
+              <span style={{ fontSize: 11, color: "#8b94a3" }}>No aliases</span>
+            ) : (
+              fragments.map((f) => (
+                <span
+                  key={f}
+                  style={{ display: "inline-flex", alignItems: "center", gap: 4, background: "#0f1216", border: "1px solid #2a313c", borderRadius: 999, padding: "3px 8px", fontSize: 11, color: "#cbd5e1" }}
+                >
+                  {f}
+                  <button
+                    onClick={() => removeFrag(f)}
+                    title="Remove"
+                    style={{ background: "transparent", border: "none", color: "#f87171", cursor: "pointer", padding: 0, display: "inline-flex" }}
+                  >
+                    <X size={11} />
+                  </button>
+                </span>
+              ))
+            )}
+          </div>
+          <div style={{ display: "flex", gap: 6 }}>
+            <input
+              value={adding}
+              onChange={(e) => setAdding(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") addFrag(); }}
+              placeholder="Add fragment (e.g. reserve)"
+              style={{ flex: 1, minWidth: 0, background: "#0f1216", color: "#e5e7eb", border: "1px solid #2a313c", borderRadius: 8, padding: "6px 9px", fontSize: 12 }}
+            />
+            <button
+              onClick={addFrag}
+              disabled={!adding.trim()}
+              title="Add fragment"
+              style={{ flexShrink: 0, display: "grid", placeItems: "center", width: 32, background: "#0A84FF", border: "none", borderRadius: 8, color: "#fff", cursor: "pointer", opacity: adding.trim() ? 1 : 0.4 }}
             >
-              {f}
-              <button
-                onClick={() => removeFrag(f)}
-                title="Remove"
-                style={{ background: "transparent", border: "none", color: "#f87171", cursor: "pointer", padding: 0, display: "inline-flex" }}
-              >
-                <X size={11} />
-              </button>
-            </span>
-          ))
-        )}
-      </div>
-      <div style={{ display: "flex", gap: 6 }}>
-        <input
-          value={adding}
-          onChange={(e) => setAdding(e.target.value)}
-          onKeyDown={(e) => { if (e.key === "Enter") addFrag(); }}
-          placeholder="Add fragment (e.g. reserve)"
-          style={{ flex: 1, minWidth: 0, background: "#0f1216", color: "#e5e7eb", border: "1px solid #2a313c", borderRadius: 8, padding: "6px 9px", fontSize: 12 }}
-        />
-        <button
-          onClick={addFrag}
-          disabled={!adding.trim()}
-          title="Add fragment"
-          style={{ flexShrink: 0, display: "grid", placeItems: "center", width: 32, background: "#0A84FF", border: "none", borderRadius: 8, color: "#fff", cursor: "pointer", opacity: adding.trim() ? 1 : 0.4 }}
-        >
-          <Plus size={14} />
-        </button>
-      </div>
+              <Plus size={14} />
+            </button>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -6522,6 +6541,23 @@ function AccountAliasesSection({ transactions, accountMap, aliases, onSave, pref
   const [draft, setDraft] = useState(aliases || {});
   useEffect(() => { setDraft(aliases || {}); }, [aliases]);
   const [showPreview, setShowPreview] = useState(false);
+  const [expanded, setExpanded] = useState(() => new Set());
+  const toggleExpanded = (a) => {
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(a)) next.delete(a);
+      else next.add(a);
+      return next;
+    });
+  };
+  // A new "Use this fragment" suggestion (Suggested rules panel) must stay
+  // visible even if all rows are collapsed — expand every row so the
+  // pre-filled add box is reachable, same fallback used before this section
+  // had per-row collapse.
+  useEffect(() => {
+    if (prefillFragment && prefillFragment.nonce) setExpanded(new Set(ACCOUNTS));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [prefillFragment && prefillFragment.nonce]);
 
   const setFrags = (account, frags) => {
     setDraft((prev) => ({ ...prev, [account]: frags }));
@@ -6571,6 +6607,8 @@ function AccountAliasesSection({ transactions, accountMap, aliases, onSave, pref
             fragments={draft[a] || []}
             onChange={(frags) => setFrags(a, frags)}
             suggestedFragment={prefillFragment}
+            expanded={expanded.has(a)}
+            onToggle={() => toggleExpanded(a)}
           />
         ))}
       </div>
@@ -9341,6 +9379,25 @@ const S = {
     borderRadius: 14,
     padding: "10px 12px",
     lineHeight: 1.4,
+  },
+  aliasRow: {
+    background: "#161a20",
+    border: "1px solid #1e2530",
+    borderRadius: 10,
+    marginBottom: 6,
+    overflow: "hidden",
+  },
+  aliasRowHeader: {
+    width: "100%",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12,
+    background: "transparent",
+    border: "none",
+    cursor: "pointer",
+    padding: "10px 10px",
+    textAlign: "left",
   },
   deleteBtn: {
     background: "transparent",
