@@ -67,13 +67,13 @@ import {
   bucketKey,
   bucketLabel,
   ckCategoryToken,
-  mapCkCategory,
   descriptionRuleMatches,
   computeDescriptionRuleConflicts,
   findMatchingDescriptionRule,
   matchDescriptionCategoryRule,
   normAccount,
   matchAccountWithAliases,
+  resolveImportCategory,
   txnFingerprint,
   markDuplicates,
   descWords,
@@ -290,7 +290,9 @@ function currentCkCategoryMapConfig() {
   return { ...CK_CATEGORY_MAP };
 }
 
-// ckCategoryToken / mapCkCategory now live in src/ledger.js (imported above).
+// ckCategoryToken / mapCkCategory now live in src/ledger.js. `mapCkCategory`
+// is no longer called from here at all: the import-time category pipeline that
+// used it moved to `resolveImportCategory` (same file).
 
 // ---------------------------------------------------------------------------
 // Category-by-description rules (PR: Description rules, Audit tab)
@@ -583,7 +585,7 @@ function idleExpired() {
 // path, so the pending copy is discarded with a notice instead).
 
 // Single source for the version shown in the header and in diagnostics.
-const APP_VERSION = "v1.55.0";
+const APP_VERSION = "v1.56.0";
 
 const PENDING_SAVE_KEY = "household_pending_save";
 
@@ -1543,6 +1545,25 @@ export default function App() {
     [scheduleSave]
   );
 
+  // "This incoming row IS that existing transaction" — confirmed by the user in
+  // the import preview's uncertain band. Records the new row's source id as an
+  // alternate id ON THE EXISTING transaction, so the next sync recognizes the
+  // pair by id instead of scoring it again (and the uncertainty decays instead
+  // of coming back every single time). Additive optional field; goes through
+  // the regular updateTransaction path, so it saves and merges like any edit.
+  const confirmDuplicateMatch = useCallback(
+    (existingId, newSourceId) => {
+      if (!existingId || !newSourceId) return;
+      const target = transactions.find((t) => t.id === existingId);
+      if (!target) return;
+      const id = String(newSourceId);
+      const alts = Array.isArray(target.altSourceIds) ? target.altSourceIds : [];
+      if (alts.includes(id) || String(target.sourceId || "") === id) return;
+      updateTransaction({ ...target, altSourceIds: [...alts, id] });
+    },
+    [transactions, updateTransaction]
+  );
+
   // Bulk-apply a partial patch (e.g. { category } or { account }) to many rows.
   const updateMany = useCallback(
     (ids, patch) => {
@@ -1799,6 +1820,9 @@ export default function App() {
             transactions={transactions}
             ckCategoryMap={ckCategoryMap}
             categoryDescriptionRules={categoryDescriptionRules}
+            money={money}
+            hideValues={hideValues}
+            onConfirmDuplicateMatch={confirmDuplicateMatch}
           />
         ) : tab === "settings" ? (
           <SettingsTab
@@ -4019,10 +4043,13 @@ const GRANULARITIES = [
   { v: "Y", l: "Y" },
 ];
 
-// Duplicate-visibility filter options for the Import preview segmented control
+// Duplicate-visibility filter options for the Import preview segmented control.
+// "Review" is the uncertain band (scored 60–84): likely duplicates that stay
+// CHECKED so they're never silently dropped — see markDuplicates.
 const DUP_FILTERS = [
   { v: "all", l: "All" },
   { v: "new", l: "New Only" },
+  { v: "review", l: "Review" },
   { v: "dup", l: "Dup Only" },
 ];
 
@@ -5795,11 +5822,12 @@ function AccountMapSection({ transactions, accountMap, onSave }) {
   const dirty = useMemo(() => JSON.stringify(draft) !== JSON.stringify(accountMap || {}), [draft, accountMap]);
 
   return (
-    <CollapsibleCard title="Card mapping (Credit Karma)" badge={cards.length ? `${unmapped} unmapped` : 0}>
+    <CollapsibleCard title="Card mapping" badge={cards.length ? `${unmapped} unmapped` : 0}>
       {cards.length === 0 ? (
         <p style={{ color: "#8b94a3", fontSize: 13, lineHeight: 1.5, margin: 0 }}>
           No card identities found. Re-export with the updated Credit Karma
-          bookmarklet and re-import, then map each card here.
+          bookmarklet (or run a SimpleFin sync) and re-import, then map each
+          card here.
         </p>
       ) : (
         <>
@@ -6290,21 +6318,25 @@ function ManagedList({ title, items, usage, onAdd, onRename, onDelete, onReorder
 // Audit tab
 // ===========================================================================
 
-// "Suggested rules": two read-only lists of classification gaps detected
-// purely from in-memory `transactions` (Unassigned account fragments seen
-// more than once, and "Other"-category tokens with a raw `ckCategory` seen
-// more than once). No auto-write — each action just scrolls/pre-fills the
+// "Suggested rules": read-only lists of classification gaps detected purely
+// from in-memory `transactions` — Unassigned account fragments (A), "Other"
+// tokens with a raw `ckCategory` (B), repeated manual category corrections (C)
+// and merchants stuck in "Other" with no source category at all (D, the
+// SimpleFin case) — each seen more than once. No auto-write: every action just
+// scrolls/pre-fills the
 // existing "Account aliases" / "Category mapping" sections so the user picks
 // the destination and saves through those sections' own existing flows.
 // Dismissal is persisted household-wide via /api/dismissed-suggestions (Redis,
 // same auth/scope as the rest of Settings), so it survives tab switches,
 // reloads and other devices — not just client-side for the current session.
-function SuggestedRulesSection({ suggestedFragments, suggestedTokens, suggestedCorrections, dismissedSuggestions, onDismissSuggestion, onUseFragment, onReviewToken, onCreateRule }) {
+function SuggestedRulesSection({ suggestedFragments, suggestedTokens, suggestedCorrections, suggestedOtherFragments, dismissedSuggestions, onDismissSuggestion, onUseFragment, onReviewToken, onCreateRule }) {
   const dismissed = useMemo(() => new Set(dismissedSuggestions || []), [dismissedSuggestions]);
   const fragments = suggestedFragments.filter((f) => !dismissed.has(`frag:${f.fragment}`));
   const tokens = suggestedTokens.filter((t) => !dismissed.has(`tok:${t.token}`));
   const corrections = (suggestedCorrections || []).filter((c) => !dismissed.has(`manual:${c.key}`));
-  const total = fragments.length + tokens.length + corrections.length;
+  // Group D uses its own dismissal prefix on the same persisted list.
+  const otherFragments = (suggestedOtherFragments || []).filter((c) => !dismissed.has(`otherdesc:${c.key}`));
+  const total = fragments.length + tokens.length + corrections.length + otherFragments.length;
 
   const dismiss = (key) => onDismissSuggestion?.(key);
 
@@ -6455,6 +6487,50 @@ function SuggestedRulesSection({ suggestedFragments, suggestedTokens, suggestedC
                 <button
                   type="button"
                   onClick={() => dismiss(`manual:${c.key}`)}
+                  title="Dismiss"
+                  style={{ background: "transparent", border: "1px solid #2a313c", color: "#8b94a3", borderRadius: 8, padding: "5px 10px", fontSize: 12, cursor: "pointer" }}
+                >
+                  Dismiss
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div style={{ fontSize: 12, color: "#cbd5e1", fontWeight: 600, margin: "12px 0 6px" }}>
+        Merchants stuck in "Other"
+      </div>
+      {otherFragments.length === 0 ? (
+        <div style={{ fontSize: 12, color: "#8b94a3" }}>
+          Nothing repeats enough to suggest.
+        </div>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+          {otherFragments.map((c) => (
+            <div key={c.key} style={{ background: "#161a20", border: "1px solid #1e2530", borderRadius: 10, padding: "8px 10px" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <div style={{ flex: 1, minWidth: 0, fontSize: 12, fontFamily: "monospace", color: "#e5e7eb", overflowWrap: "anywhere" }}>
+                  {c.pattern}
+                </div>
+                <span style={{ fontSize: 11, color: "#8b94a3", flexShrink: 0 }}>{c.count} in Other</span>
+              </div>
+              {c.examples.length ? (
+                <div style={{ fontSize: 11, color: "#8b94a3", marginTop: 4, overflowWrap: "anywhere" }}>
+                  e.g. {c.examples.join(" · ")}
+                </div>
+              ) : null}
+              <div style={{ display: "flex", gap: 8, marginTop: 6 }}>
+                <button
+                  type="button"
+                  onClick={() => onCreateRule(c)}
+                  style={{ background: "#0A84FF", border: "none", color: "#fff", borderRadius: 8, padding: "5px 12px", fontSize: 12, fontWeight: 600, cursor: "pointer" }}
+                >
+                  Create rule from this
+                </button>
+                <button
+                  type="button"
+                  onClick={() => dismiss(`otherdesc:${c.key}`)}
                   title="Dismiss"
                   style={{ background: "transparent", border: "1px solid #2a313c", color: "#8b94a3", borderRadius: 8, padding: "5px 10px", fontSize: 12, cursor: "pointer" }}
                 >
@@ -6661,6 +6737,10 @@ function SettingsTab({
     () => detectManualCategoryCorrections(transactions, categoryDescriptionRules),
     [transactions, categoryDescriptionRules]
   );
+  const suggestedOtherFragments = useMemo(
+    () => detectOtherDescriptionFragments(transactions, categoryDescriptionRules),
+    [transactions, categoryDescriptionRules]
+  );
 
   // Pre-fill/highlight signals for the "Account aliases"/"Category mapping"/
   // "Description rules" sections below, set by the "Use this fragment"/"Review
@@ -6696,6 +6776,7 @@ function SettingsTab({
         suggestedFragments={suggestedFragments}
         suggestedTokens={suggestedTokens}
         suggestedCorrections={suggestedCorrections}
+        suggestedOtherFragments={suggestedOtherFragments}
         dismissedSuggestions={dismissedSuggestions}
         onDismissSuggestion={onDismissSuggestion}
         onUseFragment={handleUseFragment}
@@ -7453,53 +7534,18 @@ function buildRow(raw, mapping, profile, accountMap) {
   // category-mapping decisions. Optional — only present when the column maps.
   const ckCategory = mapping.ckCategory ? val("ckCategory") : "";
   const ckType = mapping.ckType ? val("ckType") : "";
-  // When the raw CK category traveled with the row, compute the ledger
-  // category ourselves via the editable `CK_CATEGORY_MAP` (Audit → "Category
-  // mapping") instead of trusting the already-mapped `category` column — this
-  // is what lets a user-edited mapping affect NEW imports without touching
-  // the external exporters. Falls back to the CSV's own `category` column
-  // when there's no raw CK category (generic CSV path, or older exports).
-  // Safety net: the CSV's own `category` column was computed by the exporter
-  // with access to the raw CK `categoryType` (which is NOT exported as-is —
-  // `ckType` here only ever carries 'income'/'expense'). That means the
-  // editable-map recompute below can never see a raw 'transfer'/'payment'
-  // type and could wrongly demote an already-correct Transfer row (e.g. a
-  // Zelle/ACH whose raw category name has no "TRANSFER"/"PAYMENT" token) to
-  // "Other". If either the recompute or the CSV already says Transfer, the
-  // result must stay Transfer — the editable map is only allowed to affect
-  // non-Transfer categorization, never to "de-transfer" a row.
-  const csvCategory = matchOption(val("category"), CATEGORIES, "Other");
-  const recomputedCategory = ckCategory
-    ? mapCkCategory(ckCategory, ckType, CK_CATEGORY_MAP)
-    : csvCategory;
-
   const description = val("description");
 
-  // Description/provider override rules (Settings → "Description rules"). A
-  // SINGLE pass over the ordered list — the first matching rule wins. These
-  // OVERRIDE the CK-map/CSV category for the "CK got the category wrong, my
-  // rule fixes it" case. Never touches `amount`/its sign.
-  const matchedRule = findMatchingDescriptionRule(
-    { description, srcAccount: rawAccount, account },
-    CATEGORY_DESCRIPTION_RULES
+  // The whole category decision — editable CK map → first matching description
+  // rule → Transfer safety net (PR #111/#135) — now lives in
+  // `resolveImportCategory` (src/ledger.js), unchanged, so the SimpleFin path
+  // can run the EXACT same pipeline instead of defaulting every synced row to
+  // "Other". See that function for the precedence and why a description rule
+  // may never de-transfer a row unless it opted into `allowTransferOverride`.
+  const { category } = resolveImportCategory(
+    { description, srcAccount: rawAccount, account, category: val("category"), ckCategory, ckType },
+    { categories: CATEGORIES, ckCategoryMap: CK_CATEGORY_MAP, descriptionRules: CATEGORY_DESCRIPTION_RULES }
   );
-  const overridden = matchedRule ? matchedRule.destinationCategory : recomputedCategory;
-
-  // Transfer safety-net: keeps a CK-sourced (or CSV-sourced) Transfer as
-  // Transfer even when a rule matches — a description rule can NEVER de-transfer
-  // a row by default (intentional invariant, PR #111). The ONLY escape hatch is
-  // a winning rule that explicitly opted into `allowTransferOverride: true`
-  // (which requires a non-empty `providerPattern`); such a rule skips the
-  // safety net entirely and promotes the row into its destination category —
-  // this is the generalization of the former Apple Daily Cash heuristic. Note
-  // that "first match wins" applies here too: a broader non-override rule
-  // ordered before the override rule would win and the override never fires,
-  // which is why migrated Apple Daily Cash rules are prepended to the array.
-  const category = (matchedRule && matchedRule.allowTransferOverride)
-    ? matchedRule.destinationCategory
-    : ((overridden === TRANSFER_CATEGORY || csvCategory === TRANSFER_CATEGORY)
-        ? TRANSFER_CATEGORY
-        : matchOption(overridden, CATEGORIES, "Other"));
 
   const row = {
     id: uid(),
@@ -7523,6 +7569,12 @@ function buildRow(raw, mapping, profile, accountMap) {
   if (last4) row.last4 = last4;
   // Stable per-transaction id from the source, used for de-duplication.
   if (sourceId) row.sourceId = sourceId;
+  // Which feed this row came from ("ck" | "csv" | "sf"). Optional/additive, and
+  // read ONLY by markDuplicates: source ids are unique *per source*, so two
+  // different ids only prove "two different transactions" when both rows come
+  // from the same feed. Without it the same purchase pulled by Credit Karma and
+  // then by SimpleFin could never be recognized as one.
+  row.source = profile?.id === "credit-karma" ? "ck" : "csv";
   return row;
 }
 
@@ -7530,13 +7582,16 @@ function buildRow(raw, mapping, profile, accountMap) {
 // src/ledger.js (imported above).
 
 
-function ImportTransactions({ onImport, accountMap, config, transactions, ckCategoryMap, categoryDescriptionRules }) {
+function ImportTransactions({ onImport, accountMap, config, transactions, ckCategoryMap, categoryDescriptionRules, money, hideValues, onConfirmDuplicateMatch }) {
   // Three methods: Credit Karma (auto-mapped, day-to-day), CSV (manual
   // mapping, one-time history backfill), and SimpleFin (on-demand pull via
   // api/simplefin-sync.js — complementary to the manual CK import, not a
   // replacement; there's no background/cron sync, just a "Sync now" button).
   const [method, setMethod] = useState("ck");
   const profile = BANK_PROFILES.find((p) => p.id === (method === "ck" ? "credit-karma" : "generic"));
+  // Every amount rendered by the preview goes through the app's privacy-eye
+  // helper (the preview used to print raw usd.format, ignoring the toggle).
+  const fmtMoney = money || ((n) => usd.format(n || 0));
 
   const [rawRows, setRawRows] = useState([]);
   const [headers, setHeaders] = useState([]);
@@ -7664,16 +7719,26 @@ function ImportTransactions({ onImport, accountMap, config, transactions, ckCate
     // preview instead of showing stale categories.
   }, [method, sfRows, rawRows, mapping, profile, accountMap, config, ckCategoryMap, categoryDescriptionRules]);
 
-  // Flag duplicates against existing data + within the batch.
+  // Flag duplicates against existing data + within the batch. Three states now
+  // (see markDuplicates): "certain" | "uncertain" | "new".
   const dedupedRows = useMemo(() => markDuplicates(csvRows, transactions || []), [csvRows, transactions]);
-  const dupCount = useMemo(() => dedupedRows.filter((r) => r._dup).length, [dedupedRows]);
+  const dupCount = useMemo(() => dedupedRows.filter((r) => r._dupState === "certain").length, [dedupedRows]);
+  const reviewCount = useMemo(() => dedupedRows.filter((r) => r._dupState === "uncertain").length, [dedupedRows]);
 
-  // Per-row selection. Default: keep non-duplicates checked, duplicates
-  // unchecked. Resets whenever the parsed/mapped batch changes.
+  // Per-row selection. Default: ONLY certain duplicates start unchecked.
+  // Everything else — including the "probably a duplicate" review band — starts
+  // checked: an unchecked false positive vanishes silently from the ledger,
+  // while a duplicate that slips through is visible (and bulk-deletable) in the
+  // Transactions tab. Resets whenever the parsed/mapped batch changes.
   const [selected, setSelected] = useState(() => new Set());
   // Duplicate-visibility filter for the preview list only ("all" | "new" |
-  // "dup"). Independent from `selected` (what actually gets imported).
+  // "review" | "dup"). Independent from `selected` (what actually gets imported).
   const [dupFilter, setDupFilter] = useState("all");
+  // Rows the user explicitly confirmed as "this IS the existing transaction"
+  // in the review band (id -> matched existing id). Kept locally just to render
+  // the confirmation; the actual write (altSourceIds on the EXISTING row) goes
+  // through onConfirmDuplicateMatch.
+  const [confirmedDups, setConfirmedDups] = useState(() => new Map());
   // Per-row category corrections made in the preview, before import. Keyed
   // by row id -> { category, categoryManual }. Same manual-correction
   // semantics as EditModal (see setCategoryOverride below), so these
@@ -7682,10 +7747,28 @@ function ImportTransactions({ onImport, accountMap, config, transactions, ckCate
   // batch changes (same trigger as `selected`/`dupFilter`).
   const [categoryOverrides, setCategoryOverrides] = useState(() => new Map());
   useEffect(() => {
-    setSelected(new Set(dedupedRows.filter((r) => !r._dup).map((r) => r.id)));
+    setSelected(new Set(dedupedRows.filter((r) => r._dupState !== "certain").map((r) => r.id)));
     setDupFilter("all");
     setCategoryOverrides(new Map());
+    setConfirmedDups(new Map());
   }, [dedupedRows]);
+
+  // "Yes, this new row is the existing transaction": records the new row's
+  // source id on the EXISTING transaction (altSourceIds) so the next sync
+  // recognizes it by id instead of guessing again, and unchecks the row so it
+  // isn't imported twice. Deliberately a separate, explicit action — merely
+  // unchecking a row means "don't import", not "these are the same".
+  const confirmDuplicate = (row) => {
+    const match = row._dupMatch;
+    if (!match || !match.existing || !match.id || !row.sourceId) return;
+    onConfirmDuplicateMatch?.(match.id, row.sourceId);
+    setConfirmedDups((prev) => new Map(prev).set(row.id, match.id));
+    setSelected((prev) => {
+      const next = new Set(prev);
+      next.delete(row.id);
+      return next;
+    });
+  };
 
   const setCategoryOverride = (id, autoCategory, newCategory) => {
     setCategoryOverrides((prev) => {
@@ -7730,7 +7813,9 @@ function ImportTransactions({ onImport, accountMap, config, transactions, ckCate
     // inspection) must never reach the ledger — it can carry arbitrary,
     // institution-specific blobs that have nothing to do with the fixed
     // transaction shape.
-    const toImport = displayRows.filter((r) => selected.has(r.id)).map(({ _dup, raw, ...t }) => t);
+    const toImport = displayRows
+      .filter((r) => selected.has(r.id))
+      .map(({ _dup, _dupState, _dupScore, _dupReasons, _dupMatch, raw, ...t }) => t);
     onImport(toImport);
     setDone(`Imported ${toImport.length} transactions${dupCount ? ` · ${dupCount} duplicate(s) detected` : ""}.`);
     // These rows came from the server-side pending queue (cron-fetched, not
@@ -7941,10 +8026,11 @@ function ImportTransactions({ onImport, accountMap, config, transactions, ckCate
               {rawRows.length === csvRows.length ? `${csvRows.length} valid` : `${rawRows.length} parsed · ${csvRows.length} valid`}
               {skippedCount > 0 ? <span style={{ color: "#fbbf24" }}> · {skippedCount} skipped (non-numeric rows)</span> : null} · <span style={{ color: "#cbd5e1" }}>{selectedCount} selected</span>
               {dupCount ? <span style={{ color: "#fbbf24" }}> · {dupCount} duplicate{dupCount === 1 ? "" : "s"} auto-unchecked</span> : null}
+              {reviewCount ? <span style={{ color: "#fbbf24" }}> · {reviewCount} to review (kept checked)</span> : null}
             </span>
             <button onClick={selectAll} style={S.linkBtn}>Select all</button>
             <button onClick={selectNone} style={S.linkBtn}>Deselect all</button>
-            {dupCount ? (
+            {dupCount || reviewCount ? (
               <div style={S.segmented}>
                 {DUP_FILTERS.map(({ v, l }) => (
                   <button key={v} onClick={() => setDupFilter(v)} style={S.segmentedBtn(dupFilter === v)}>
@@ -7956,24 +8042,35 @@ function ImportTransactions({ onImport, accountMap, config, transactions, ckCate
           </div>
           <div style={{ ...S.list, maxHeight: 300, overflowY: "auto" }}>
             {(() => {
-              const previewRows = displayRows.filter((t) => (dupFilter === "dup" ? t._dup : dupFilter === "new" ? !t._dup : true));
+              const previewRows = displayRows.filter((t) =>
+                dupFilter === "dup" ? t._dupState === "certain"
+                  : dupFilter === "review" ? t._dupState === "uncertain"
+                  : dupFilter === "new" ? t._dupState === "new"
+                  : true
+              );
               return (
                 <>
             {previewRows.slice(0, 400).map((t) => {
               const checked = selected.has(t.id);
               const autoCategory = t.autoCategory ?? t.category;
               const edited = t.category !== autoCategory;
+              const certain = t._dupState === "certain";
+              const review = t._dupState === "uncertain";
+              const match = t._dupMatch;
+              const confirmed = confirmedDups.has(t.id);
+              const reasons = (t._dupReasons || []).join(" · ");
               return (
+                <div key={t.id} style={certain || review ? S.importDupWrap(review) : undefined}>
                 <div
-                  key={t.id}
                   onClick={() => toggleRow(t.id)}
-                  style={{ ...S.txnRow, cursor: "pointer", gap: 10, opacity: checked ? 1 : 0.5, outline: t._dup ? "1px solid #5b4a16" : undefined }}
+                  style={{ ...S.txnRow, cursor: "pointer", gap: 10, opacity: checked ? 1 : 0.5, border: certain || review ? "none" : undefined }}
                 >
                   <input type="checkbox" checked={checked} onChange={() => toggleRow(t.id)} onClick={(e) => e.stopPropagation()} style={S.checkbox} />
                   <div style={{ minWidth: 0, flex: 1 }}>
                     <div style={{ fontSize: 14, color: "#e5e7eb", overflowWrap: "anywhere" }}>
                       {t.description || t.category}
-                      {t._dup ? <span style={{ marginLeft: 6, fontSize: 10, fontWeight: 700, color: "#fbbf24", border: "1px solid #5b4a16", borderRadius: 6, padding: "1px 5px", verticalAlign: "1px" }}>DUP</span> : null}
+                      {certain ? <span title={reasons} style={S.dupBadge(false)}>DUP</span> : null}
+                      {review ? <span title={reasons} style={S.dupBadge(true)}>DUP?</span> : null}
                       {edited ? <span title={`Auto-detected as ${autoCategory}`} style={{ marginLeft: 6, fontSize: 10, fontWeight: 700, color: "#60a5fa", border: "1px solid #1d3a5f", borderRadius: 6, padding: "1px 5px", verticalAlign: "1px" }}>EDITED</span> : null}
                     </div>
                     <div style={{ fontSize: 11, color: "#8b94a3", display: "flex", alignItems: "center", gap: 6, marginTop: 3 }}>
@@ -7990,7 +8087,50 @@ function ImportTransactions({ onImport, accountMap, config, transactions, ckCate
                       </select>
                     </div>
                   </div>
-                  <span style={{ fontSize: 14, color: "#cbd5e1", whiteSpace: "nowrap" }}>{usd.format(t.amount)}</span>
+                  <span style={{ fontSize: 14, color: "#cbd5e1", whiteSpace: "nowrap" }}>{fmtMoney(t.amount)}</span>
+                </div>
+                {(certain || review) && reasons ? (
+                  <div style={S.importDupReasons}>{reasons}</div>
+                ) : null}
+                {/* Uncertain band only: show what it looks like next to the row
+                    it probably duplicates, so the decision isn't a coin flip. */}
+                {review && match ? (
+                  <div style={S.importDupCompare} onClick={(e) => e.stopPropagation()}>
+                    <div style={S.importDupCol}>
+                      <div style={S.importDupColHead}>Já no ledger</div>
+                      <div style={S.importDupColLine}>{match.date || "—"}</div>
+                      <div style={S.importDupColLine}>{match.description || "—"}</div>
+                      <div style={S.importDupColLine}>{match.account || "Unassigned"}</div>
+                    </div>
+                    <div style={S.importDupCol}>
+                      <div style={{ ...S.importDupColHead, color: "#60a5fa" }}>Esta linha</div>
+                      <div style={S.importDupColLine}>{t.date || "—"}</div>
+                      <div style={S.importDupColLine}>{t.description || "—"}</div>
+                      <div style={S.importDupColLine}>{t.account || "Unassigned"}</div>
+                    </div>
+                  </div>
+                ) : null}
+                {review && match ? (
+                  <div style={S.importDupActions}>
+                    {/* The two amounts are identical by construction (the score
+                        gate requires the same signed cents), so one masked-aware
+                        line says it once instead of twice. */}
+                    <span style={{ color: "#8b94a3" }}>
+                      {hideValues ? "Mesmo valor nos dois lados" : `Mesmo valor: ${fmtMoney(t.amount)}`}
+                    </span>
+                    {confirmed ? (
+                      <span style={{ color: "#34d399" }}>Marcada como duplicata — não será importada.</span>
+                    ) : match.existing && t.sourceId ? (
+                      <button
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); confirmDuplicate(t); }}
+                        style={S.importDupBtn}
+                      >
+                        Marcar como duplicata da existente
+                      </button>
+                    ) : null}
+                  </div>
+                ) : null}
                 </div>
               );
             })}
@@ -8023,12 +8163,8 @@ function ImportTransactions({ onImport, accountMap, config, transactions, ckCate
   );
 }
 
-function matchOption(value, options, fallback) {
-  if (!value) return fallback;
-  const v = value.toLowerCase();
-  const hit = options.find((o) => o.toLowerCase() === v);
-  return hit || fallback;
-}
+// matchOption now lives in src/ledger.js (imported above) — the import-time
+// category pipeline moved there and both sides must share ONE implementation.
 
 // normAccount / matchAccountWithAliasesReason / matchAccountWithAliases now
 // live in src/ledger.js (imported above) and take the accounts list as a
@@ -8054,14 +8190,34 @@ function classifyAccount(rawAccount, accountUrn, accountMap) {
 // future cascade audit. Reads `t.srcAccount` (the source's raw account/card
 // label kept for audit) — rows without it can't be reclassified by alias.
 // Shared classification for SimpleFin queue rows (pending review or a fresh
-// sync): resolves the suggested account via classifyAccount and falls back
-// the category through matchOption, same as the import preview pipeline.
+// sync). Two things it must do exactly like the CSV/CK preview pipeline:
+// - resolve the account by the source's stable URN FIRST (`t.accountUrn`,
+//   promoted to a top-level field by lib/simplefin.js). Passing "" here meant
+//   the card map never applied and every Chase card — all five literally named
+//   "CREDIT CARD" — collapsed onto the same alias guess.
+// - run the full category pipeline (`resolveImportCategory`) instead of a bare
+//   matchOption of SimpleFin's placeholder category, which SimpleFin always
+//   sends as "Other": before this, no synced row could ever be classified by a
+//   Description rule.
 // Used by ImportTransactions (both "Sync now" and "Revisar pendentes").
 function classifySimpleFinRows(transactions, accountMap) {
   return (transactions || []).map((t) => {
-    const account = classifyAccount(t.srcAccount, "", accountMap) || "";
-    const category = matchOption(t.category, CATEGORIES, "Other");
-    return { ...t, account, category, autoCategory: category };
+    const account = classifyAccount(t.srcAccount, t.accountUrn || "", accountMap) || "";
+    const { category } = resolveImportCategory(
+      {
+        description: t.description,
+        srcAccount: t.srcAccount,
+        account,
+        category: t.category,
+        ckCategory: t.ckCategory,
+        ckType: t.ckType,
+      },
+      { categories: CATEGORIES, ckCategoryMap: CK_CATEGORY_MAP, descriptionRules: CATEGORY_DESCRIPTION_RULES }
+    );
+    // `source` also set here (not only in lib/simplefin.js) so rows already
+    // sitting in the server-side pending queue from before this version still
+    // get tagged for the cross-source duplicate check.
+    return { ...t, account, category, autoCategory: category, source: "sf" };
   });
 }
 
@@ -8203,6 +8359,43 @@ export function detectManualCategoryCorrections(transactions, descriptionRules) 
       pattern: g.key,
     }))
     .sort((a, b) => b.count - a.count);
+}
+
+// Group D (uncategorized merchants): rows that landed in the catch-all "Other"
+// grouped by their description fragment (`descFragment`, the same merchant key
+// Group C and the created rule use). This is the SimpleFin-shaped gap: those
+// rows arrive with no source category at all, so nothing but a description rule
+// can ever classify them — and until one exists they pile up invisibly in
+// "Other".
+// Skips, from the start (not as a follow-up):
+// - rows already matched by ANY existing description rule. First-match-wins
+//   means a new rule for the same fragment could never fire anyway, and without
+//   this the panel would flood with the entire pre-fix SimpleFin history the
+//   moment the user creates the very rule it asked for.
+// - rows the user manually set to "Other" (categoryManual) — that's a decision,
+//   not a gap.
+// Threshold >= 2 like the other groups; capped at the top 20 fragments so the
+// panel stays a suggestion list instead of a report.
+export function detectOtherDescriptionFragments(transactions, descriptionRules) {
+  const groups = new Map();
+  for (const t of transactions || []) {
+    if ((t.category || "") !== "Other") continue;
+    if (t.categoryManual === true) continue;
+    if (findMatchingDescriptionRule(t, descriptionRules)) continue; // already covered
+    const key = descFragment(t.description);
+    if (!key) continue;
+    const e = groups.get(key) || { key, count: 0, examples: [] };
+    e.count++;
+    if (e.examples.length < 3 && t.description && !e.examples.includes(t.description)) {
+      e.examples.push(t.description);
+    }
+    groups.set(key, e);
+  }
+  return [...groups.values()]
+    .filter((g) => g.count >= 2)
+    .map((g) => ({ ...g, pattern: g.key }))
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 20);
 }
 
 // ===========================================================================
@@ -8550,6 +8743,80 @@ const S = {
     fontSize: 11,
     lineHeight: 1.4,
     boxShadow: "inset 0 1px 2px rgba(0,0,0,0.2)",
+  },
+  // --- Import preview: duplicate states -----------------------------------
+  // `review` (the uncertain 60–84 band) gets the same amber family as a certain
+  // duplicate but a filled tint, because it's the state that asks for a
+  // decision instead of just reporting one.
+  importDupWrap: (review) => ({
+    background: review ? "rgba(251,191,36,0.06)" : "transparent",
+    border: "1px solid #5b4a16",
+    borderRadius: 14,
+    overflow: "hidden",
+  }),
+  dupBadge: (review) => ({
+    marginLeft: 6,
+    fontSize: 10,
+    fontWeight: 700,
+    color: "#fbbf24",
+    background: review ? "rgba(251,191,36,0.14)" : "transparent",
+    border: "1px solid #5b4a16",
+    borderRadius: 6,
+    padding: "1px 5px",
+    verticalAlign: "1px",
+  }),
+  importDupReasons: {
+    fontSize: 11,
+    color: "#8b94a3",
+    padding: "0 12px 8px 38px",
+    lineHeight: 1.4,
+    overflowWrap: "anywhere",
+  },
+  importDupCompare: {
+    display: "flex",
+    gap: 8,
+    padding: "0 12px 8px",
+  },
+  importDupCol: {
+    flex: 1,
+    minWidth: 0,
+    background: "#12161c",
+    border: "1px solid #1e2530",
+    borderRadius: 10,
+    padding: "6px 8px",
+  },
+  importDupColHead: {
+    fontSize: 10,
+    fontWeight: 700,
+    textTransform: "uppercase",
+    letterSpacing: 0.6,
+    color: "#8b94a3",
+    marginBottom: 3,
+  },
+  importDupColLine: {
+    fontSize: 11,
+    color: "#cbd5e1",
+    overflowWrap: "anywhere",
+    lineHeight: 1.4,
+  },
+  importDupActions: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    flexWrap: "wrap",
+    gap: 8,
+    fontSize: 11,
+    padding: "0 12px 10px",
+  },
+  importDupBtn: {
+    background: "transparent",
+    border: "1px solid #5b4a16",
+    color: "#fbbf24",
+    borderRadius: 8,
+    padding: "5px 10px",
+    fontSize: 11,
+    fontWeight: 600,
+    cursor: "pointer",
   },
   primaryBtn: {
     width: "100%",

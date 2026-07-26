@@ -1,4 +1,4 @@
-# Household Ledger · v1.55.0
+# Household Ledger · v1.56.0
 
 Aplicativo mobile-first de controle financeiro doméstico. Registra
 transações da casa (despesas e receitas) por categoria e conta, com
@@ -31,7 +31,77 @@ O `feature-auditor` deve conferir, como parte da checklist de auditoria, que
 o diff inclui o bump nos dois arquivos antes de aprovar — se faltar, isso é
 motivo de reprovação (devolver ao coder), não um detalhe opcional.
 
-Versão atual: **v1.55.0** — **feat: login via Google OAuth (Google Identity
+Versão atual: **v1.56.0** — **feat: dedup cross-source no import +
+categorização automática de linhas SimpleFin** (`src/ledger.js`,
+`src/App.jsx`, `lib/simplefin.js`). Três frentes:
+
+1. **Dedup cross-source** (`markDuplicates` reescrito). A mesma compra vinda
+   pelo Credit Karma e depois pelo SimpleFin não era detectada (o fuzzy era
+   curto-circuitado para qualquer linha com `sourceId`, e o índice era
+   chaveado por conta+centavos, então uma linha `Unassigned` nunca casava com
+   uma classificada). Agora: campo aditivo opcional `source` (`"ck" | "csv" |
+   "sf"`) gravado no import; ids **em comum** provam duplicata sempre
+   (inclusive cross-source, que é o que faz o `altSourceIds` funcionar), mas
+   ids **diferentes** só provam "transações distintas" quando as fontes não
+   são comprovadamente diferentes — "não provado diferente" **bloqueia**, não
+   libera. Como só o SimpleFin escreve `source: "sf"` (`lib/simplefin.js`),
+   uma linha sem tag é comprovadamente não-SimpleFin, e isso basta para
+   decidir sem backfill: legado×ck e ck×ck bloqueiam (proteção do PR #51
+   preservada para todo o histórico, que nasce sem `source`), legado×sf e
+   ck×sf liberam o fuzzy. Comparar os dois campos diretamente seria um bug
+   silencioso — leria legado×ck como troca de fonte e fundiria gastos
+   genuinamente distintos no caminho de import diário; índice por centavos assinados, com a conta virando sinal
+   pontuado; matching **1:1 com consumo**. Função pura nova
+   `scoreDuplicateCandidate(a, b)` → `{ score, dayDiff, reasons }`, com gate
+   rígido de centavos e `score = 100 − penalidade de data − de conta − de
+   descrição` (data 0d→0, 1d→5, 2d→10, 3d→18, 4–5d→28, >5d descarta;
+   conta igual→0, um lado sem conta→10, diferentes→40; descrição por Jaccard
+   sobre tokens de `normalizeMerchant`+`descWords`: ≥0.6→0, ≥0.3→10, ≥1
+   token→20, nenhum→35). `reasons` são frases curtas em PT — o número cru
+   nunca vai sozinho à tela. Três estados na prévia do Import
+   (`_dupState`): **certain** (id igual, fingerprint idêntico ou score ≥85)
+   → desmarcada, badge `DUP`; **uncertain** (60–84) → **marcada**, badge
+   âmbar `DUP?` + comparação lado a lado com a linha existente; **new**
+   (<60) → marcada, sem badge. O default é assimétrico de propósito: falso
+   positivo faz uma transação real sumir em silêncio, falso negativo só
+   duplica uma linha visível e removível em massa. Quarto bucket "Review" no
+   filtro do preview. Botão explícito "Marcar como duplicata da existente" na
+   faixa incerta grava `altSourceIds` (array aditivo opcional) na transação
+   **existente** via `updateTransaction`, então a próxima sync vira id-match
+   exato. Helper novo `normalizeMerchant()` (tira prefixos de gateway `SQ *`,
+   `TST*`, `PAYPAL *`, `SP `, `POS DEBIT`, `PURCHASE AUTHORIZED ON MM/DD`,
+   runs de dígitos e sufixo de cidade/estado de 2 letras) — consumido só pela
+   penalidade de descrição do dedup; **não** foi ligado em
+   `descriptionRuleMatches` (as rules casam por substring, o ganho seria
+   baixo e o risco de mudar regras salvas, alto).
+2. **SimpleFin dentro do motor de regras**. A etapa de categoria do
+   `buildRow` virou função pura `resolveImportCategory()` em `src/ledger.js`
+   (junto com `matchOption`, que saiu do `App.jsx`), chamada também por
+   `classifySimpleFinRows`. Antes, toda linha do SimpleFin entrava como
+   `Other` para sempre — nunca via o mapa CK→ledger nem as Description
+   rules. A precedência do PR #135 saiu byte a byte igual e está coberta por
+   testes: nenhuma Description rule de-transfere por padrão; o único escape
+   continua sendo regra vencedora com `allowTransferOverride: true` (que
+   exige `providerPattern`).
+3. **Link de contas do SimpleFin**. `accountUrn` subiu a campo de topo em
+   `mapTransaction()` (`lib/simplefin.js`) — antes só existia dentro de
+   `raw`, que é descartado no confirm do import, e `classifySimpleFinRows`
+   passava `""` como URN, então o card map nunca se aplicava (no Chase são
+   cinco cartões chamados "CREDIT CARD"). O card "Card mapping" (renomeado
+   de "Card mapping (Credit Karma)") passa a listar cartões SimpleFin
+   automaticamente, sem mudança de UI.
+
+Extras: grupo D em "Suggested rules" (Settings) — "merchants stuck in
+Other", agrupados por fragmento de descrição, com dismiss persistido
+(prefixo `otherdesc:`) e "Create rule from this" pré-preenchendo a seção
+Description rules; nasce pulando linhas já cobertas por rule vigente (senão
+inundaria com todo o histórico SimpleFin pré-fix). Fix: a prévia do import
+agora respeita o olho de privacidade (`money`/`hideValues` threaded até
+`ImportTransactions`, que imprimia `usd.format` cru). Sem mudança de
+contrato de API/Redis; `source`, `altSourceIds` e `accountUrn` são campos
+aditivos opcionais.
+
+Versão anterior: **v1.55.0** — **feat: login via Google OAuth (Google Identity
 Services), substitui a senha de app compartilhada** (`lib/auth.js`,
 endpoint `POST /api/config?googleLogin=1` (dobrado em `api/config.js` para
 respeitar o limite de 12 Serverless Functions do Vercel Hobby), `src/App.jsx`,
@@ -1628,9 +1698,34 @@ Cada transação:
   "ckCategory": "GROCERIES",   // opcional — categoria crua da fonte (auditoria)
   "sourceId": "abc123",        // opcional — id da transação na fonte (dedup)
   "categoryManual": true,      // opcional — usuário trocou a categoria manualmente
-  "autoCategory": "Groceries"  // opcional — categoria computada por buildRow no import (snapshot)
+  "autoCategory": "Groceries", // opcional — categoria computada por buildRow no import (snapshot)
+  "source": "ck",              // opcional (v1.56.0) — feed de origem: "ck" | "csv" | "sf"
+  "altSourceIds": ["9"]        // opcional (v1.56.0) — ids de OUTRAS fontes confirmados como a mesma transação
 }
 ```
+
+**`source`/`altSourceIds` (v1.56.0).** Ambos aditivos e opcionais; nenhum
+altera o contrato de `/api/transactions` nem o formato Redis, e
+`mergeTransactions` não sabe nada sobre eles (opera sobre o objeto inteiro,
+por `id` — permanece agnóstico de schema por princípio).
+
+`source` é gravado **no import**, por `buildRow` (`"ck"`/`"csv"` conforme o
+profile) e por `classifySimpleFinRows`/`mapTransaction` (`"sf"`). Serve
+exclusivamente ao dedup: dois `sourceId` diferentes só significam
+"transações distintas" quando vêm do mesmo espaço de ids. **Todo o histórico
+anterior à v1.56.0 não tem o campo** — e a regra é escrita para isso: "não
+provado diferente" bloqueia. Como só o SimpleFin escreve `"sf"`, uma linha
+sem tag é comprovadamente não-SimpleFin, o que basta para decidir sem
+backfill nem migração. Comparar os dois campos com `===`/`!==` direto seria
+um bug silencioso — leria legado×`"ck"` como troca de fonte e fundiria
+gastos genuinamente distintos no import diário, quebrando a garantia do
+PR #51 justamente para os dados que já existem.
+
+`altSourceIds` é gravado **em runtime**, na transação **já existente**, quando
+o usuário clica "Marcar como duplicata da existente" na faixa `uncertain` da
+prévia de import (via `updateTransaction`, sem endpoint novo). É o mecanismo
+que faz a incerteza decair: o que hoje exige julgamento humano vira, na
+próxima sincronização, um id-match exato de custo zero.
 
 Persistido no Redis como `{ transactions: [...], savedAt }`. Os campos
 `srcAccount` e `ckCategory` só existem quando a fonte do import os fornece;
@@ -2552,32 +2647,69 @@ shell de altura cheia (`#root` em `100lvh` + shell `height:100%`): só o
    metadados de conta/org. Mesmos estados vazio/erro/loading da tabela de
    transactions, mesmo padrão visual (`Empty`, `S.errorBar`).
 
-   **Deduplicação (híbrida).** Na prévia, cada linha tem checkbox e as
-   duplicadas vêm **desmarcadas** (badge `DUP`), com Select/Deselect all —
-   só as marcadas são importadas. Quando há duplicatas detectadas
-   (`dupCount > 0`), aparece um filtro de visualização da prévia: **desde a
-   v1.16.2 (PR #126)**, um **segmented control de 3 opções** — "All" / "New
-   Only" / "Dup Only" (estado `dupFilter`, enum `"all"|"new"|"dup"`) — no
-   lugar dos 2 checkboxes mutuamente exclusivos "Only duplicates"/"Only
-   non-duplicates" introduzidos na v1.15.2 (PR #123). É um filtro **de
-   visualização da prévia apenas** — não afeta o Set `selected` que
-   determina o que de fato é importado. O botão **"Import N
-   transactions"** fica em uma **barra sticky** (`bottom: 0`,
-   gradiente para o fundo do app), sempre visível sem precisar rolar até o
-   fim da lista depois de carregar o arquivo; `maxHeight` da lista de
-   preview reduzido de 360 para 300 px para abrir espaço para a barra. A
-   detecção (`markDuplicates`) compara contra os dados existentes **e**
-   dentro do próprio lote em dois estágios (PR #51):
+   **Deduplicação (três estados, desde a v1.56.0).** Na prévia, cada linha
+   tem checkbox e um `_dupState` calculado por `markDuplicates`, com
+   Select/Deselect all — só as marcadas são importadas. Quando há duplicatas
+   detectadas (`dupCount > 0`), aparece um filtro de visualização da prévia:
+   um **segmented control** — "All" / "New Only" / "Dup Only" / "Review"
+   (estado `dupFilter`, enum `"all"|"new"|"dup"|"review"`; o quarto bucket
+   entrou na v1.56.0, os três primeiros vêm da v1.16.2/PR #126, que já havia
+   substituído os 2 checkboxes mutuamente exclusivos da v1.15.2/PR #123). É
+   um filtro **de visualização da prévia apenas** — não afeta o Set
+   `selected` que determina o que de fato é importado. O botão **"Import N
+   transactions"** fica em uma **barra sticky** (`bottom: 0`, gradiente para
+   o fundo do app), sempre visível sem precisar rolar até o fim da lista
+   depois de carregar o arquivo; `maxHeight` da lista de preview reduzido de
+   360 para 300 px para abrir espaço para a barra.
 
-   - **Fast-path por `sourceId`** (Credit Karma): quando os dois lados têm
-     `sourceId`, compara por id — assim dois gastos reais idênticos nunca são
-     fundidos. Mantido intacto.
-   - **Fuzzy sem `sourceId`** (CSV genérico): critério multicampo —
-     mesmo `account` + mesmo `amount` em centavos exatos + data ±1 dia +
-     ao menos 1 palavra em comum na descrição (≥3 chars, excluindo stop
-     words). Índice por `account|cents` para eficiência (O(n + m×k)).
-     Substitui o fingerprint anterior `data│valor│descrição│conta` que
-     falhava quando o `sourceId` estava ausente.
+   Os três estados e seus defaults de seleção:
+
+   - **`certain`** — id de origem em comum (inclusive cross-source via
+     `altSourceIds`), fingerprint de conteúdo idêntico, ou `score >= 85`.
+     Vem **desmarcada**, badge `DUP` + as `reasons` do score.
+   - **`uncertain`** — `score` entre 60 e 84. Vem **MARCADA**, badge âmbar
+     `DUP?` + comparação lado a lado com a linha existente (data, descrição,
+     conta, valor via `money`, respeitando `hideValues`) e um botão
+     "Marcar como duplicata da existente" que grava `altSourceIds`.
+   - **`new`** — `score < 60` ou nenhum candidato. Marcada, sem badge.
+
+   **O default é assimétrico de propósito** e está documentado no código
+   (`DUP_SCORE_CERTAIN`/`DUP_SCORE_REVIEW`, `src/ledger.js`): um falso
+   positivo faz uma transação real nunca entrar no ledger, e o usuário não
+   tem como perceber que ela sumiu; um falso negativo só duplica uma linha
+   que fica visível na tab Transactions e é removível em massa. Perder é
+   pior que duplicar, então só a quase-certeza desmarca.
+
+   A detecção compara contra os dados existentes **e** dentro do próprio
+   lote, em três estágios:
+
+   - **Id de origem** — `sourceId` + `altSourceIds`, sobre o pool inteiro.
+     Id em comum é veredito de duplicata, sempre. Ids diferentes só provam
+     "transações distintas" quando as fontes **não** são comprovadamente
+     diferentes (ver `source` no Modelo de dados) — é o que preserva a
+     garantia do PR #51 de que dois gastos reais idênticos nunca são
+     fundidos, inclusive para todo o histórico legado sem `source`.
+   - **Fingerprint exato** — `data│valor│descrição│conta` (`txnFingerprint`).
+   - **Score de similaridade** — `scoreDuplicateCandidate(a, b)`, função pura
+     em `src/ledger.js`. Gate rígido de centavos assinados idênticos (senão
+     nem vira candidato); `score = 100 − penalidade de data − de conta − de
+     descrição`, com data 0d→0, 1d→5, 2d→10, 3d→18, 4–5d→28 e **>5d
+     descartando o candidato**; conta igual→0, um lado sem conta→10,
+     diferentes→40; descrição por Jaccard sobre tokens de
+     `normalizeMerchant` + `descWords`: ≥0.6→0, ≥0.3→10, ≥1 token→20,
+     nenhum→35. Índice por **centavos** (a conta virou sinal pontuado em vez
+     de parte da chave, senão uma linha `Unassigned` nunca casava com uma
+     classificada) e **matching 1:1 com consumo**: cada linha existente só
+     absorve um candidato, então dois gastos idênticos no mesmo dia não
+     colapsam num só.
+
+   Nota de calibração: o antigo hit fuzzy (mesma conta + centavos + ≤2 dias +
+   ≥1 palavra em comum) era auto-desmarcado como certeza. Ele agora pontua
+   70–80 e cai em `uncertain`. É correção de falso positivo, não afrouxamento
+   — `descOverlap` exige uma única palavra ≥3 chars, então
+   "AMAZON MARKETPLACE ORDER" × "AMAZON PRIME VIDEO RENTAL" com mesmo valor a
+   2 dias era descartado em silêncio. Duplicata real segue em `certain`
+   (descrição idêntica: 100 no mesmo dia, 95/90 a 1–2 dias).
 
    O export do CK emite a coluna `source_id`.
 
@@ -3985,8 +4117,41 @@ riscos reais de perda de dados.
     edita/deleta/importa); reuso de `TxnRow` e do novo helper
     `classifySimpleFinRows` (extraído da lógica antes duplicada no Import).
     Ver seção "UI" para detalhes.
+  - [x] **Fase 3 — dedup cross-source, link de contas e categorização
+    automática** (v1.56.0) — fecha as três lacunas que sobraram das Fases
+    1/2, todas encontradas em auditoria do código e não pelo uso:
+    (a) **dedup cross-source** — a mesma compra vinda pelo CK e depois pelo
+    SimpleFin não era detectada (`isFuzzyDup` curto-circuitava em
+    `r.sourceId` e o índice era chaveado por `account|cents`); `markDuplicates`
+    reescrito com campo `source`, score de confiança
+    (`scoreDuplicateCandidate`), três estados na prévia, bucket "Review" e
+    `altSourceIds`; (b) **link de contas** — `classifySimpleFinRows` passava
+    `""` como URN para `classifyAccount`, então o mapa por URN nunca se
+    aplicava ao SimpleFin (no Chase, cinco cartões chamados "CREDIT CARD");
+    `mapTransaction` agora promove `account.id` a `accountUrn` de topo e o
+    `AccountMapSection` existente resolve o vínculo sem mudança de UI;
+    (c) **categorização** — toda linha do SimpleFin entrava como `Other`,
+    sempre, porque nunca passava por `buildRow`; a etapa de categoria virou
+    a função pura `resolveImportCategory` (`src/ledger.js`), compartilhada
+    pelos dois caminhos, com a precedência do PR #135 e o safety-net de
+    `Transfer` preservados byte a byte. Ver "Modelo de dados" e "UI".
   - [ ] UI de configuração de credencial SimpleFin na Settings — ainda
     hardcoded via env var `SIMPLEFIN_ACCESS_URL` (single-tenant).
+  - [ ] **Follow-ups da v1.56.0** (não bloqueantes, achados na auditoria):
+    o piso da penalidade de descrição deixa um par de mesmo valor/conta/dia
+    sem token em comum pontuando 65 → ruído no bucket "Review"; e confirmar
+    um match duplicado altera `transactions`, o que remonta `dedupedRows` e
+    dispara o effect que zera `selected`/`dupFilter`/`categoryOverrides` —
+    correções de categoria feitas na prévia antes do clique se perdem
+    (a correção é chavear o reset por identidade de lote).
+  - [ ] **`normalizeMerchant()` no matching de Description rules** — o
+    helper existe desde a v1.56.0 mas tem um consumidor só (a penalidade de
+    descrição do dedup). Ligá-lo às rules foi **adiado deliberadamente**: as
+    rules casam por substring, então um pattern `"starbucks"` já casa com
+    `"SQ *STARBUCKS #1234"` hoje — o ganho é baixo e o risco de mudar
+    silenciosamente como as regras salvas casam é alto. Se for feito, exige
+    teste de regressão contra as regras reais e normalizar só o lado da
+    descrição da linha, nunca o `pattern` digitado nem o `provider`.
   - [x] ~~Reconciliação silenciosa sem prévia do usuário~~ — **descartado
     por decisão de produto** (v1.49.0): o usuário optou explicitamente por
     nunca gravar automaticamente no ledger; a fila de pendências do cron

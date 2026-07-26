@@ -20,6 +20,12 @@ import {
   matchAccountWithAliases,
   txnFingerprint,
   markDuplicates,
+  scoreDuplicateCandidate,
+  normalizeMerchant,
+  resolveImportCategory,
+  matchOption,
+  DUP_SCORE_CERTAIN,
+  DUP_SCORE_REVIEW,
   descWords,
   mergeTransactions,
 } from "./ledger.js";
@@ -208,6 +214,87 @@ describe("descWords", () => {
   });
 });
 
+describe("normalizeMerchant", () => {
+  it("strips payment-gateway prefixes", () => {
+    expect(normalizeMerchant("SQ *STARBUCKS SEATTLE")).toBe("starbucks seattle");
+    expect(normalizeMerchant("TST* PIZZA PLACE")).toBe("pizza place");
+    expect(normalizeMerchant("PAYPAL *NETFLIX")).toBe("netflix");
+    expect(normalizeMerchant("SP THREADHEADS")).toBe("threadheads");
+    expect(normalizeMerchant("POS DEBIT WHOLE FOODS MKT")).toBe("whole foods mkt");
+    expect(normalizeMerchant("PURCHASE AUTHORIZED ON 07/12 STARBUCKS")).toBe("starbucks");
+  });
+
+  it("strips stacked prefixes, digit runs and a trailing 2-letter state code", () => {
+    expect(normalizeMerchant("PURCHASE AUTHORIZED ON 07/12 SQ *STARBUCKS #1234 SEATTLE WA"))
+      .toBe("starbucks seattle");
+    expect(normalizeMerchant("AMZN MKTP US 123456")).toBe("amzn mktp");
+  });
+
+  it("is a no-op when no pattern is present", () => {
+    expect(normalizeMerchant("Grocery Store")).toBe("grocery store");
+    expect(normalizeMerchant("")).toBe("");
+  });
+
+  it("strips only ONE trailing 2-letter code per call (single-pass by design)", () => {
+    // Not idempotent, deliberately: re-running would keep eating two-letter
+    // words off the end until a real merchant name lost part of itself. Every
+    // consumer calls this once, on a raw description.
+    expect(normalizeMerchant("STARBUCKS SEATTLE WA CA")).toBe("starbucks seattle wa");
+    expect(normalizeMerchant("starbucks seattle wa")).toBe("starbucks seattle");
+  });
+});
+
+describe("scoreDuplicateCandidate", () => {
+  const base = { date: "2026-07-01", amount: -25.5, description: "Grocery Store", account: "Chase Reserve" };
+  const at = (patch) => ({ ...base, ...patch });
+
+  it("hard-gates on signed cents", () => {
+    expect(scoreDuplicateCandidate(at({ amount: -25.51 }), base)).toBe(null);
+    expect(scoreDuplicateCandidate(at({ amount: 25.5 }), base)).toBe(null); // sign matters
+    // …even when everything else is a perfect match.
+    expect(scoreDuplicateCandidate(at({ amount: -30 }), base)).toBe(null);
+  });
+
+  it("scores each date tier and discards beyond 5 days", () => {
+    expect(scoreDuplicateCandidate(base, base).score).toBe(100);            // 0d
+    expect(scoreDuplicateCandidate(at({ date: "2026-07-02" }), base).score).toBe(95);  // 1d
+    expect(scoreDuplicateCandidate(at({ date: "2026-07-03" }), base).score).toBe(90);  // 2d
+    expect(scoreDuplicateCandidate(at({ date: "2026-07-04" }), base).score).toBe(82);  // 3d
+    expect(scoreDuplicateCandidate(at({ date: "2026-07-05" }), base).score).toBe(72);  // 4d
+    expect(scoreDuplicateCandidate(at({ date: "2026-06-30" }), base).score).toBe(95);  // 1d back
+    expect(scoreDuplicateCandidate(at({ date: "2026-07-06" }), base).score).toBe(72);  // 5d
+    expect(scoreDuplicateCandidate(at({ date: "2026-07-07" }), base)).toBe(null);      // 6d
+    expect(scoreDuplicateCandidate(base, base).reasons.length).toBeGreaterThan(0);
+  });
+
+  it("scores each account tier", () => {
+    expect(scoreDuplicateCandidate(base, base).score).toBe(100);                    // same
+    expect(scoreDuplicateCandidate(at({ account: "" }), base).score).toBe(90);      // one side unassigned
+    expect(scoreDuplicateCandidate(at({ account: "Apple" }), base).score).toBe(60); // different
+  });
+
+  it("scores each description tier", () => {
+    // Jaccard >= 0.6 (2 shared of 3)
+    expect(scoreDuplicateCandidate(at({ description: "Grocery Store Market" }), base).score).toBe(100);
+    // Jaccard >= 0.3 (1 shared of 3)
+    expect(scoreDuplicateCandidate(at({ description: "Grocery Market" }), base).score).toBe(90);
+    // at least 1 shared token, Jaccard < 0.3 (1 shared of 6)
+    expect(scoreDuplicateCandidate(
+      at({ description: "Grocery Market Fresh Organic Downtown" }), base
+    ).score).toBe(80);
+    // no shared tokens
+    const none = scoreDuplicateCandidate(at({ description: "Gasoline Pump" }), base);
+    expect(none.score).toBe(65);
+    expect(none.reasons).toContain("descrição sem tokens em comum");
+  });
+
+  it("normalizes gateway noise before comparing descriptions", () => {
+    const ck = { date: "2026-07-01", amount: -12.34, description: "SQ *STARBUCKS #1234 SEATTLE WA", account: "Apple" };
+    const sf = { date: "2026-07-01", amount: -12.34, description: "Starbucks Seattle", account: "Apple" };
+    expect(scoreDuplicateCandidate(sf, ck).score).toBe(100);
+  });
+});
+
 describe("markDuplicates", () => {
   const existing = [
     { sourceId: "src-1", date: "2026-07-01", amount: -10, description: "Coffee Shop", account: "Apple" },
@@ -216,28 +303,129 @@ describe("markDuplicates", () => {
 
   it("flags by sourceId when both sides have one", () => {
     const rows = [{ sourceId: "src-1", date: "2026-07-01", amount: -10, description: "Coffee Shop", account: "Apple" }];
-    expect(markDuplicates(rows, existing)[0]._dup).toBe(true);
+    const out = markDuplicates(rows, existing);
+    expect(out[0]._dupState).toBe("certain");
+    expect(out[0]._dup).toBe(true);
+    expect(out[0]._dupReasons.length).toBeGreaterThan(0);
   });
 
-  it("distinct sourceIds are never merged even with identical content", () => {
-    const rows = [{ sourceId: "src-2", date: "2026-07-01", amount: -10, description: "Coffee Shop", account: "Apple" }];
-    expect(markDuplicates(rows, existing)[0]._dup).toBe(false);
+  it("two identical charges from the SAME source are never merged (PR #51)", () => {
+    const prev = [{ source: "ck", sourceId: "ck_1", date: "2026-07-01", amount: -5, description: "Coffee Shop", account: "Apple" }];
+    const rows = [{ source: "ck", sourceId: "ck_2", date: "2026-07-01", amount: -5, description: "Coffee Shop", account: "Apple" }];
+    const out = markDuplicates(rows, prev);
+    expect(out[0]._dupState).toBe("new");
+    expect(out[0]._dup).toBe(false);
+  });
+
+  it("…and legacy rows with no `source` at all count as the same source", () => {
+    // Exactly the same scenario without the new field, so the whole pre-`source`
+    // history keeps the protection above.
+    const prev = [{ sourceId: "ck_1", date: "2026-07-01", amount: -5, description: "Coffee Shop", account: "Apple" }];
+    const rows = [{ sourceId: "ck_2", date: "2026-07-01", amount: -5, description: "Coffee Shop", account: "Apple" }];
+    expect(markDuplicates(rows, prev)[0]._dupState).toBe("new");
+  });
+
+  it("…and an UNTAGGED existing row vs a freshly tagged CK import still doesn't merge", () => {
+    // The shape the real ledger has the day this version ships: every persisted
+    // row predates `source`, while new Credit Karma imports carry source:"ck".
+    // Comparing the two fields directly would read that as a feed change and
+    // re-merge genuinely distinct charges — silently dropping a real
+    // transaction on the daily import path. "Not proven different" must block.
+    const prev = [{ sourceId: "ck_1", date: "2026-07-01", amount: -5, description: "Coffee Shop", account: "Apple" }];
+    const rows = [{ source: "ck", sourceId: "ck_2", date: "2026-07-01", amount: -5, description: "Coffee Shop", account: "Apple" }];
+    const out = markDuplicates(rows, prev);
+    expect(out[0]._dupState).toBe("new");
+    expect(out[0]._dup).toBe(false);
+  });
+
+  it("…while an UNTAGGED existing row vs SimpleFin still merges (feeds provably differ)", () => {
+    // The other half of the same rule: legacy rows are provably not SimpleFin,
+    // so the cross-source match keeps working without backfilling `source`.
+    const prev = [{
+      sourceId: "ck_1", date: "2026-07-01", amount: -12.34,
+      description: "SQ *STARBUCKS #1234 SEATTLE WA", account: "Apple",
+    }];
+    const rows = [{
+      source: "sf", sourceId: "9", date: "2026-07-02", amount: -12.34,
+      description: "Starbucks Seattle", account: "",
+    }];
+    const out = markDuplicates(rows, prev);
+    expect(out[0]._dupState).toBe("certain");
+    expect(out[0]._dupMatch.sourceId).toBe("ck_1");
+  });
+
+  it("merges the SAME purchase seen through Credit Karma and then SimpleFin", () => {
+    // Regression for the cross-source gap: the old implementation short-circuited
+    // the fuzzy check for any row carrying a sourceId, so this pair never matched.
+    const prev = [{
+      source: "ck", sourceId: "ck_1", date: "2026-07-01", amount: -12.34,
+      description: "SQ *STARBUCKS #1234 SEATTLE WA", account: "Apple",
+    }];
+    const rows = [{
+      source: "sf", sourceId: "9", date: "2026-07-02", amount: -12.34,
+      description: "Starbucks Seattle", account: "",
+    }];
+    const out = markDuplicates(rows, prev);
+    expect(out[0]._dupState).toBe("certain"); // 100 − 5 (1d) − 10 (unassigned) − 0
+    expect(out[0]._dupScore).toBe(85);
+    expect(out[0]._dupMatch.sourceId).toBe("ck_1");
+    expect(out[0]._dupMatch.existing).toBe(true);
+  });
+
+  it("a weaker cross-source match lands in the review band and stays CHECKED", () => {
+    const prev = [{
+      source: "ck", sourceId: "ck_1", date: "2026-07-01", amount: -40,
+      description: "Whole Foods Market", account: "Chase Reserve",
+    }];
+    const rows = [{
+      source: "sf", sourceId: "9", date: "2026-07-03", amount: -40,
+      description: "Whole Foods 10432", account: "",
+    }];
+    const out = markDuplicates(rows, prev);
+    expect(out[0]._dupScore).toBe(80); // 100 − 10 (2d) − 10 (unassigned) − 0
+    expect(out[0]._dupState).toBe("uncertain");
+    expect(out[0]._dup).toBe(false); // never auto-unchecked: losing a row is worse than duplicating it
+    expect(out[0]._dupScore).toBeGreaterThanOrEqual(DUP_SCORE_REVIEW);
+    expect(out[0]._dupScore).toBeLessThan(DUP_SCORE_CERTAIN);
+  });
+
+  it("matches 1:1 — each existing row absorbs exactly one incoming row", () => {
+    const prev = [
+      { id: "e1", date: "2026-07-01", amount: -8, description: "Bagel", account: "Apple" },
+      { id: "e2", date: "2026-07-01", amount: -8, description: "Bagel", account: "Apple" },
+    ];
+    const rows = [
+      { id: "n1", date: "2026-07-01", amount: -8, description: "Bagel", account: "Apple" },
+      { id: "n2", date: "2026-07-01", amount: -8, description: "Bagel", account: "Apple" },
+      { id: "n3", date: "2026-07-01", amount: -8, description: "Bagel", account: "Apple" },
+    ];
+    const out = markDuplicates(rows, prev);
+    expect(out.map((r) => r._dupMatch.id)).toEqual(["e1", "e2", "n1"]);
+    expect(out[0]._dupMatch.existing).toBe(true);
+    expect(out[1]._dupMatch.existing).toBe(true);
+    // Both existing rows are spoken for, so the third can only match a sibling
+    // of its own batch — never a third copy of e1.
+    expect(out[2]._dupMatch.existing).toBe(false);
+  });
+
+  it("different cents are never candidates, however similar everything else is", () => {
+    const rows = [{ date: "2026-07-02", amount: -25.49, description: "Grocery Store", account: "Chase Reserve" }];
+    const out = markDuplicates(rows, existing);
+    expect(out[0]._dupState).toBe("new");
+    expect(out[0]._dupMatch).toBe(null);
+  });
+
+  it("more than 5 days apart is discarded outright, not sent to review", () => {
+    const rows = [{ date: "2026-07-09", amount: -25.5, description: "Grocery Store", account: "Chase Reserve" }];
+    const out = markDuplicates(rows, existing);
+    expect(out[0]._dupState).toBe("new");
+    expect(out[0]._dupScore).toBe(null);
   });
 
   it("flags by content fingerprint when no sourceId", () => {
     const rows = [{ date: "2026-07-02", amount: -25.5, description: "  GROCERY   store ", account: "Chase Reserve" }];
-    expect(markDuplicates(rows, existing)[0]._dup).toBe(true);
-  });
-
-  it("fuzzy: same account+cents, ±2 days, shared word", () => {
-    const rows = [
-      { date: "2026-07-04", amount: -25.5, description: "Grocery Market", account: "Chase Reserve" }, // +2d, shares "grocery"
-      { date: "2026-07-06", amount: -25.5, description: "Grocery Market", account: "Chase Reserve" }, // +4d → not dup of existing…
-    ];
     const out = markDuplicates(rows, existing);
-    expect(out[0]._dup).toBe(true);
-    // …but row 2 IS within ±2 days of row 1 (same batch), so it's flagged too.
-    expect(out[1]._dup).toBe(true);
+    expect(out[0]._dupState).toBe("certain");
   });
 
   it("dedups within the same batch", () => {
@@ -246,13 +434,113 @@ describe("markDuplicates", () => {
       { date: "2026-07-10", amount: -5, description: "Snack", account: "Apple" },
     ];
     const out = markDuplicates(rows, []);
-    expect(out[0]._dup).toBe(false);
-    expect(out[1]._dup).toBe(true);
+    expect(out[0]._dupState).toBe("new");
+    expect(out[1]._dupState).toBe("certain");
+  });
+
+  it("legacy data keeps its verdicts: nothing new becomes a certain duplicate", () => {
+    // Same fixtures as before the three-state rewrite, no `source` anywhere.
+    const rows = [
+      { sourceId: "src-1", date: "2026-07-01", amount: -10, description: "Coffee Shop", account: "Apple" }, // was dup
+      { sourceId: "src-2", date: "2026-07-01", amount: -10, description: "Coffee Shop", account: "Apple" }, // was NOT dup
+      { date: "2026-07-02", amount: -25.5, description: "Grocery Store", account: "Chase Reserve" },        // was dup
+      { date: "2026-07-20", amount: -99, description: "Brand New Thing", account: "Apple" },                // was NOT dup
+    ];
+    const out = markDuplicates(rows, existing);
+    expect(out.map((r) => r._dupState)).toEqual(["certain", "new", "certain", "new"]);
+    expect(out.map((r) => r._dup)).toEqual([true, false, true, false]);
+  });
+
+  it("the old ±2-day fuzzy hit is now a review candidate instead of an auto-uncheck", () => {
+    // Deliberate contract change: the fuzzy band (same account, <=2 days, a
+    // shared word) scores 80–90, i.e. below certainty, so the row stays checked
+    // and the user confirms it in the preview.
+    const rows = [{ date: "2026-07-04", amount: -25.5, description: "Grocery Market", account: "Chase Reserve" }];
+    const out = markDuplicates(rows, existing);
+    expect(out[0]._dupState).toBe("uncertain");
+    expect(out[0]._dupScore).toBe(80); // 100 − 10 (2d) − 0 (same account) − 10 (similar description)
+  });
+
+  it("an altSourceIds confirmation turns the next sync into an exact id match", () => {
+    const prev = [{
+      id: "e1", source: "ck", sourceId: "ck_1", altSourceIds: ["9"],
+      date: "2026-07-01", amount: -12.34, description: "Starbucks", account: "Apple",
+    }];
+    // Even a wildly different date/description now matches: the id says so.
+    const rows = [{ source: "sf", sourceId: "9", date: "2026-08-15", amount: -99, description: "whatever", account: "" }];
+    const out = markDuplicates(rows, prev);
+    expect(out[0]._dupState).toBe("certain");
+    expect(out[0]._dupMatch.id).toBe("e1");
   });
 
   it("fingerprint includes signed cents", () => {
     expect(txnFingerprint({ date: "2026-07-01", amount: -10, description: "x", account: "a" }))
       .not.toBe(txnFingerprint({ date: "2026-07-01", amount: 10, description: "x", account: "a" }));
+  });
+});
+
+describe("resolveImportCategory", () => {
+  const CATS = ["Groceries", "Restaurant", "Other", "Shopping", TRANSFER_CATEGORY, "Other Income"];
+  const ctx = (rules, map) => ({
+    categories: CATS,
+    ckCategoryMap: map || { GROCERIES: "Groceries" },
+    descriptionRules: rules || [],
+  });
+
+  it("matchOption resolves case-insensitively and falls back", () => {
+    expect(matchOption("groceries", CATS, "Other")).toBe("Groceries");
+    expect(matchOption("nope", CATS, "Other")).toBe("Other");
+    expect(matchOption("", CATS, "Other")).toBe("Other");
+  });
+
+  it("(a) a raw CK category goes through the editable map", () => {
+    const out = resolveImportCategory(
+      { description: "SAFEWAY 1234", category: "Other", ckCategory: "Groceries", ckType: "expense" },
+      ctx()
+    );
+    expect(out.category).toBe("Groceries");
+  });
+
+  it("(b) a winning rule WITHOUT allowTransferOverride can never de-transfer", () => {
+    const rules = [{ matchField: "description", pattern: "zelle", destinationCategory: "Shopping" }];
+    const out = resolveImportCategory(
+      { description: "ZELLE PAYMENT", category: TRANSFER_CATEGORY, srcAccount: "Chase" },
+      ctx(rules)
+    );
+    expect(out.category).toBe(TRANSFER_CATEGORY);
+    expect(out.matchedRule).not.toBe(null);
+  });
+
+  it("(c) allowTransferOverride + a matching providerPattern promotes out of Transfer", () => {
+    const rules = [{
+      matchField: "description", pattern: "daily cash", destinationCategory: "Other Income",
+      allowTransferOverride: true, providerPattern: "apple",
+    }];
+    const out = resolveImportCategory(
+      { description: "Apple Daily Cash", category: TRANSFER_CATEGORY, srcAccount: "Apple Card" },
+      ctx(rules)
+    );
+    expect(out.category).toBe("Other Income");
+    // …and it stays Transfer when the provider doesn't match.
+    expect(resolveImportCategory(
+      { description: "Apple Daily Cash", category: TRANSFER_CATEGORY, srcAccount: "Chase Reserve" },
+      ctx(rules)
+    ).category).toBe(TRANSFER_CATEGORY);
+  });
+
+  it("(d) a SimpleFin-shaped row (category 'Other', no ckCategory) is caught by a rule", () => {
+    // This is the gap this extraction closes: SimpleFin rows used to be
+    // classified with a bare matchOption(t.category) and always landed in "Other".
+    const rules = [{ matchField: "description", pattern: "starbucks", destinationCategory: "Restaurant" }];
+    const out = resolveImportCategory(
+      { description: "SQ *STARBUCKS #1234", category: "Other", ckType: "", srcAccount: "CREDIT CARD", account: "Chase Reserve" },
+      ctx(rules)
+    );
+    expect(out.category).toBe("Restaurant");
+  });
+
+  it("falls back to Other when nothing classifies the row", () => {
+    expect(resolveImportCategory({ description: "Mystery", category: "" }, ctx()).category).toBe("Other");
   });
 });
 
@@ -330,5 +618,16 @@ describe("mergeTransactions", () => {
     const local = [row("l1")];
     const server = [row("s1")];
     expect(mergeTransactions([], local, server).map((t) => t.id)).toEqual(["l1", "s1"]);
+  });
+
+  it("carries `altSourceIds` through a three-way merge untouched", () => {
+    // The merge is schema-agnostic on purpose (whole-object identity by id), so
+    // the new optional field needs no special casing — this locks that in.
+    const base = [row("a")];
+    const local = [row("a", { altSourceIds: ["sf_9"], source: "ck" })]; // confirmed a duplicate match here
+    const server = [row("a")];
+    const merged = mergeTransactions(base, local, server);
+    expect(merged[0].altSourceIds).toEqual(["sf_9"]);
+    expect(merged[0].source).toBe("ck");
   });
 });

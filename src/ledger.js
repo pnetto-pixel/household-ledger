@@ -186,6 +186,66 @@ export function matchDescriptionCategoryRule(row, rules) {
   return r ? r.destinationCategory : null;
 }
 
+// Resolve a free-text value against a list of allowed options
+// (case-insensitive), falling back when it matches nothing. Lived in App.jsx
+// until the import-time category pipeline moved here — it's the same function,
+// re-exported so both sides keep using ONE implementation.
+export function matchOption(value, options, fallback) {
+  if (!value) return fallback;
+  const v = String(value).toLowerCase();
+  const hit = (options || []).find((o) => String(o).toLowerCase() === v);
+  return hit || fallback;
+}
+
+// ---------------------------------------------------------------------------
+// Import-time category resolution
+// ---------------------------------------------------------------------------
+
+// The category half of `buildRow`, extracted verbatim so EVERY import path
+// (CSV, Credit Karma and SimpleFin) runs the same pipeline. Before this
+// extraction SimpleFin rows were classified with a bare
+// `matchOption(t.category, CATEGORIES, "Other")`, so they never saw the CK
+// category map nor the Description rules and always landed in "Other".
+//
+// Precedence (PR #135 — must stay byte-for-byte equivalent):
+//   1. `csvCategory`   = the source's own category column, matched against the
+//                        current category list ("Other" when unknown).
+//   2. `recomputed`    = when a raw CK category traveled with the row, the
+//                        editable CK map wins over the source's column;
+//                        otherwise `csvCategory`.
+//   3. the FIRST matching description rule overrides that.
+//   4. Transfer safety net: a description rule can NEVER de-transfer a row.
+//      The ONLY escape is a winning rule with `allowTransferOverride: true`
+//      (which itself requires a non-empty `providerPattern`).
+//
+// `row` carries { description, srcAccount, account, category, ckCategory,
+// ckType }; `ctx` carries the runtime-configurable lists
+// { categories, ckCategoryMap, descriptionRules } (App.jsx owns those).
+export function resolveImportCategory(row, ctx) {
+  const categories = (ctx && ctx.categories) || [];
+  const ckCategoryMap = (ctx && ctx.ckCategoryMap) || {};
+  const descriptionRules = (ctx && ctx.descriptionRules) || [];
+
+  const csvCategory = matchOption(row.category, categories, "Other");
+  const recomputedCategory = row.ckCategory
+    ? mapCkCategory(row.ckCategory, row.ckType, ckCategoryMap)
+    : csvCategory;
+
+  const matchedRule = findMatchingDescriptionRule(
+    { description: row.description, srcAccount: row.srcAccount, account: row.account },
+    descriptionRules
+  );
+  const overridden = matchedRule ? matchedRule.destinationCategory : recomputedCategory;
+
+  const category = (matchedRule && matchedRule.allowTransferOverride)
+    ? matchedRule.destinationCategory
+    : ((overridden === TRANSFER_CATEGORY || csvCategory === TRANSFER_CATEGORY)
+        ? TRANSFER_CATEGORY
+        : matchOption(overridden, categories, "Other"));
+
+  return { category, csvCategory, matchedRule };
+}
+
 // ---------------------------------------------------------------------------
 // Account matching
 // ---------------------------------------------------------------------------
@@ -259,65 +319,265 @@ export function descOverlap(descA, descB) {
   return descWords(descB).some((w) => wordsA.has(w));
 }
 
+// Payment-gateway / POS prefixes that different sources attach to the SAME
+// purchase ("SQ *STARBUCKS #1234 SEATTLE WA" vs "Starbucks"). Stripped in a
+// loop because they stack (e.g. "PURCHASE AUTHORIZED ON 07/12 SQ *…").
+const MERCHANT_PREFIXES = [
+  /^sq\s*\*+\s*/,
+  /^tst\s*\*+\s*/,
+  /^paypal\s*\*+\s*/,
+  /^sp\s+/,
+  /^pos\s+debit\s+/,
+  /^purchase\s+authorized\s+on\s+\d{1,2}\/\d{1,2}\s*/,
+];
+
+// Reduce a raw bank description to the merchant-ish core, so the SAME purchase
+// seen through two different feeds (Credit Karma vs SimpleFin) tokenizes into
+// comparable words. Drops gateway prefixes, digit runs (store/order numbers)
+// and a trailing 2-letter city/state code. Lowercased and whitespace-collapsed.
+// The trailing-code strip runs ONCE per call on purpose (it is not idempotent:
+// "starbucks wa ca" -> "starbucks wa" -> "starbucks"), so that a merchant whose
+// real name ends in a two-letter word keeps it. Every consumer calls this on a
+// raw description exactly once, never on its own output.
+//
+// Deliberately NOT wired into `descriptionRuleMatches`: description rules match
+// by substring, so a "starbucks" pattern already hits "SQ *STARBUCKS #1234" —
+// normalizing there would silently change how saved rules match. The single
+// consumer today is the duplicate scorer's description penalty.
+export function normalizeMerchant(desc) {
+  let s = String(desc || "").toLowerCase().trim();
+  for (let guard = 0; guard < 8; guard++) {
+    let stripped = false;
+    for (const re of MERCHANT_PREFIXES) {
+      if (re.test(s)) {
+        s = s.replace(re, "");
+        stripped = true;
+      }
+    }
+    if (!stripped) break;
+  }
+  s = s
+    .replace(/\d+/g, " ")        // store / order / auth numbers vary per txn
+    .replace(/[^a-z\s]/g, " ")   // '#', '*', '-' and friends are noise
+    .replace(/\s+/g, " ")
+    .trim();
+  s = s.replace(/\s+[a-z]{2}$/, ""); // trailing city/state code ("… SEATTLE WA")
+  return s.trim();
+}
+
 // Parse YYYY-MM-DD into a UTC day integer for date-diff calculations.
 export function dateToDayInt(dateStr) {
   const d = new Date(String(dateStr || "") + "T00:00:00Z");
   return isNaN(d.getTime()) ? 0 : Math.floor(d.getTime() / 86400000);
 }
 
-// Flag duplicates in a batch of built rows against existing transactions and
-// against earlier rows in the same batch. Hybrid key: when both sides carry a
-// source id, compare by id (so two genuinely distinct but identical-looking
-// purchases are never merged); otherwise compare by content fingerprint first,
-// then fall back to fuzzy matching (same account + same cents + ±2 days +
-// at least 1 word in common).
+// Score thresholds for the three-state import preview. Deliberately
+// asymmetric, because the two failure modes are NOT equally bad:
+// - false positive (we call a real transaction a duplicate and it lands
+//   unchecked): the row silently never enters the ledger and the user has no
+//   way to notice it is missing;
+// - false negative (we miss a duplicate): the row shows up twice in the
+//   Transactions tab, where it is visible and removable in bulk.
+// Losing money data is worse than duplicating it, so only near-certainty
+// (>= DUP_SCORE_CERTAIN, or a hard id/fingerprint match) unchecks a row; the
+// whole "probably a duplicate" band stays CHECKED and just gets a badge plus a
+// side-by-side comparison so the user decides.
+export const DUP_SCORE_CERTAIN = 85;
+export const DUP_SCORE_REVIEW = 60;
+
+// Every source id a transaction answers to: its own plus any `altSourceIds`
+// the user confirmed (see "mark as duplicate of" in the import preview) —
+// that's what turns a fuzzy cross-source match into an exact id match on the
+// next sync.
+function sourceIdsOf(t) {
+  const out = [];
+  if (t && t.sourceId) out.push(String(t.sourceId));
+  if (t && Array.isArray(t.altSourceIds)) {
+    for (const s of t.altSourceIds) if (s) out.push(String(s));
+  }
+  return out;
+}
+
+// Pure similarity score between a candidate NEW row and an EXISTING one.
+// Returns null when the pair isn't a candidate at all (different signed cents,
+// or more than 5 days apart), otherwise { score, dayDiff, reasons } where
+// `reasons` is short human text for the UI — the raw number never reaches the
+// screen on its own.
+//
+//   score = 100 − date penalty − account penalty − description penalty
+//
+// Date:        0d→0 · 1d→5 · 2d→10 · 3d→18 · 4–5d→28 · >5d→discard
+// Account:     same→0 · either side unclassified→10 · different→40
+// Description: Jaccard over normalizeMerchant+descWords tokens —
+//              >=0.6→0 · >=0.3→10 · at least 1 shared token→20 · none→35
+// The value can go negative in the worst combination; that's fine, everything
+// below DUP_SCORE_REVIEW is treated as a brand-new row anyway.
+export function scoreDuplicateCandidate(a, b) {
+  const centsA = Math.round((Number(a.amount) || 0) * 100);
+  const centsB = Math.round((Number(b.amount) || 0) * 100);
+  if (centsA !== centsB) return null; // hard gate: same signed cents or nothing
+  const reasons = ["mesmo valor"];
+
+  const dayDiff = Math.abs(dateToDayInt(a.date) - dateToDayInt(b.date));
+  let datePenalty;
+  if (dayDiff === 0) { datePenalty = 0; reasons.push("mesmo dia"); }
+  else if (dayDiff === 1) { datePenalty = 5; reasons.push("1 dia de diferença"); }
+  else if (dayDiff === 2) { datePenalty = 10; reasons.push("2 dias de diferença"); }
+  else if (dayDiff === 3) { datePenalty = 18; reasons.push("3 dias de diferença"); }
+  else if (dayDiff <= 5) { datePenalty = 28; reasons.push(`${dayDiff} dias de diferença`); }
+  else return null;
+
+  const accA = String(a.account || "");
+  const accB = String(b.account || "");
+  let accountPenalty;
+  if (accA && accB && accA === accB) { accountPenalty = 0; reasons.push("mesma conta"); }
+  else if (!accA || !accB) { accountPenalty = 10; reasons.push("conta ainda não classificada de um dos lados"); }
+  else { accountPenalty = 40; reasons.push("contas diferentes"); }
+
+  const tokensA = new Set(descWords(normalizeMerchant(a.description)));
+  const tokensB = new Set(descWords(normalizeMerchant(b.description)));
+  let shared = 0;
+  for (const w of tokensA) if (tokensB.has(w)) shared++;
+  const union = new Set([...tokensA, ...tokensB]).size;
+  const jaccard = union === 0 ? 0 : shared / union;
+  let descPenalty;
+  if (jaccard >= 0.6) { descPenalty = 0; reasons.push("descrição praticamente igual"); }
+  else if (jaccard >= 0.3) { descPenalty = 10; reasons.push("descrição parecida"); }
+  else if (shared >= 1) { descPenalty = 20; reasons.push("poucas palavras em comum na descrição"); }
+  else { descPenalty = 35; reasons.push("descrição sem tokens em comum"); }
+
+  return { score: 100 - datePenalty - accountPenalty - descPenalty, dayDiff, reasons };
+}
+
+// Flag duplicates in a batch of built rows against existing transactions AND
+// against earlier rows in the same batch, with 1:1 consumption (an existing
+// row can absorb at most one incoming row, so two identical charges never both
+// collapse onto the same previous one).
+//
+// Each returned row carries:
+//   _dupState   "certain" | "uncertain" | "new"
+//   _dup        boolean — kept for the existing consumers; true only for "certain"
+//   _dupScore   number | null (100 for id/fingerprint matches)
+//   _dupReasons string[] — short PT explanations for the preview
+//   _dupMatch   { id, date, description, account, amount, existing } | null
+//
+// Matching order per row:
+//   1. shared source id with any unconsumed known row → certain. Id overlap is
+//      checked ACROSS sources on purpose: that's what `altSourceIds` is for.
+//   2. otherwise, candidates are unconsumed rows with the same signed cents,
+//      minus those PROVEN distinct: both sides carry a sourceId and belong to
+//      the same source, yet the ids differ (PR #51 — two identical coffees on
+//      the same day are two coffees). `source` missing on both sides counts as
+//      the same source, so legacy data keeps that protection; only an explicit
+//      difference ("ck" vs "sf") unlocks cross-source fuzzy matching.
+//   3. identical content fingerprint among those → certain.
+//   4. otherwise the best scoring candidate decides (see scoreDuplicateCandidate).
 export function markDuplicates(rows, existing) {
-  const idSet = new Set();
-  const fpNoId = new Set();
-  const fpAll = new Set();
-  // Index for fuzzy matching: key = "account|amount_cents" -> array of txns
-  const fuzzyIdx = new Map();
+  const pool = [];
+  const centsIdx = new Map(); // signed cents -> pool entries
+  const idIdx = new Map();    // source id (own or alt) -> pool entries
 
-  const addToFuzzyIdx = (t) => {
+  const addToPool = (t, fromExisting) => {
+    const entry = { t, fromExisting, consumed: false };
+    pool.push(entry);
     const cents = Math.round((Number(t.amount) || 0) * 100);
-    const key = `${t.account || ""}|${cents}`;
-    if (!fuzzyIdx.has(key)) fuzzyIdx.set(key, []);
-    fuzzyIdx.get(key).push(t);
-  };
-
-  const remember = (t) => {
-    const fp = txnFingerprint(t);
-    fpAll.add(fp);
-    if (t.sourceId) idSet.add(t.sourceId);
-    else fpNoId.add(fp);
-    addToFuzzyIdx(t);
-  };
-  for (const t of existing) remember(t);
-
-  const isFuzzyDup = (r) => {
-    // Only run fuzzy check for rows without a sourceId.
-    if (r.sourceId) return false;
-    const cents = Math.round((Number(r.amount) || 0) * 100);
-    const key = `${r.account || ""}|${cents}`;
-    const candidates = fuzzyIdx.get(key);
-    if (!candidates || candidates.length === 0) return false;
-    const rDay = dateToDayInt(r.date);
-    return candidates.some((c) => {
-      const dayDiff = Math.abs(dateToDayInt(c.date) - rDay);
-      return dayDiff <= 2 && descOverlap(r.description, c.description);
-    });
-  };
-
-  return rows.map((r) => {
-    const exactFp = txnFingerprint(r);
-    let dup;
-    if (r.sourceId) {
-      dup = idSet.has(r.sourceId) || fpNoId.has(exactFp);
-    } else {
-      dup = fpAll.has(exactFp) || isFuzzyDup(r);
+    if (!centsIdx.has(cents)) centsIdx.set(cents, []);
+    centsIdx.get(cents).push(entry);
+    for (const id of sourceIdsOf(t)) {
+      if (!idIdx.has(id)) idIdx.set(id, []);
+      idIdx.get(id).push(entry);
     }
-    remember(r);
-    return { ...r, _dup: dup };
+    return entry;
+  };
+  for (const t of existing || []) addToPool(t, true);
+
+  const summarize = (entry) => ({
+    id: entry.t.id ?? null,
+    date: entry.t.date || "",
+    description: entry.t.description || "",
+    account: entry.t.account || "",
+    amount: Number(entry.t.amount) || 0,
+    sourceId: entry.t.sourceId || "",
+    // false when the match is another row of the same import batch — the UI
+    // can only offer "confirm this match" against a persisted transaction.
+    existing: entry.fromExisting === true,
+  });
+
+  return (rows || []).map((r) => {
+    let state = "new";
+    let score = null;
+    let reasons = [];
+    let match = null;
+
+    let idHit = null;
+    for (const id of sourceIdsOf(r)) {
+      const list = idIdx.get(id);
+      if (!list) continue;
+      const hit = list.find((e) => !e.consumed);
+      if (hit) { idHit = hit; break; }
+    }
+
+    if (idHit) {
+      idHit.consumed = true;
+      state = "certain";
+      score = 100;
+      reasons = ["mesmo id de origem"];
+      match = summarize(idHit);
+    } else {
+      const cents = Math.round((Number(r.amount) || 0) * 100);
+      const candidates = (centsIdx.get(cents) || []).filter((e) => {
+        if (e.consumed) return false;
+        // Both sides carry a source id and step 1 found no overlap. Differing
+        // ids only PROVE two distinct transactions when they come from the
+        // same id space — across feeds they are just two numberings of one
+        // purchase. So "not proven different" must BLOCK the fuzzy path, never
+        // open it: `source` is born in this version, so the entire
+        // pre-existing ledger is untagged, and comparing with a plain `!==`
+        // would read legacy-vs-"ck" as a feed change and re-merge genuinely
+        // distinct rows — the exact guarantee PR #51 added. Only SimpleFin
+        // ever writes "sf" (lib/simplefin.js), so an untagged row is provably
+        // NOT SimpleFin, which is enough to decide without tagging history.
+        if (r.sourceId && e.t.sourceId) {
+          const feedsProvablyDiffer = (r.source === "sf") !== (e.t.source === "sf");
+          if (!feedsProvablyDiffer) return false;
+        }
+        return true;
+      });
+      const fp = txnFingerprint(r);
+      const exact = candidates.find((e) => txnFingerprint(e.t) === fp);
+      if (exact) {
+        exact.consumed = true;
+        state = "certain";
+        score = 100;
+        reasons = ["conteúdo idêntico (data, valor, descrição e conta)"];
+        match = summarize(exact);
+      } else {
+        let best = null;
+        let bestEntry = null;
+        for (const e of candidates) {
+          const s = scoreDuplicateCandidate(r, e.t);
+          if (!s) continue;
+          if (!best || s.score > best.score) { best = s; bestEntry = e; }
+        }
+        if (best && best.score >= DUP_SCORE_REVIEW) {
+          bestEntry.consumed = true;
+          state = best.score >= DUP_SCORE_CERTAIN ? "certain" : "uncertain";
+          score = best.score;
+          reasons = best.reasons;
+          match = summarize(bestEntry);
+        }
+      }
+    }
+
+    addToPool(r, false);
+    return {
+      ...r,
+      _dup: state === "certain",
+      _dupState: state,
+      _dupScore: score,
+      _dupReasons: reasons,
+      _dupMatch: match,
+    };
   });
 }
 
