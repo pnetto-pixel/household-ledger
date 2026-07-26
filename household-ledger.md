@@ -1,4 +1,4 @@
-# Household Ledger · v1.56.0
+# Household Ledger · v1.56.1
 
 Aplicativo mobile-first de controle financeiro doméstico. Registra
 transações da casa (despesas e receitas) por categoria e conta, com
@@ -31,7 +31,36 @@ O `feature-auditor` deve conferir, como parte da checklist de auditoria, que
 o diff inclui o bump nos dois arquivos antes de aprovar — se faltar, isso é
 motivo de reprovação (devolver ao coder), não um detalhe opcional.
 
-Versão atual: **v1.56.0** — **feat: dedup cross-source no import +
+Versão atual: **v1.56.1** — **fix: SimpleFin exclui a conta Fidelity do sync
+e prioriza `memo` na descrição da Amazon** (`lib/simplefin.js`). Duas regras
+específicas de instituição, aplicadas em `fetchSimplefinTransactions`/
+`mapTransaction` (compartilhado pelo "Sync now" e pelo cron):
+
+- **Fidelity sempre excluída.** `accountMatchesKeyword(account, "fidelity")`
+  (case-insensitive contra `account.name`/`org.name`/`org.domain` — sobrevive
+  a um re-link que troque o id da conta no SimpleFin) faz a conta ser pulada
+  por inteiro no loop de `fetchSimplefinTransactions`: nem transações nem
+  holdings dela chegam à fila de pendências ou ao fetch ao vivo.
+  `accountCount` no retorno passou a contar só contas efetivamente
+  sincronizadas (antes contava `accounts.length` bruto de todas as retornadas
+  pelo SimpleFin — o campo nunca foi exibido na UI, então não é mudança de
+  contrato visível). Decisão de produto do usuário, não limitação da API — a
+  investigação sobre o schema de `holdings` da Fidelity (ver "Modelo de
+  dados") fica sem novo dado a partir daqui, já que a conta não é mais
+  sincronizada.
+- **Amazon usa `memo` como descrição.** Para uma conta cujo nome/org contém
+  "amazon" (ex. o cartão "Amazon Card"), `mapTransaction` passa a preferir
+  `sfTxn.memo` sobre `description`/`payee` — o `description` que a Amazon
+  manda via SimpleFin é genérico ("Amazon.com"), enquanto o `memo` carrega o
+  detalhe real do pedido. Toda outra instituição mantém a precedência normal
+  (`description` primeiro, `memo` como último recurso).
+
+`accountMatchesKeyword`/`mapTransaction` exportados de `lib/simplefin.js`
+para teste direto (`lib/simplefin.test.js`, novo arquivo — 6 casos, incluindo
+o fetch mockado ponta a ponta confirmando que a Fidelity some do resultado).
+Nenhuma mudança de contrato de API/Redis nem do modelo de transação.
+
+Versão anterior: **v1.56.0** — **feat: dedup cross-source no import +
 categorização automática de linhas SimpleFin** (`src/ledger.js`,
 `src/App.jsx`, `lib/simplefin.js`). Três frentes:
 
@@ -4135,6 +4164,16 @@ riscos reais de perda de dados.
     a função pura `resolveImportCategory` (`src/ledger.js`), compartilhada
     pelos dois caminhos, com a precedência do PR #135 e o safety-net de
     `Transfer` preservados byte a byte. Ver "Modelo de dados" e "UI".
+  - [x] **Fix: Fidelity excluída do sync + Amazon usa `memo`** (v1.56.1) —
+    `accountMatchesKeyword(account, keyword)` (novo helper, `lib/simplefin.js`,
+    case-insensitive contra `account.name`/`org.name`/`org.domain`) filtra a
+    conta Fidelity por inteiro em `fetchSimplefinTransactions` (decisão de
+    produto, não limitação de API — a investigação sobre o schema de
+    `holdings` da Fidelity, acima, fica sem novo dado a partir daqui) e faz
+    `mapTransaction` preferir `sfTxn.memo` sobre `description`/`payee` só
+    para contas Amazon (o `description` que a Amazon manda é genérico;
+    o detalhe do pedido está em `memo`). `accountCount` do retorno passou a
+    contar só contas efetivamente sincronizadas.
   - [ ] UI de configuração de credencial SimpleFin na Settings — ainda
     hardcoded via env var `SIMPLEFIN_ACCESS_URL` (single-tenant).
   - [ ] **Follow-ups da v1.56.0** (não bloqueantes, achados na auditoria):
