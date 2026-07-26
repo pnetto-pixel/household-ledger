@@ -585,7 +585,7 @@ function idleExpired() {
 // path, so the pending copy is discarded with a notice instead).
 
 // Single source for the version shown in the header and in diagnostics.
-const APP_VERSION = "v1.56.1";
+const APP_VERSION = "v1.56.2";
 
 const PENDING_SAVE_KEY = "household_pending_save";
 
@@ -7807,6 +7807,14 @@ function ImportTransactions({ onImport, accountMap, config, transactions, ckCate
   const setColumn = (key, col) => setMapping((prev) => ({ ...prev, [key]: col }));
 
   const selectedCount = selected.size;
+  // How many CERTAIN duplicates are currently checked. Normally 0 (they start
+  // unchecked), but "Select all" or a manual tick puts them back in — and the
+  // summary used to keep claiming they were "auto-unchecked" regardless, so
+  // the user could import a batch believing the duplicates had been excluded.
+  const dupSelectedCount = useMemo(
+    () => dedupedRows.reduce((n, r) => n + (r._dupState === "certain" && selected.has(r.id) ? 1 : 0), 0),
+    [dedupedRows, selected]
+  );
   const confirm = () => {
     if (selectedCount === 0 || missingRequired.length > 0) return;
     // `raw` (added for the read-only Preview tab / SimpleFin field
@@ -8023,10 +8031,19 @@ function ImportTransactions({ onImport, accountMap, config, transactions, ckCate
 
           <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", fontSize: 12, color: "#8b94a3" }}>
             <span>
-              {rawRows.length === csvRows.length ? `${csvRows.length} valid` : `${rawRows.length} parsed · ${csvRows.length} valid`}
+              {/* SimpleFin has no file, so `rawRows` is always empty there —
+                  showing "0 parsed" was meaningless noise on that path. */}
+              {method === "sf" || rawRows.length === csvRows.length
+                ? `${csvRows.length} valid`
+                : `${rawRows.length} parsed · ${csvRows.length} valid`}
               {skippedCount > 0 ? <span style={{ color: "#fbbf24" }}> · {skippedCount} skipped (non-numeric rows)</span> : null} · <span style={{ color: "#cbd5e1" }}>{selectedCount} selected</span>
-              {dupCount ? <span style={{ color: "#fbbf24" }}> · {dupCount} duplicate{dupCount === 1 ? "" : "s"} auto-unchecked</span> : null}
-              {reviewCount ? <span style={{ color: "#fbbf24" }}> · {reviewCount} to review (kept checked)</span> : null}
+              {/* Live state, not a description of the defaults: these counts
+                  have to stay true after "Select all" or any manual tick. */}
+              {dupCount ? <span style={{ color: "#fbbf24" }}> · {dupCount} duplicate{dupCount === 1 ? "" : "s"}</span> : null}
+              {reviewCount ? <span style={{ color: "#fbbf24" }}> · {reviewCount} to review</span> : null}
+              {dupSelectedCount > 0 ? (
+                <span style={{ color: "#f87171", fontWeight: 600 }}> · ⚠ {dupSelectedCount} duplicate{dupSelectedCount === 1 ? "" : "s"} checked for import</span>
+              ) : null}
             </span>
             <button onClick={selectAll} style={S.linkBtn}>Select all</button>
             <button onClick={selectNone} style={S.linkBtn}>Deselect all</button>
@@ -8753,6 +8770,13 @@ const S = {
     border: "1px solid #5b4a16",
     borderRadius: 14,
     overflow: "hidden",
+    // `overflow: hidden` replaces this flex item's automatic minimum size
+    // (min-height: auto) with 0, which lets the default flex-shrink collapse
+    // it to a bare border inside the preview's height-capped flex column
+    // (S.list + maxHeight). Plain rows keep min-height:auto and never showed
+    // this. Pin the shrink instead of dropping overflow, which rounds the
+    // corners of the inner row.
+    flexShrink: 0,
   }),
   dupBadge: (review) => ({
     marginLeft: 6,
