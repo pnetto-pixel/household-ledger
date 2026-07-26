@@ -22,7 +22,14 @@ function configKeyFromAuth(auth) {
     .replace(/:holdings$/, ':config');
 }
 
-const LIST_KEYS = ['accounts', 'expenseCategories', 'incomeCategories'];
+// `ignoredSimplefinAccounts`: substrings matched against a synced row's
+// account name/id. Rows from a matching SimpleFin account are dropped before
+// the import preview — for accounts whose transactions already reach the
+// ledger through another feed, where syncing them just manufactures
+// duplicates. Same shape as the other lists (deduped non-empty strings), so
+// the generic sanitizer below covers it and no new endpoint is needed (the
+// Vercel Hobby plan caps this project at 12 Serverless Functions).
+const LIST_KEYS = ['accounts', 'expenseCategories', 'incomeCategories', 'ignoredSimplefinAccounts'];
 
 // Keep only the known list fields, each a deduped array of non-empty strings.
 function sanitize(config) {

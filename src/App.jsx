@@ -79,6 +79,7 @@ import {
   descWords,
   mergeTransactions,
   repairUnsavableRows,
+  isIgnoredSimplefinAccount,
 } from "./ledger.js";
 
 // ---------------------------------------------------------------------------
@@ -140,6 +141,10 @@ let ACCOUNTS = [...DEFAULT_ACCOUNTS];
 let EXPENSE_CATEGORIES = [...DEFAULT_EXPENSE_CATEGORIES];
 let INCOME_CATEGORIES = [...DEFAULT_INCOME_CATEGORIES];
 let CATEGORIES = [...EXPENSE_CATEGORIES, ...INCOME_CATEGORIES, TRANSFER_CATEGORY];
+// SimpleFin accounts the user chose to skip (see isIgnoredSimplefinAccount).
+// Unlike the lists above, an EMPTY array is meaningful here — it means "ignore
+// nothing" — so applyConfig must not treat empty as "unset".
+let IGNORED_SIMPLEFIN_ACCOUNTS = [];
 
 function applyConfig(cfg) {
   if (Array.isArray(cfg?.accounts) && cfg.accounts.length) ACCOUNTS = [...cfg.accounts];
@@ -152,6 +157,8 @@ function applyConfig(cfg) {
   // its displayed sign in the cash-flow view.
   if (!INCOME_CATEGORIES.includes("Other Income")) INCOME_CATEGORIES = [...INCOME_CATEGORIES, "Other Income"];
   CATEGORIES = [...EXPENSE_CATEGORIES, ...INCOME_CATEGORIES, TRANSFER_CATEGORY];
+  // No `.length` guard: clearing the last entry must actually clear the list.
+  if (Array.isArray(cfg?.ignoredSimplefinAccounts)) IGNORED_SIMPLEFIN_ACCOUNTS = [...cfg.ignoredSimplefinAccounts];
 }
 
 // The current runtime config as a plain object (for seeding React state).
@@ -160,6 +167,7 @@ function currentConfig() {
     accounts: [...ACCOUNTS],
     expenseCategories: [...EXPENSE_CATEGORIES],
     incomeCategories: [...INCOME_CATEGORIES],
+    ignoredSimplefinAccounts: [...IGNORED_SIMPLEFIN_ACCOUNTS],
   };
 }
 
@@ -586,7 +594,7 @@ function idleExpired() {
 // path, so the pending copy is discarded with a notice instead).
 
 // Single source for the version shown in the header and in diagnostics.
-const APP_VERSION = "v1.56.5";
+const APP_VERSION = "v1.57.0";
 
 const PENDING_SAVE_KEY = "household_pending_save";
 
@@ -1812,6 +1820,30 @@ export default function App() {
   }, [saveConfig, scheduleSave, retargetCategoryRules]);
 
   const reorderAccounts = useCallback((names) => saveConfig({ accounts: names }), [saveConfig]);
+
+  // Ignored SimpleFin accounts. Plain string patterns — no cascade over
+  // existing transactions: this only decides what FUTURE syncs bring in, so
+  // rows already imported stay exactly as they are.
+  const addIgnoredSimplefinAccount = useCallback((raw) => {
+    const n = String(raw || "").trim();
+    if (!n || IGNORED_SIMPLEFIN_ACCOUNTS.includes(n)) return;
+    saveConfig({ ignoredSimplefinAccounts: [...IGNORED_SIMPLEFIN_ACCOUNTS, n] });
+  }, [saveConfig]);
+  const renameIgnoredSimplefinAccount = useCallback((oldName, raw) => {
+    const n = String(raw || "").trim();
+    if (!n || n === oldName) return;
+    saveConfig({ ignoredSimplefinAccounts: IGNORED_SIMPLEFIN_ACCOUNTS.map((p) => (p === oldName ? n : p)) });
+  }, [saveConfig]);
+  const deleteIgnoredSimplefinAccount = useCallback((name) => {
+    saveConfig({ ignoredSimplefinAccounts: IGNORED_SIMPLEFIN_ACCOUNTS.filter((p) => p !== name) });
+  }, [saveConfig]);
+  // Order carries no meaning here (every pattern is tested), but ManagedList
+  // shows a drag handle, so persist what the user arranges rather than
+  // leaving a control that silently does nothing.
+  const reorderIgnoredSimplefinAccounts = useCallback(
+    (names) => saveConfig({ ignoredSimplefinAccounts: names }),
+    [saveConfig]
+  );
   const reorderCategories = useCallback((kind, names) => {
     saveConfig(kind === "income" ? { incomeCategories: names } : { expenseCategories: names });
   }, [saveConfig]);
@@ -1919,6 +1951,10 @@ export default function App() {
             onDeleteCategory={deleteCategory}
             onReorderAccounts={reorderAccounts}
             onReorderCategories={reorderCategories}
+            onAddIgnoredSf={addIgnoredSimplefinAccount}
+            onRenameIgnoredSf={renameIgnoredSimplefinAccount}
+            onDeleteIgnoredSf={deleteIgnoredSimplefinAccount}
+            onReorderIgnoredSf={reorderIgnoredSimplefinAccounts}
             onRestoreTransactions={restoreTransactions}
             budgets={budgets}
             onSaveBudgets={saveBudgets}
@@ -6310,7 +6346,7 @@ function ManagedList({ title, items, usage, onAdd, onRename, onDelete, onReorder
       const next = [...items];
       const [moved] = next.splice(drag.idx, 1);
       next.splice(drag.target, 0, moved);
-      onReorder(next);
+      onReorder?.(next);
     }
     setDrag(null);
   };
@@ -6786,6 +6822,7 @@ function SettingsTab({
   onAddAccount, onRenameAccount, onDeleteAccount,
   onAddCategory, onRenameCategory, onDeleteCategory,
   onReorderAccounts, onReorderCategories,
+  onAddIgnoredSf, onRenameIgnoredSf, onDeleteIgnoredSf, onReorderIgnoredSf,
   onRestoreTransactions,
   budgets, onSaveBudgets,
 }) {
@@ -6908,6 +6945,29 @@ function SettingsTab({
           onRename={onRenameCategory}
           onDelete={onDeleteCategory}
           onReorder={(names) => onReorderCategories("income", names)}
+        />
+      </CollapsibleCard>
+      <CollapsibleCard
+        title="Ignored SimpleFin accounts"
+        badge={(config.ignoredSimplefinAccounts || []).length || undefined}
+      >
+        <div style={{ fontSize: 11, color: "#8b94a3", lineHeight: 1.45, marginBottom: 10 }}>
+          Rows from a matching SimpleFin account are skipped before the import
+          preview — for accounts whose transactions already reach the ledger
+          through Credit Karma or a CSV, where syncing them only creates
+          duplicates. Matched as a case-insensitive substring of the account
+          name or id, so both <b>Auto Lease</b> and <b>0870</b> work. Only
+          affects future syncs; nothing already imported changes.
+        </div>
+        <ManagedList
+          bare
+          title="Ignored accounts"
+          items={config.ignoredSimplefinAccounts || []}
+          usage={{}}
+          onAdd={onAddIgnoredSf}
+          onRename={onRenameIgnoredSf}
+          onDelete={onDeleteIgnoredSf}
+          onReorder={onReorderIgnoredSf}
         />
       </CollapsibleCard>
       <DescriptionRulesSection
@@ -8291,7 +8351,11 @@ function classifyAccount(rawAccount, accountUrn, accountMap) {
 //   Description rule.
 // Used by ImportTransactions (both "Sync now" and "Revisar pendentes").
 function classifySimpleFinRows(transactions, accountMap) {
-  return (transactions || []).map((t) => {
+  return (transactions || [])
+    // Drop accounts the user marked as already covered by another feed, before
+    // they ever reach the preview (Settings → "Ignored SimpleFin accounts").
+    .filter((t) => !isIgnoredSimplefinAccount(t, IGNORED_SIMPLEFIN_ACCOUNTS))
+    .map((t) => {
     const account = classifyAccount(t.srcAccount, t.accountUrn || "", accountMap) || "";
     const { category } = resolveImportCategory(
       {

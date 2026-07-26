@@ -289,6 +289,30 @@ export function matchAccountWithAliases(rawValue, aliasesArray, accounts) {
 // Content fingerprint for de-duplication: day + signed cents + normalized
 // description + account. Used when a source transaction id isn't available.
 // ---------------------------------------------------------------------------
+// Ignored SimpleFin accounts
+// ---------------------------------------------------------------------------
+
+// Some accounts already reach the ledger through another feed (Credit Karma,
+// a CSV), so syncing them from SimpleFin as well only manufactures duplicates
+// the user has to reject on every single sync. This is the user-editable
+// version of the hardcoded Fidelity skip in lib/simplefin.js — matched on the
+// CLIENT, against the mapped row, so adding an account needs no deploy.
+//
+// Substring match, case-insensitive, against both the account's display name
+// (`srcAccount`, e.g. "Chase Auto Lease (0870)") and its stable SimpleFin id
+// (`accountUrn`) — so either "auto lease" or "0870" works, and the rule
+// survives the institution renaming the account.
+export function isIgnoredSimplefinAccount(row, patterns) {
+  const list = Array.isArray(patterns) ? patterns : [];
+  if (list.length === 0) return false;
+  const haystack = `${row?.srcAccount || ""}\n${row?.accountUrn || ""}`.toLowerCase();
+  return list.some((p) => {
+    const needle = String(p || "").trim().toLowerCase();
+    return needle !== "" && haystack.includes(needle);
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Save-blocking row repair
 // ---------------------------------------------------------------------------
 
