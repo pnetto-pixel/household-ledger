@@ -1,4 +1,4 @@
-# Household Ledger · v1.61.0
+# Household Ledger · v1.61.1
 
 Aplicativo mobile-first de controle financeiro doméstico. Registra
 transações da casa (despesas e receitas) por categoria e conta, com
@@ -31,8 +31,12 @@ O `feature-auditor` deve conferir, como parte da checklist de auditoria, que
 o diff inclui o bump nos dois arquivos antes de aprovar — se faltar, isso é
 motivo de reprovação (devolver ao coder), não um detalhe opcional.
 
-Versão atual: **v1.61.0** — **diagnóstico "candidata mais próxima" para
-duplicatas invisíveis + redesenho da tela de import** (`src/ledger.js`,
+Versão atual: **v1.61.1** — **"Account aliases" em Settings vira lista
+compacta** (linhas colapsadas por conta, expande ao clicar para editar
+fragments; sugestão de "Suggested rules" expande todas as linhas) (`src/App.jsx`).
+
+Anterior: **v1.61.0** — diagnóstico "candidata mais próxima" para
+duplicatas invisíveis + redesenho da tela de import (`src/ledger.js`,
 `src/App.jsx`).
 
 O fix da v1.60.1 (`providerDescription`) resolveu a causa que ele mirava, mas
