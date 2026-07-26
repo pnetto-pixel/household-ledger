@@ -22,20 +22,38 @@ function configKeyFromAuth(auth) {
     .replace(/:holdings$/, ':config');
 }
 
-// `ignoredSimplefinAccounts`: substrings matched against a synced row's
-// account name/id. Rows from a matching SimpleFin account are dropped before
-// the import preview — for accounts whose transactions already reach the
-// ledger through another feed, where syncing them just manufactures
-// duplicates. Same shape as the other lists (deduped non-empty strings), so
-// the generic sanitizer below covers it and no new endpoint is needed (the
-// Vercel Hobby plan caps this project at 12 Serverless Functions).
-const LIST_KEYS = ['accounts', 'expenseCategories', 'incomeCategories', 'ignoredSimplefinAccounts'];
+// `ignoredSimplefinAccounts`: entries matched against a synced row's account
+// name/id. Rows from a matching SimpleFin account are dropped before the
+// import preview — for accounts whose transactions already reach the ledger
+// through another feed, where syncing them just manufactures duplicates.
+// Since v1.59.0 (consolidated Settings → SimpleFin accounts table), new
+// entries here are always the account's exact `accountUrn` (no collision
+// between similarly-named accounts); older free-text substring patterns
+// authored before that table existed are left as-is, still matched by
+// `accountIsIgnored`/`isIgnoredSimplefinAccount`. Same shape as the other
+// lists (deduped non-empty strings), so the generic sanitizer below covers
+// it and no new endpoint is needed (the Vercel Hobby plan caps this project
+// at 12 Serverless Functions).
+//
+// `simplefinAcknowledgedAccounts`: accountUrns the user has explicitly acted
+// on in that same table (changed its mapping/type, or ignored/unignored it)
+// — even when the action left no other trace (e.g. explicitly choosing
+// "Unassigned" for the mapping). Used client-side only, to stop flagging an
+// account as "new" once the user has looked at it. Same deduped-string-array
+// shape.
+const LIST_KEYS = ['accounts', 'expenseCategories', 'incomeCategories', 'ignoredSimplefinAccounts', 'simplefinAcknowledgedAccounts'];
 
 // Valid values for `accountTypeOverrides` — user's manual classification of a
-// SimpleFin account (by accountUrn) as a credit card or a checking/savings
-// account, for grouping in the Home tab's Account Balances card. Accounts
-// with no override default to "depository" client-side.
-const ACCOUNT_TYPE_VALUES = new Set(['credit', 'depository']);
+// SimpleFin account (by accountUrn), for grouping in the Home tab's Account
+// Balances card. "checking"/"savings"/"credit"/"other" are the four values
+// the Settings table (v1.59.0) writes. "depository" is a legacy value from
+// before that table existed (the only two choices used to be "credit" and
+// "depository") — no longer written by the UI, but kept accepted here so an
+// already-saved "depository" entry survives round-tripping through
+// `sanitize()` instead of being silently dropped; the client treats it as an
+// alias for "Checking & Savings" on read. Accounts with no override default
+// to "checking" client-side.
+const ACCOUNT_TYPE_VALUES = new Set(['checking', 'savings', 'credit', 'other', 'depository']);
 
 // Keep only the known list fields, each a deduped array of non-empty strings.
 function sanitize(config) {
@@ -55,10 +73,10 @@ function sanitize(config) {
     out[key] = clean;
   }
 
-  // `accountTypeOverrides`: { [accountUrn]: "credit" | "depository" }. Not a
-  // list (same shape as ignoredSimplefinAccounts's sibling fields would be),
-  // so it needs its own pass — drop empty keys and any value other than the
-  // two recognized ones.
+  // `accountTypeOverrides`: { [accountUrn]: "checking" | "savings" | "credit"
+  // | "other" | "depository" (legacy) }. Not a list (same shape as
+  // ignoredSimplefinAccounts's sibling fields would be), so it needs its own
+  // pass — drop empty keys and any value outside ACCOUNT_TYPE_VALUES.
   const overrides = config?.accountTypeOverrides;
   if (overrides && typeof overrides === 'object' && !Array.isArray(overrides)) {
     const clean = {};

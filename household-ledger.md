@@ -1,4 +1,4 @@
-# Household Ledger · v1.58.0
+# Household Ledger · v1.59.0
 
 Aplicativo mobile-first de controle financeiro doméstico. Registra
 transações da casa (despesas e receitas) por categoria e conta, com
@@ -31,7 +31,47 @@ O `feature-auditor` deve conferir, como parte da checklist de auditoria, que
 o diff inclui o bump nos dois arquivos antes de aprovar — se faltar, isso é
 motivo de reprovação (devolver ao coder), não um detalhe opcional.
 
-Versão atual: **v1.58.0** — **feat: Account Balances card na Home** com
+Versão atual: **v1.59.0** — **feat: card único "SimpleFin accounts" em
+Settings**, consolidando os três cards antigos (Card mapping / Ignored
+SimpleFin accounts / Account types) numa única tabela — uma linha por conta
+do SimpleFin, com mapping de card, tipo de conta e um botão Ignorar/Unignore
+por linha (confirmação em 2 cliques, sem `window.confirm`). Badge vermelho na
+tab Settings quando o Sync traz conta(s) novas ainda não configuradas.
+
+- **`lib/simplefin.js`**: `fetchSimplefinTransactions` agora inclui contas
+  ignoradas em `accountBalances` (campo aditivo `ignored: true/false`) — antes
+  eram removidas por completo da resposta, o que impedia a nova tabela de
+  mostrar/designorar uma conta já ignorada. Transactions/holdings/accountCount
+  continuam pulando a conta ignorada, sem mudança de comportamento aí.
+- **Ignorar é não-destrutivo e por `accountUrn` exato** (não mais fragmento de
+  texto livre digitado à mão): grava o urn exato em `ignoredSimplefinAccounts`,
+  limpa `accountMap`/`accountTypeOverrides` daquela conta, mas nunca apaga
+  transações já importadas — só afeta syncs futuros, e é reversível
+  (Unignore remove o urn da lista). Padrões de texto livre legados (pré-v1.59)
+  continuam funcionando (`isIgnoredSimplefinAccount`/`accountIsIgnored`
+  inalterados) e não são migrados automaticamente para `accountUrn` — mas,
+  diferente de uma primeira versão desta tabela (corrigido ainda dentro da
+  v1.59.0, antes de auditoria), a linha "Ignored (legacy rule)" não fica mais
+  travada: o botão remove o(s) padrão(ões) legado(s) que casam com aquela
+  conta (confirmação em 2 cliques mostra qual padrão será removido e, se ele
+  também casar com outras contas sincronizadas, quantas — já que remover um
+  padrão de texto livre pode afetar mais de uma conta). Depois de removido, a
+  linha volta ao estado normal e o toggle Ignore/Unignore por `accountUrn`
+  exato passa a valer — inclusive para re-ignorar só aquela conta.
+- **`accountTypeOverrides` ganha 4 valores**: `checking` / `savings` /
+  `credit` / `other` (antes só `credit`/`depository`). `depository` continua
+  aceito na leitura como alias legado de `checking`/"Checking & Savings" —
+  não migrado em massa no Redis. `AccountBalancesCard` (Home) agora agrupa em
+  3 buckets: Credit Cards / Checking & Savings / Other, e filtra
+  `!acc.ignored` explicitamente (a mudança acima tornou isso necessário, senão
+  uma conta ignorada reaparecia no saldo da Home).
+- **Nova config `simplefinAcknowledgedAccounts`** (`api/config.js` `LIST_KEYS`):
+  lista de accountUrns que o usuário já viu/tocou na tabela. Junto com
+  `accountMap`/`accountTypeOverrides`/`ignoredSimplefinAccounts`, decide se
+  uma conta sincronizada conta como "nova" para o badge — cálculo 100%
+  client-side (`useMemo` em App), sem endpoint novo.
+
+Versão anterior: **v1.58.0** — **feat: Account Balances card na Home** com
 saldos por conta via SimpleFin, classificação manual de tipo de conta
 (credit/checking-savings) em Settings, e remoção do hardcode de exclusão da
 Fidelity, substituído pela lista configurável `ignoredSimplefinAccounts`
