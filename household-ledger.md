@@ -49,15 +49,14 @@ tab Settings quando o Sync traz conta(s) novas ainda não configuradas.
   transações já importadas — só afeta syncs futuros, e é reversível
   (Unignore remove o urn da lista). Padrões de texto livre legados (pré-v1.59)
   continuam funcionando (`isIgnoredSimplefinAccount`/`accountIsIgnored`
-  inalterados) e não são migrados automaticamente para `accountUrn` — mas,
-  diferente de uma primeira versão desta tabela (corrigido ainda dentro da
-  v1.59.0, antes de auditoria), a linha "Ignored (legacy rule)" não fica mais
-  travada: o botão remove o(s) padrão(ões) legado(s) que casam com aquela
-  conta (confirmação em 2 cliques mostra qual padrão será removido e, se ele
-  também casar com outras contas sincronizadas, quantas — já que remover um
-  padrão de texto livre pode afetar mais de uma conta). Depois de removido, a
-  linha volta ao estado normal e o toggle Ignore/Unignore por `accountUrn`
-  exato passa a valer — inclusive para re-ignorar só aquela conta.
+  inalterados) e não são migrados automaticamente para `accountUrn` — mas a
+  linha "Ignored (legacy rule)" não fica travada: o botão remove o(s)
+  padrão(ões) legado(s) que casam com aquela conta (confirmação em 2 cliques
+  mostra qual padrão será removido e, se ele também casar com outras contas
+  sincronizadas, quantas — já que remover um padrão de texto livre pode
+  afetar mais de uma conta). Depois de removido, a linha volta ao estado
+  normal e o toggle Ignore/Unignore por `accountUrn` exato passa a valer —
+  inclusive para re-ignorar só aquela conta.
 - **`accountTypeOverrides` ganha 4 valores**: `checking` / `savings` /
   `credit` / `other` (antes só `credit`/`depository`). `depository` continua
   aceito na leitura como alias legado de `checking`/"Checking & Savings" —
@@ -2247,10 +2246,15 @@ Endpoint `api/budgets.js`:
 
 Mapa `{ [accountURN]: "Conta amigável" }` persistido no Redis em
 `household:USERID:accountmap` via `api/account-map.js` (GET/PUT, mesmo
-padrão dos orçamentos). Alimenta `classifyAccount` no import e é editável
-pela seção **Card mapping** (`AccountMapSection`) dentro da tab **Settings**
-— até o PR #128 (v1.17.0) essa seção vivia dentro do `SettingsModal`
-(engrenagem no header, removido); agora é renderizada diretamente na tab.
+padrão dos orçamentos). Alimenta `classifyAccount` no import. Até o PR #128
+(v1.17.0) essa seção vivia dentro do `SettingsModal` (engrenagem no header,
+removido); depois passou a ser editável pela seção dedicada **Card mapping**
+(`AccountMapSection`) na tab **Settings**. **Desde a v1.59.0 (PR #240)**,
+`AccountMapSection` foi removida: o mapping por conta passou a ser uma
+coluna (select) dentro da tabela única `SimplefinAccountsSection` — uma
+linha por conta vista via SimpleFin (ver "Consolidação em tabela única
+'SimpleFin accounts'" abaixo e UI). O contrato de `/api/account-map.js` e o
+formato do mapa no Redis não mudaram.
 
 ### Listas gerenciáveis (contas + categorias)
 
@@ -2304,8 +2308,9 @@ compacto `+`. Até o PR #128 (v1.17.0), o `SettingsModal` tinha um botão
 esse botão não existe mais (não há modal — é uma tab, sem necessidade de
 "Close").
 
-**AccountMapSection** exibe um status dot por card: verde se o URN já tem conta
-mapeada, âmbar se não mapeado.
+**Status dot por conta** (verde = já mapeada, âmbar = não mapeada) — era
+exibido pelo `AccountMapSection` (um card por conta); **desde a v1.59.0**
+esse dot vive na linha da tabela `SimplefinAccountsSection` (ver UI).
 
 ### Categorias
 
@@ -2361,22 +2366,30 @@ mapeadas por URN não são afetadas por mudanças de alias.
 A tabela de/para por URN existe porque o Credit Karma rotula vários cartões
 com o mesmo nome genérico (cinco Chase como `"CREDIT CARD"`); o URN os
 separa, e o último-4 (`last4`, extraído de `accountTypeAndNumberDisplay`) é
-o rótulo legível. A UI fica na seção **Card mapping** (`AccountMapSection`)
-dentro da tab **Settings** — desde o PR #128 (v1.17.0) não há mais
-engrenagem/modal, a seção é renderizada diretamente na tab: lista os
-cartões vistos (emissor · ••últimos-4 · contagem), você atribui uma conta a
-cada um, e ao **Save & apply** aplica nas transações existentes (por URN) e
-em todos os imports futuros.
+o rótulo legível. Até a v1.58.0, a UI ficava na seção **Card mapping**
+(`AccountMapSection`) dentro da tab **Settings** — desde o PR #128
+(v1.17.0) não havia mais engrenagem/modal, a seção era renderizada
+diretamente na tab: listava os cartões vistos (emissor · ••últimos-4 ·
+contagem), com um select de conta por cartão e **Save & apply** para
+aplicar nas transações existentes (por URN) e em todos os imports futuros.
+**Desde a v1.59.0 (PR #240)**, esse card foi removido e o mapping virou
+uma coluna (select de `ACCOUNTS` + "— Unassigned —") por linha da tabela
+única `SimplefinAccountsSection` (ver "Consolidação em tabela única
+'SimpleFin accounts'" abaixo e UI) — mesma persistência por URN em
+`/api/account-map`, agora aplicada linha a linha em vez de um `Save &
+apply` único para todos os cartões.
 
 ### Classificação de tipo de conta SimpleFin + `ignoredSimplefinAccounts` no servidor (v1.58.0, PR #238)
 
 - **Novo campo `accountTypeOverrides`** em `/api/config.js` (GET/PUT,
-  `household:USERID:config`): `{ [accountUrn]: "credit" | "depository" }`.
-  Alimenta exclusivamente o agrupamento do `AccountBalancesCard` (ver UI,
-  tab Home) — conta sem override entra em "Checking/Savings" por padrão.
-  Não é usado por `classifyAccount`/import; não altera o modelo de
-  transação nem cria endpoint novo (mesmo arquivo `api/config.js`).
-  Editável pela nova seção **Account types** na tab Settings (ver UI).
+  `household:USERID:config`): à época, `{ [accountUrn]: "credit" |
+  "depository" }`. Alimenta exclusivamente o agrupamento do
+  `AccountBalancesCard` (ver UI, tab Home) — conta sem override entra em
+  "Checking/Savings" por padrão. Não é usado por `classifyAccount`/import;
+  não altera o modelo de transação nem cria endpoint novo (mesmo arquivo
+  `api/config.js`). Editável pela nova seção **Account types** na tab
+  Settings (ver UI). *(Valores aceitos e UI evoluem na v1.59.0 — ver
+  abaixo.)*
 - **`ignoredSimplefinAccounts` passou a ser lido também no servidor**
   (antes só filtrava client-side em `classifySimpleFinRows`, v1.57.0):
   `fetchSimplefinTransactions` (`lib/simplefin.js`) agora recebe
@@ -2389,6 +2402,53 @@ em todos os imports futuros.
 - **`api/simplefin-sync.js`** (GET normal, sem `?pending=1`) passou a
   retornar também `accountBalances` na resposta, consumido pelo
   `AccountBalancesCard`.
+
+### Consolidação em tabela única "SimpleFin accounts" (v1.59.0, PR #240)
+
+As três seções separadas de Settings que operavam sobre as contas do
+SimpleFin — **Card mapping** (`AccountMapSection`), **Ignored SimpleFin
+accounts** (`CollapsibleCard` com `ManagedList`, v1.57.0) e **Account
+types** (`AccountTypeOverridesSection`, v1.58.0) — foram **removidas** e
+substituídas por uma única tabela `SimplefinAccountsSection`, uma linha por
+conta vista via SimpleFin (ver UI). Mudanças de modelo de dados:
+
+- **`accountTypeOverrides` ganha 4 valores**: `checking` | `savings` |
+  `credit` | `other` (antes só `credit`/`depository`). `depository`
+  continua aceito **na leitura** como alias legado de `checking` — nunca
+  reescrito no Redis (sem migração em massa); é tratado como "Checking &
+  Savings" na exibição.
+- **`AccountBalancesCard` (Home) agrupa em 3 buckets**: Credit Cards /
+  Checking & Savings / Other (antes 2: Credit Cards / Checking/Savings).
+  Passou também a filtrar `!acc.ignored` explicitamente — necessário
+  porque `accountBalances` agora inclui contas ignoradas (ver abaixo);
+  antes disso uma conta ignorada reapareceria no saldo da Home.
+- **`accountBalances`** (retorno de `fetchSimplefinTransactions`/`GET
+  /api/simplefin-sync`) **passa a incluir também as contas ignoradas**,
+  com campo aditivo `ignored: true|false` — antes elas eram omitidas por
+  completo da resposta, o que impedia a nova tabela de mostrar/desfazer o
+  ignore de uma conta já ignorada. `transactions`, `holdings` e
+  `accountCount` continuam pulando a conta ignorada, sem mudança de
+  comportamento aí.
+- **Ignorar continua não-destrutivo**, agora por `accountUrn` exato (em
+  vez de fragmento de texto livre digitado à mão): grava o urn exato em
+  `ignoredSimplefinAccounts`, limpa `accountMap[urn]` e
+  `accountTypeOverrides[urn]`, mas nunca apaga transações já importadas —
+  só afeta syncs futuros, e é reversível (Unignore remove o urn da lista).
+  Padrões de texto livre legados (pré-v1.59.0) continuam funcionando
+  (`isIgnoredSimplefinAccount`/`accountIsIgnored` inalterados) e não são
+  migrados automaticamente para `accountUrn`; a linha correspondente
+  aparece como "Ignored (legacy rule)" e o botão remove o(s) padrão(ões)
+  que casam com aquela conta (confirmação em 2 cliques avisa quantas
+  outras contas sincronizadas o padrão também afeta).
+- **Nova lista `simplefinAcknowledgedAccounts`** em `api/config.js`
+  `LIST_KEYS` (mesmo padrão genérico de array deduplicado de strings — sem
+  endpoint novo, sem chave nova no Redis): urns de conta que o usuário já
+  viu/tocou na tabela. Uma conta conta como "nova" (dispara o badge, ver
+  UI) quando o urn está em `accountBalances` **e**, ao mesmo tempo, ausente
+  de `accountMap`, `accountTypeOverrides`, `ignoredSimplefinAccounts` **e**
+  `simplefinAcknowledgedAccounts`. Qualquer interação na linha (mapear,
+  classificar, ignorar) acknowledgeia o urn. Cálculo 100% client-side
+  (`useMemo` em `App`), sem endpoint novo.
 
 ---
 
@@ -2548,10 +2608,13 @@ shell de altura cheia (`#root` em `100lvh` + shell `height:100%`): só o
    (olho). O bloco só aparece quando há ano+mês específico selecionado.
    **Desde a v1.58.0** (PR #238), logo abaixo do bloco "by Category", novo
    card **`AccountBalancesCard`** mostra o saldo de cada conta sincronizada
-   via SimpleFin, agrupado em duas seções — **Credit Cards** e
-   **Checking/Savings** (ordem alfabética dentro de cada grupo). O
-   agrupamento usa o novo campo `accountTypeOverrides` (ver Modelo de
-   dados) — conta sem classificação manual cai em "Checking/Savings" por
+   via SimpleFin. O agrupamento usa o campo `accountTypeOverrides` (ver
+   Modelo de dados). **Desde a v1.59.0** (PR #240), agrupa em **3 seções**
+   — **Credit Cards** / **Checking & Savings** / **Other** (antes 2:
+   Credit Cards / Checking/Savings; ordem alfabética dentro de cada grupo)
+   — e filtra `!acc.ignored` explicitamente (necessário porque
+   `accountBalances` passou a incluir contas ignoradas — ver Modelo de
+   dados); conta sem classificação manual cai em "Checking & Savings" por
    padrão. Os saldos vêm do `accountBalances` já retornado por
    `api/simplefin-sync.js`, cacheados em `sessionStorage` com TTL de 5 min
    (evita refetch a cada troca de tab); respeita `hideValues`/`money`.
@@ -3002,7 +3065,11 @@ shell de altura cheia (`#root` em `100lvh` + shell `height:100%`): só o
    **Ordem das seções dentro de Settings** (de cima para baixo):
    1. **Suggested rules** (topo)
    2. **Account aliases**
-   3. **Card mapping** (Credit Karma) — migrado do antigo `SettingsModal`
+   3. **SimpleFin accounts** — tabela única (`SimplefinAccountsSection`,
+      desde a v1.59.0/PR #240 — ver detalhe abaixo); até a v1.58.0 eram três
+      seções separadas nesta posição: **Card mapping** (`AccountMapSection`,
+      migrado do antigo `SettingsModal`), **Ignored SimpleFin accounts**
+      (v1.57.0) e **Account types** (v1.58.0)
    4. **Accounts & Categories** — card único com **Accounts**, **Expense
       categories** e **Income categories** empilhadas, cada uma separada por
       um divisor (desde a v1.18.0/PR #132; antes eram dois cards distintos —
@@ -3037,21 +3104,42 @@ shell de altura cheia (`#root` em `100lvh` + shell `height:100%`): só o
    `buildAliasArray`, `applyAliasConfig`, `matchAccount`, `classifyAccount`,
    `api/account-aliases.js` — tudo igual, só mudou onde é renderizado).
 
-   Logo abaixo, **Card mapping** (`AccountMapSection`, ver "Classificação de
-   conta no import" no Modelo de dados) e o card **Accounts & Categories**
-   com as três `ManagedList` — **Accounts**, **Expense categories**,
-   **Income categories** (ver "Listas gerenciáveis" no Modelo de dados) —
-   que antes só existiam dentro do `SettingsModal` (por trás da engrenagem
-   no header) e agora vivem diretamente na tab, sem modal.
+   Logo abaixo, a tabela **SimpleFin accounts** (`SimplefinAccountsSection`,
+   ver detalhe a seguir) e o card **Accounts & Categories** com as três
+   `ManagedList` — **Accounts**, **Expense categories**, **Income
+   categories** (ver "Listas gerenciáveis" no Modelo de dados) — que antes
+   só existiam dentro do `SettingsModal` (por trás da engrenagem no header)
+   e agora vivem diretamente na tab, sem modal.
 
-   **Desde a v1.58.0** (PR #238), nova seção **"Account types"** lista as
-   contas já vistas via SimpleFin e permite classificar cada uma
-   manualmente como **Credit** ou **Checking/Savings**
-   (`accountTypeOverrides`, ver Modelo de dados) — usada só pelo
-   agrupamento do `AccountBalancesCard` na Home, sem efeito no
-   import/categorização. Vive perto da seção **"Ignored SimpleFin
-   accounts"** (v1.57.0), já que ambas operam sobre a mesma lista de
-   contas sincronizadas.
+   **`SimplefinAccountsSection` (desde a v1.59.0, PR #240)** substitui as
+   três seções que existiam até a v1.58.0 nesta posição — **Card mapping**
+   (`AccountMapSection`, ver "Classificação de conta no import" no Modelo
+   de dados), **Ignored SimpleFin accounts** (`CollapsibleCard` +
+   `ManagedList`, v1.57.0) e **Account types**
+   (`AccountTypeOverridesSection`, v1.58.0) — por uma única tabela, uma
+   linha por conta vista via SimpleFin (fonte: `accountBalances`; ver
+   "Consolidação em tabela única 'SimpleFin accounts'" no Modelo de
+   dados). Cada linha tem:
+   - **Identidade**: `orgName — name` + últimos 4 dígitos, com um dot
+     verde/âmbar indicando se a conta já tem card mapping.
+   - **Select de card mapping**: lista `ACCOUNTS` + opção
+     "— Unassigned —".
+   - **Select de tipo de conta**, 4 valores: Checking / Savings / Credit
+     Card / Other (`accountTypeOverrides`, ver Modelo de dados).
+   - **Botão Ignore/Unignore**, com confirmação em 2 cliques (sem
+     `window.confirm`, mesmo padrão de delete do `ManagedRow`). Ignorar é
+     não-destrutivo (ver Modelo de dados) — nunca apaga transações já
+     importadas, só afeta syncs futuros. Contas afetadas por um padrão de
+     texto livre legado (pré-v1.59.0) aparecem como "Ignored (legacy
+     rule)"; o botão remove o(s) padrão(ões) correspondentes.
+
+   Contas ainda não configuradas — sem card mapping, sem tipo, não
+   ignoradas e ausentes de `simplefinAcknowledgedAccounts` (ver Modelo de
+   dados) — disparam um **badge vermelho**: um dot na tab **Settings** da
+   `TabBar` e a contagem na prop `badge` do `CollapsibleCard` que envolve a
+   tabela. Qualquer interação numa linha (mapear, classificar, ignorar)
+   acknowledgeia aquela conta, tirando-a da contagem; o badge some quando
+   não sobra nenhuma conta pendente.
 
    > **Nota (PR #117, v1.14.0)**: a seção **"Classification history"** (e a
    > função `explainClassification`/`CLASSIFICATION_PAGE_SIZE`) foi
@@ -3229,7 +3317,7 @@ O app inicia com array vazio quando não há dados salvos (sem SEED).
 ### Fase 3 — Análise
 - [x] Orçamentos por categoria e alertas
 - [x] Tendências e comparação mês a mês
-- [x] Saldo e gastos por conta *(removido do Analyze no PR #8 — seção Account Balances descontinuada; reintroduzido na v1.58.0/PR #238 como `AccountBalancesCard` na Home, com saldos ao vivo via SimpleFin em vez de agregação sobre transações históricas)*
+- [x] Saldo e gastos por conta *(removido do Analyze no PR #8 — seção Account Balances descontinuada; reintroduzido na v1.58.0/PR #238 como `AccountBalancesCard` na Home, com saldos ao vivo via SimpleFin em vez de agregação sobre transações históricas; desde a v1.59.0/PR #240 agrupa em 3 buckets — Credit Cards / Checking & Savings / Other — e filtra `!acc.ignored` explicitamente, já que `accountBalances` passou a incluir contas ignoradas — ver Modelo de dados)*
 - [x] Recorrentes / assinaturas detectadas
 
 ### Fase 4 — Plataforma
@@ -3242,7 +3330,11 @@ O app inicia com array vazio quando não há dados salvos (sem SEED).
 - [x] Tabela de/para de contas por `accountURN` (estável) + último-4
   (`AccountMapModal`, `/api/account-map`): separa cartões que a fonte rotula
   igual (5 Chase) e identifica o Venture X; export do CK passa a emitir
-  `account_urn` e `last4`
+  `account_urn` e `last4` *(a UI dedicada — `AccountMapModal` →
+  `AccountMapSection` — foi removida na v1.59.0/PR #240: o mapping por
+  conta agora é uma coluna da tabela única `SimplefinAccountsSection` em
+  Settings, junto com o "Ignored SimpleFin accounts" de v1.57.0 e o
+  "Account types" de v1.58.0; `accountMap`/`/api/account-map` inalterados)*
 - [x] Listas de contas e categorias gerenciáveis pela UI (`SettingsModal`,
   `/api/config`): add/rename/delete com cascata nos dados; antes eram
   constantes fixas no código
