@@ -697,7 +697,7 @@ function idleExpired() {
 // path, so the pending copy is discarded with a notice instead).
 
 // Single source for the version shown in the header and in diagnostics.
-const APP_VERSION = "v1.63.0";
+const APP_VERSION = "v1.64.0";
 
 const PENDING_SAVE_KEY = "household_pending_save";
 
@@ -6243,7 +6243,13 @@ function sfDisplayType(type) {
 // confirmation copy says so up front. Once removed, the row is a normal
 // non-ignored row and the clean, collision-free exact-accountUrn toggle
 // applies from then on (re-ignoring, if still wanted, goes through that).
-function SimplefinAccountRow({ acc, mappedAccount, type, exactIgnored, legacyPatterns, money, onSetMapping, onSetType, onSetIgnored, onRemoveLegacyPatterns }) {
+const SF_SOURCE_BADGE_STYLE = {
+  SimpleFin: { color: "#93c5fd", bg: "rgba(96,165,250,0.12)", border: "rgba(96,165,250,0.3)" },
+  "Credit Karma": { color: "#34d399", bg: "rgba(52,211,153,0.12)", border: "rgba(52,211,153,0.3)" },
+  Mixed: { color: "#fbbf24", bg: "rgba(251,191,36,0.12)", border: "rgba(251,191,36,0.3)" },
+};
+
+function SimplefinAccountRow({ acc, sourceBadge, mappedAccount, type, exactIgnored, legacyPatterns, money, onSetMapping, onSetType, onSetIgnored, onRemoveLegacyPatterns }) {
   const [confirming, setConfirming] = useState(false);
   useEffect(() => {
     if (!confirming) return;
@@ -6319,6 +6325,16 @@ function SimplefinAccountRow({ acc, mappedAccount, type, exactIgnored, legacyPat
           ))}
         </select>
       </td>
+      <td style={S.td}>
+        {(() => {
+          const st = SF_SOURCE_BADGE_STYLE[sourceBadge] || SF_SOURCE_BADGE_STYLE.SimpleFin;
+          return (
+            <span style={{ fontSize: 10, color: st.color, background: st.bg, border: `1px solid ${st.border}`, borderRadius: 999, padding: "1px 7px", whiteSpace: "nowrap" }}>
+              {sourceBadge}
+            </span>
+          );
+        })()}
+      </td>
       <td style={{ ...S.td, fontSize: 11, color: "#8b94a3", whiteSpace: "nowrap" }}>
         {acc.count ? `${acc.count} txn${acc.count === 1 ? "" : "s"}` : "No txns"}
         {acc.balance != null ? ` · ${money(acc.balance)}` : ""}
@@ -6373,13 +6389,30 @@ function SimplefinAccountsSection({ sfBalances, transactions, accountMap, config
     for (const t of transactions) {
       const urn = t.accountUrn;
       if (!urn) continue;
-      const e = meta.get(urn) || { last4: "", count: 0 };
+      const e = meta.get(urn) || { last4: "", count: 0, sources: new Set() };
       e.count++;
       if (!e.last4 && t.last4) e.last4 = t.last4;
+      if (t.source) e.sources.add(t.source);
       meta.set(urn, e);
     }
+    // Derive a per-account "source" badge from the sources of its matched
+    // transactions — there's no persisted source field per account, only
+    // per transaction. No matched txns yet, or only "sf" among them, ->
+    // "SimpleFin" (the row only exists here because a SimpleFin sync saw the
+    // account). Only "ck"/"csv" (imported) -> "Credit Karma" (both treated
+    // as the same imported origin for this badge). Both present -> "Mixed".
+    const sourceBadgeFor = (sources) => {
+      const hasSf = sources.has("sf");
+      const hasImported = sources.has("ck") || sources.has("csv");
+      if (hasSf && hasImported) return "Mixed";
+      if (hasImported) return "Credit Karma";
+      return "SimpleFin";
+    };
     return (sfBalances.accountBalances || [])
-      .map((acc) => ({ ...acc, ...(meta.get(acc.accountUrn) || { last4: "", count: 0 }) }))
+      .map((acc) => {
+        const m = meta.get(acc.accountUrn) || { last4: "", count: 0, sources: new Set() };
+        return { ...acc, last4: m.last4, count: m.count, sourceBadge: sourceBadgeFor(m.sources) };
+      })
       .sort((a, b) => (a.name || "").localeCompare(b.name || ""));
   }, [sfBalances.accountBalances, transactions]);
 
@@ -6440,6 +6473,7 @@ function SimplefinAccountsSection({ sfBalances, transactions, accountMap, config
                 <th style={S.th}>Name</th>
                 <th style={S.th}>Mapped account</th>
                 <th style={S.th}>Type</th>
+                <th style={S.th}>Source</th>
                 <th style={S.th}>Txns/Balance</th>
                 <th style={{ ...S.th, textAlign: "right" }}>Ignore</th>
               </tr>
@@ -6451,6 +6485,7 @@ function SimplefinAccountsSection({ sfBalances, transactions, accountMap, config
                   <SimplefinAccountRow
                     key={acc.accountUrn}
                     acc={acc}
+                    sourceBadge={acc.sourceBadge}
                     mappedAccount={accountMap[acc.accountUrn] || ""}
                     type={typeOverrides[acc.accountUrn] || ""}
                     exactIgnored={exactIgnored}

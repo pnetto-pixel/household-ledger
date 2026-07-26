@@ -1,4 +1,4 @@
-# Household Ledger · v1.63.0
+# Household Ledger · v1.64.0
 
 Aplicativo mobile-first de controle financeiro doméstico. Registra
 transações da casa (despesas e receitas) por categoria e conta, com
@@ -31,7 +31,17 @@ O `feature-auditor` deve conferir, como parte da checklist de auditoria, que
 o diff inclui o bump nos dois arquivos antes de aprovar — se faltar, isso é
 motivo de reprovação (devolver ao coder), não um detalhe opcional.
 
-Versão atual: **v1.63.0** — reorganiza a tab Settings (`src/App.jsx`):
+Versão atual: **v1.64.0** — adiciona coluna "Source" na tabela "SimpleFin
+accounts" (`SimplefinAccountsSection`/`SimplefinAccountRow`, `src/App.jsx`):
+não existe campo `source` persistido por conta, só por transação
+(`t.source`: `"sf"` | `"ck"` | `"csv"`), então o badge é derivado em runtime
+a partir das transações já casadas por `accountUrn` — nenhuma transação
+casada, ou só `"sf"`, vira badge "SimpleFin"; só `"ck"`/`"csv"` (sem `"sf"`)
+vira "Credit Karma" (os dois tratados como a mesma origem "importada"); a
+presença de `"sf"` e de `"ck"`/`"csv"` juntas vira "Mixed". Nenhuma mudança
+de contrato de API/Redis ou de modelo de transação.
+
+Versão anterior: **v1.63.0** — reorganiza a tab Settings (`src/App.jsx`):
 "SimpleFin accounts" e a lista de "Description rules" agora usam tabela
 compacta (mesmo padrão de `TxnTable`) em vez de cards empilhados; "Daily
 snapshots" e "Data & Backup" foram fundidos num único card "Data
