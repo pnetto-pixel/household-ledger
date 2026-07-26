@@ -1,4 +1,4 @@
-# Household Ledger · v1.60.0
+# Household Ledger · v1.60.1
 
 Aplicativo mobile-first de controle financeiro doméstico. Registra
 transações da casa (despesas e receitas) por categoria e conta, com
@@ -31,7 +31,43 @@ O `feature-auditor` deve conferir, como parte da checklist de auditoria, que
 o diff inclui o bump nos dois arquivos antes de aprovar — se faltar, isso é
 motivo de reprovação (devolver ao coder), não um detalhe opcional.
 
-Versão atual: **v1.60.0** — **fix: `memo` do SimpleFin agora tem prioridade
+Versão atual: **v1.60.1** — **fix: duplicatas da Amazon não eram detectadas
+depois da mudança para `memo`** (`lib/simplefin.js`, `src/ledger.js`,
+`src/App.jsx`).
+
+Regressão introduzida pela própria v1.56.1/v1.60.0: ao trocar a descrição de
+exibição para o `memo` (item do pedido, ex. "100 Pack Mini Sunscreen for
+Family"), o token que identificava o comerciante ("amazon"/"amzn") sumiu da
+descrição — e uma transação já importada via Credit Karma para a MESMA
+compra só tem a string genérica do comerciante (ex. "AMAZON.COM*RT4XY1"). As
+duas descrições passaram a não compartilhar nenhuma palavra, o que:
+
+- zera a penalidade de descrição no pior tier (35), deixando o **melhor caso
+  possível** (mesmo dia, mesma conta) com score = 65 — na borda entre
+  `uncertain` e `certain`, sem folga nenhuma;
+- qualquer ruído realista de data de postagem (comum entre cartões — 2+ dias
+  de diferença já bastam) ou de conta empurra o score abaixo de 60, e a
+  duplicata cai em `new` — invisível, sem badge, sem faixa "Review".
+
+Fix: novo campo aditivo `providerDescription` em `mapTransaction`
+(`lib/simplefin.js`) — guarda a `description`/`payee` genérica original
+**só** quando `memo` de fato venceu e a substituiu (nada a acrescentar no
+caso comum onde `memo` está ausente). `scoreDuplicateCandidate`
+(`src/ledger.js`) passou a montar o conjunto de tokens de cada lado a partir
+de `description` **+** `providerDescription` (quando presente) — a
+descrição exibida ao usuário não muda, só o sinal usado para casar
+duplicatas ganha de volta a palavra-chave do comerciante. No caso do
+screenshot que motivou o fix, o score do melhor caso sobe de 65 para 80
+(sai de "na borda" para uma folga real de 20 pontos antes de cair abaixo de
+`uncertain`).
+
+O campo é preservado no import (não está na lista de strip do `confirm()`,
+mesmo padrão de `ckCategory`/`srcAccount`) e aparece como "Source description
+(audit)" no `EditModal`, ao lado da Description, quando presente — mesmo
+padrão visual das outras linhas de auditoria (`Source category`/
+`Source account`).
+
+Versão anterior: **v1.60.0** — **fix: `memo` do SimpleFin agora tem prioridade
 sobre `description` para QUALQUER conta** (`lib/simplefin.js`).
 
 Desde a v1.56.1, `mapTransaction` só preferia `memo` sobre `description`/

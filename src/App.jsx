@@ -697,7 +697,7 @@ function idleExpired() {
 // path, so the pending copy is discarded with a notice instead).
 
 // Single source for the version shown in the header and in diagnostics.
-const APP_VERSION = "v1.60.0";
+const APP_VERSION = "v1.60.1";
 
 const PENDING_SAVE_KEY = "household_pending_save";
 
@@ -6110,6 +6110,11 @@ function EditModal({ txn, onClose, onSave }) {
               style={S.input}
             />
           </Field>
+          {txn.providerDescription ? (
+            <div style={{ fontSize: 12, color: "#8b94a3", marginTop: -6 }}>
+              Source description (audit): <span style={{ color: "#cbd5e1" }}>{txn.providerDescription}</span>
+            </div>
+          ) : null}
           <Field label="Amount (USD)">
             <input
               type="number"

@@ -295,6 +295,44 @@ describe("scoreDuplicateCandidate", () => {
     const sf = { date: "2026-07-01", amount: -12.34, description: "Starbucks Seattle", account: "Apple" };
     expect(scoreDuplicateCandidate(sf, ck).score).toBe(100);
   });
+
+  it("folds providerDescription into the description-similarity pool (Amazon memo case)", () => {
+    // The bug this guards: a Credit-Karma-imported Amazon row only ever has
+    // the generic merchant string ("AMAZON.COM*RT4XY1"). Once memo replaces
+    // the SimpleFin row's display description with an itemized product list
+    // (v1.56.1/v1.60.0), the two descriptions share NO words on their own —
+    // descPenalty maxes at 35, and the SAME-DAY/SAME-ACCOUNT case (the best
+    // possible) lands at exactly 65, one bad date/account roll away from
+    // dropping below the 60 "review" floor entirely. providerDescription
+    // (lib/simplefin.js) carries the generic string back in for matching.
+    const existing = { date: "2026-07-15", amount: -29.99, description: "AMAZON.COM*RT4XY1ABC", account: "Amazon Card" };
+    const withoutFix = { date: "2026-07-15", amount: -29.99, description: "100 Pack Mini Sunscreen for Family", account: "Amazon Card" };
+    expect(scoreDuplicateCandidate(withoutFix, existing).score).toBe(65); // pre-fix floor, still reproducible without providerDescription
+
+    const withFix = { ...withoutFix, providerDescription: "AMAZON.COM*RT4XY1ABC" };
+    const result = scoreDuplicateCandidate(withFix, existing);
+    expect(result.score).toBe(80); // shared "amazon" token now counted: 100 − 0 − 0 − 20
+    expect(result.reasons).toContain("poucas palavras em comum na descrição");
+
+    // A realistic 2-day posting-date gap on top no longer falls through to
+    // "new" (score < 60) the way it would have pre-fix (65 − 10 = 55).
+    const existing2dAway = { ...existing, date: "2026-07-13" };
+    expect(scoreDuplicateCandidate(withFix, existing2dAway).score).toBe(70);
+  });
+
+  it("providerDescription contributes even when the display descriptions are unrelated", () => {
+    const existing = { date: "2026-07-01", amount: -9.99, description: "Whole Foods", account: "Amazon Card", providerDescription: "AMAZON.COM*XY" };
+    const incoming = { date: "2026-07-01", amount: -9.99, description: "Batteries AA 100-pack", account: "Amazon Card", providerDescription: "AMAZON.COM*XY" };
+    // Only "amazon" is shared (Jaccard 1/5) — still enough to drop out of the
+    // "zero tokens in common" tier (35) into "at least 1 shared token" (20).
+    expect(scoreDuplicateCandidate(incoming, existing).score).toBe(80); // 100 − 0 − 0 − 20
+
+    // Same row against itself, identity via providerDescription alone
+    // (empty display description on both sides): token sets are identical,
+    // Jaccard 1.0 → the >=0.6 tier, full score.
+    const sameProviderOnly = { date: "2026-07-01", amount: -9.99, description: "", account: "Amazon Card", providerDescription: "AMAZON.COM*XY" };
+    expect(scoreDuplicateCandidate(sameProviderOnly, sameProviderOnly).score).toBe(100);
+  });
 });
 
 describe("markDuplicates", () => {

@@ -478,6 +478,26 @@ function sourceIdsOf(t) {
 //              >=0.6→0 · >=0.3→10 · at least 1 shared token→20 · none→35
 // The value can go negative in the worst combination; that's fine, everything
 // below DUP_SCORE_REVIEW is treated as a brand-new row anyway.
+
+// Token pool for the description-similarity step: the display `description`
+// PLUS the row's `providerDescription` when present. That second field only
+// exists on a SimpleFin row where `memo` won and replaced a generic
+// description/payee (lib/simplefin.js) — e.g. an Amazon purchase whose
+// display description is now an itemized product list ("100 Pack Mini
+// Sunscreen…") instead of the generic "AMAZON.COM*RT4XY1" merchant string.
+// Without folding providerDescription back in here, that merchant-identifying
+// token ("amazon") is gone from the new row entirely, and an existing
+// Credit-Karma-imported row for the SAME purchase (whose only description
+// ever was the generic merchant string) shares nothing with it — the
+// description penalty maxes out at 35 for every single Amazon-style
+// duplicate, regardless of how alike the purchases actually are. Unioning the
+// two text sources restores that shared token for matching purposes without
+// changing what the user sees (the display `description` is untouched).
+function descTokenSet(row) {
+  const text = [row?.description, row?.providerDescription].filter(Boolean).join(" ");
+  return new Set(descWords(normalizeMerchant(text)));
+}
+
 export function scoreDuplicateCandidate(a, b) {
   const centsA = Math.round((Number(a.amount) || 0) * 100);
   const centsB = Math.round((Number(b.amount) || 0) * 100);
@@ -500,8 +520,8 @@ export function scoreDuplicateCandidate(a, b) {
   else if (!accA || !accB) { accountPenalty = 10; reasons.push("conta ainda não classificada de um dos lados"); }
   else { accountPenalty = 40; reasons.push("contas diferentes"); }
 
-  const tokensA = new Set(descWords(normalizeMerchant(a.description)));
-  const tokensB = new Set(descWords(normalizeMerchant(b.description)));
+  const tokensA = descTokenSet(a);
+  const tokensB = descTokenSet(b);
   let shared = 0;
   for (const w of tokensA) if (tokensB.has(w)) shared++;
   const union = new Set([...tokensA, ...tokensB]).size;
