@@ -49,9 +49,15 @@ tab Settings quando o Sync traz conta(s) novas ainda não configuradas.
   transações já importadas — só afeta syncs futuros, e é reversível
   (Unignore remove o urn da lista). Padrões de texto livre legados (pré-v1.59)
   continuam funcionando (`isIgnoredSimplefinAccount`/`accountIsIgnored`
-  inalterados) mas aparecem na tabela como "Ignored (legacy rule)" com o botão
-  desabilitado — não são migrados automaticamente para não arriscar
-  designorar sem querer outra conta que compartilhe o fragmento.
+  inalterados) e não são migrados automaticamente para `accountUrn` — mas,
+  diferente de uma primeira versão desta tabela (corrigido ainda dentro da
+  v1.59.0, antes de auditoria), a linha "Ignored (legacy rule)" não fica mais
+  travada: o botão remove o(s) padrão(ões) legado(s) que casam com aquela
+  conta (confirmação em 2 cliques mostra qual padrão será removido e, se ele
+  também casar com outras contas sincronizadas, quantas — já que remover um
+  padrão de texto livre pode afetar mais de uma conta). Depois de removido, a
+  linha volta ao estado normal e o toggle Ignore/Unignore por `accountUrn`
+  exato passa a valer — inclusive para re-ignorar só aquela conta.
 - **`accountTypeOverrides` ganha 4 valores**: `checking` / `savings` /
   `credit` / `other` (antes só `credit`/`depository`). `depository` continua
   aceito na leitura como alias legado de `checking`/"Checking & Savings" —

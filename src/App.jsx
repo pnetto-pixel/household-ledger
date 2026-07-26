@@ -2020,6 +2020,24 @@ export default function App() {
     }
   }, [accountMap, saveAndApplyAccountMap, saveConfig, acknowledgeSfAccount]);
 
+  // Removes one or more legacy free-text patterns (pre-v1.59.0, authored
+  // before the exact-accountUrn ignore existed) from ignoredSimplefinAccounts
+  // — the only way the consolidated table can unignore an account that a
+  // legacy pattern still matches (v1.59.1 fix: the first cut of this table
+  // just disabled the toggle for that case, leaving no UI path to undo it).
+  // Removing a pattern is inherently coarser than the per-urn toggle (a
+  // pattern can match more than one account), which is why the row's
+  // confirmation text warns about that before this ever runs.
+  const removeSimplefinLegacyPatterns = useCallback((urn, patterns) => {
+    if (!urn || !patterns || patterns.length === 0) return;
+    const removeSet = new Set(patterns);
+    const nextIgnored = IGNORED_SIMPLEFIN_ACCOUNTS.filter((p) => !removeSet.has(p));
+    saveConfig({
+      ignoredSimplefinAccounts: nextIgnored,
+      simplefinAcknowledgedAccounts: acknowledgeSfAccount(urn),
+    });
+  }, [saveConfig, acknowledgeSfAccount]);
+
   const reorderCategories = useCallback((kind, names) => {
     saveConfig(kind === "income" ? { incomeCategories: names } : { expenseCategories: names });
   }, [saveConfig]);
@@ -2124,6 +2142,7 @@ export default function App() {
             onSetSimplefinMapping={setSimplefinAccountMapping}
             onSetSimplefinType={setSimplefinAccountType}
             onSetSimplefinIgnored={setSimplefinAccountIgnored}
+            onRemoveSimplefinLegacyPatterns={removeSimplefinLegacyPatterns}
             onAddAccount={addAccount}
             onRenameAccount={renameAccount}
             onDeleteAccount={deleteAccount}
@@ -6198,10 +6217,22 @@ function sfDisplayType(type) {
 
 // One row of the consolidated SimpleFin accounts table: identity + card
 // mapping + account type + ignore toggle for a single SimpleFin account.
-// Ignoring requires two clicks (chip turns red and asks to confirm, same
-// pattern as ManagedRow's swipe-to-delete — no window.confirm) and
-// auto-resets after 2.5s if the second click never comes.
-function SimplefinAccountRow({ acc, mappedAccount, type, exactIgnored, legacyIgnored, money, onSetMapping, onSetType, onSetIgnored }) {
+// Every ignore/unignore action requires two clicks (chip turns red and asks
+// to confirm, same pattern as ManagedRow's swipe-to-delete — no
+// window.confirm) and auto-resets after 2.5s if the second click never comes.
+//
+// `legacyPatterns`: free-text substring patterns (pre-v1.59.0, authored
+// before this table existed) that match this account — NOT the account's
+// exact accountUrn. A row ignored only by one or more of these is still
+// actionable (v1.59.1 fix — an earlier version of this table locked the
+// toggle here entirely, leaving a legacy-ignored account with literally no
+// UI path to unignore): confirming removes those exact pattern string(s)
+// from `ignoredSimplefinAccounts`, since removing them can affect any OTHER
+// account whose name/id happens to also contain that substring — the
+// confirmation copy says so up front. Once removed, the row is a normal
+// non-ignored row and the clean, collision-free exact-accountUrn toggle
+// applies from then on (re-ignoring, if still wanted, goes through that).
+function SimplefinAccountRow({ acc, mappedAccount, type, exactIgnored, legacyPatterns, money, onSetMapping, onSetType, onSetIgnored, onRemoveLegacyPatterns }) {
   const [confirming, setConfirming] = useState(false);
   useEffect(() => {
     if (!confirming) return;
@@ -6209,22 +6240,39 @@ function SimplefinAccountRow({ acc, mappedAccount, type, exactIgnored, legacyIgn
     return () => clearTimeout(t);
   }, [confirming]);
 
-  const ignored = exactIgnored || legacyIgnored;
+  const isLegacyIgnored = !exactIgnored && legacyPatterns.length > 0;
+  const ignored = exactIgnored || isLegacyIgnored;
   const label = acc.orgName ? `${acc.orgName} — ${acc.name || "—"}` : (acc.name || "—");
 
   const handleToggle = () => {
-    if (legacyIgnored) return; // locked — see the card's help text
     if (!confirming) { setConfirming(true); return; }
     setConfirming(false);
-    onSetIgnored(acc.accountUrn, !exactIgnored);
+    if (isLegacyIgnored) onRemoveLegacyPatterns(acc.accountUrn, legacyPatterns.map((p) => p.pattern));
+    else onSetIgnored(acc.accountUrn, !exactIgnored);
   };
+
+  // Confirmation copy for the legacy-pattern case — spells out exactly which
+  // pattern(s) go away and, when a pattern also matches other synced
+  // accounts, how many more accounts that removal unignores (so the user
+  // isn't surprised by a side effect on an account they weren't looking at).
+  const legacyConfirmText = isLegacyIgnored
+    ? (legacyPatterns.length === 1
+        ? (legacyPatterns[0].otherCount > 0
+            ? `Rule "${legacyPatterns[0].pattern}" also unignores ${legacyPatterns[0].otherCount} other account${legacyPatterns[0].otherCount === 1 ? "" : "s"} — remove it?`
+            : `Remove rule "${legacyPatterns[0].pattern}"?`)
+        : `Remove ${legacyPatterns.length} legacy rules (${legacyPatterns.map((p) => `"${p.pattern}"`).join(", ")})?`)
+    : null;
+
+  const buttonLabel = confirming
+    ? (isLegacyIgnored ? "Confirm?" : (exactIgnored ? "Confirm unignore?" : "Confirm ignore?"))
+    : (exactIgnored ? "Unignore" : isLegacyIgnored ? "Unignore (legacy rule)" : "Ignore");
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 8, padding: "10px 10px", borderRadius: 10, background: "#161a20" }}>
       <div style={{ fontSize: 13, color: "#e5e7eb", overflowWrap: "anywhere", lineHeight: 1.35, display: "flex", alignItems: "center", flexWrap: "wrap", gap: 6 }}>
         <span style={{ width: 8, height: 8, borderRadius: "50%", display: "inline-block", background: ignored ? "#8b94a3" : (mappedAccount ? "#34d399" : "#fbbf24"), flexShrink: 0 }} />
         <span>{label} {acc.last4 ? <span style={{ color: "#8b94a3" }}>· ••{acc.last4}</span> : null}</span>
-        {legacyIgnored ? (
+        {isLegacyIgnored ? (
           <span style={{ fontSize: 10, color: "#fbbf24", background: "rgba(251,191,36,0.12)", border: "1px solid rgba(251,191,36,0.3)", borderRadius: 999, padding: "1px 7px" }}>
             Ignored (legacy rule)
           </span>
@@ -6234,6 +6282,9 @@ function SimplefinAccountRow({ acc, mappedAccount, type, exactIgnored, legacyIgn
         {acc.count ? `${acc.count} txn${acc.count === 1 ? "" : "s"} imported` : "No imported transactions yet"}
         {acc.balance != null ? ` · balance ${money(acc.balance)}` : ""}
       </div>
+      {confirming && legacyConfirmText ? (
+        <div style={{ fontSize: 11, color: "#fbbf24", lineHeight: 1.4 }}>{legacyConfirmText}</div>
+      ) : null}
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
         <select
           value={mappedAccount}
@@ -6259,8 +6310,7 @@ function SimplefinAccountRow({ acc, mappedAccount, type, exactIgnored, legacyIgn
         <button
           type="button"
           onClick={handleToggle}
-          disabled={legacyIgnored}
-          title={legacyIgnored ? "Ignored by a legacy text pattern — this table can't safely toggle it (may match other accounts too)" : undefined}
+          title={isLegacyIgnored && !confirming ? "Ignored by a legacy text pattern — removing it can also unignore other accounts sharing that pattern" : undefined}
           style={{
             ...S.secondaryBtn,
             width: "auto",
@@ -6269,11 +6319,9 @@ function SimplefinAccountRow({ acc, mappedAccount, type, exactIgnored, legacyIgn
             fontSize: 13,
             color: exactIgnored ? "#93c5fd" : (confirming ? "#f87171" : "#cbd5e1"),
             borderColor: exactIgnored ? "rgba(96,165,250,0.4)" : (confirming ? "rgba(248,113,113,0.5)" : undefined),
-            opacity: legacyIgnored ? 0.5 : 1,
-            cursor: legacyIgnored ? "not-allowed" : "pointer",
           }}
         >
-          {exactIgnored ? "Unignore" : confirming ? "Confirm ignore?" : "Ignore"}
+          {buttonLabel}
         </button>
       </div>
     </div>
@@ -6290,7 +6338,20 @@ function SimplefinAccountRow({ acc, mappedAccount, type, exactIgnored, legacyIgn
 // only source that also sees an account that has synced a balance but never
 // had a transaction imported; `transactions` is only used to enrich rows
 // with a last4/import count for display.
-function SimplefinAccountsSection({ sfBalances, transactions, accountMap, config, money, onSetMapping, onSetType, onSetIgnored }) {
+// Substring haystack for one SimpleFin account — same two fields (display
+// name + stable id) isIgnoredSimplefinAccount/accountIsIgnored match a
+// pattern against, kept local here since this needs to test ONE pattern at a
+// time (to know which specific pattern(s) matched a row), not "does any
+// pattern in the list match".
+function sfAccountHaystack(acc) {
+  return `${acc?.name || ""}\n${acc?.accountUrn || ""}`.toLowerCase();
+}
+function sfPatternMatchesAccount(pattern, acc) {
+  const needle = String(pattern || "").trim().toLowerCase();
+  return !!needle && sfAccountHaystack(acc).includes(needle);
+}
+
+function SimplefinAccountsSection({ sfBalances, transactions, accountMap, config, money, onSetMapping, onSetType, onSetIgnored, onRemoveLegacyPatterns }) {
   const enriched = useMemo(() => {
     const meta = new Map();
     for (const t of transactions) {
@@ -6315,6 +6376,28 @@ function SimplefinAccountsSection({ sfBalances, transactions, accountMap, config
     return !accountMap[urn] && !typeOverrides[urn] && !ignoredPatterns.includes(urn) && !acknowledged.includes(urn);
   }).length, [enriched, accountMap, typeOverrides, ignoredPatterns, acknowledged]);
 
+  // Legacy (free-text, pre-v1.59.0) patterns that match each account, keyed
+  // by urn — excludes any pattern that's actually an exact accountUrn (that
+  // case is the ordinary exactIgnored toggle, not a "legacy rule"). For each
+  // matching pattern, also count how many OTHER synced accounts it matches,
+  // so the row's confirmation copy can warn about a side effect before the
+  // user removes a pattern that turns out to also gate another account.
+  const legacyPatternsByUrn = useMemo(() => {
+    const map = new Map();
+    const exactUrns = new Set(ignoredPatterns.filter((p) => enriched.some((a) => a.accountUrn === p)));
+    for (const acc of enriched) {
+      if (exactUrns.has(acc.accountUrn)) { map.set(acc.accountUrn, []); continue; }
+      const matches = ignoredPatterns
+        .filter((p) => !exactUrns.has(p) && sfPatternMatchesAccount(p, acc))
+        .map((pattern) => ({
+          pattern,
+          otherCount: enriched.filter((other) => other.accountUrn !== acc.accountUrn && sfPatternMatchesAccount(pattern, other)).length,
+        }));
+      map.set(acc.accountUrn, matches);
+    }
+    return map;
+  }, [enriched, ignoredPatterns]);
+
   return (
     <CollapsibleCard
       id="simplefin-accounts-section"
@@ -6337,10 +6420,6 @@ function SimplefinAccountsSection({ sfBalances, transactions, accountMap, config
         <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
           {enriched.map((acc) => {
             const exactIgnored = ignoredPatterns.includes(acc.accountUrn);
-            const legacyIgnored = !exactIgnored && isIgnoredSimplefinAccount(
-              { srcAccount: acc.name, accountUrn: acc.accountUrn },
-              ignoredPatterns
-            );
             return (
               <SimplefinAccountRow
                 key={acc.accountUrn}
@@ -6348,11 +6427,12 @@ function SimplefinAccountsSection({ sfBalances, transactions, accountMap, config
                 mappedAccount={accountMap[acc.accountUrn] || ""}
                 type={typeOverrides[acc.accountUrn] || ""}
                 exactIgnored={exactIgnored}
-                legacyIgnored={legacyIgnored}
+                legacyPatterns={legacyPatternsByUrn.get(acc.accountUrn) || []}
                 money={money}
                 onSetMapping={onSetMapping}
                 onSetType={onSetType}
                 onSetIgnored={onSetIgnored}
+                onRemoveLegacyPatterns={onRemoveLegacyPatterns}
               />
             );
           })}
@@ -7194,7 +7274,7 @@ function SettingsTab({
   categoryDescriptionRules, onSaveCategoryDescriptionRules,
   config,
   money, sfBalances,
-  onSetSimplefinMapping, onSetSimplefinType, onSetSimplefinIgnored,
+  onSetSimplefinMapping, onSetSimplefinType, onSetSimplefinIgnored, onRemoveSimplefinLegacyPatterns,
   onAddAccount, onRenameAccount, onDeleteAccount,
   onAddCategory, onRenameCategory, onDeleteCategory,
   onReorderAccounts, onReorderCategories,
@@ -7284,6 +7364,7 @@ function SettingsTab({
         onSetMapping={onSetSimplefinMapping}
         onSetType={onSetSimplefinType}
         onSetIgnored={onSetSimplefinIgnored}
+        onRemoveLegacyPatterns={onRemoveSimplefinLegacyPatterns}
       />
       <BudgetsSection
         budgets={budgets}
