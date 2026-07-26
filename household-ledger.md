@@ -1,4 +1,4 @@
-# Household Ledger · v1.56.5
+# Household Ledger · v1.57.0
 
 Aplicativo mobile-first de controle financeiro doméstico. Registra
 transações da casa (despesas e receitas) por categoria e conta, com
@@ -31,7 +31,42 @@ O `feature-auditor` deve conferir, como parte da checklist de auditoria, que
 o diff inclui o bump nos dois arquivos antes de aprovar — se faltar, isso é
 motivo de reprovação (devolver ao coder), não um detalhe opcional.
 
-Versão atual: **v1.56.5** — **fix: Redis estourou `maxmemory` por causa dos
+Versão atual: **v1.57.0** — **feat: lista editável de contas do SimpleFin a
+ignorar** (`api/config.js`, `src/ledger.js`, `src/App.jsx`).
+
+Contas cujas transações já chegam ao ledger por outra fonte (Credit Karma,
+CSV) só produziam duplicatas a cada sync — o usuário tinha que rejeitá-las
+manualmente toda vez. Até aqui a única forma de excluir uma conta era o
+hardcode da Fidelity em `lib/simplefin.js` (v1.56.1), que exige um deploy por
+conta. Agora é configurável na Settings.
+
+- **Nova lista `ignoredSimplefinAccounts`** em `api/config.js`, encaixada no
+  `LIST_KEYS` existente — o sanitizador já é genérico (array deduplicado de
+  strings não vazias), então **não há endpoint novo nem chave nova no Redis**.
+  Isso importa: o plano Vercel Hobby limita o projeto a 12 Serverless
+  Functions e já estamos no teto.
+- **Função pura `isIgnoredSimplefinAccount(row, patterns)`**
+  (`src/ledger.js`): substring case-insensitive contra o nome da conta
+  (`srcAccount`, ex. `"Chase Auto Lease (0870)"`) **e** o id estável
+  (`accountUrn`) — então tanto `auto lease` quanto `0870` funcionam, e a
+  regra sobrevive à instituição renomear a conta.
+- **Filtro em `classifySimpleFinRows`**, que cobre os dois caminhos ("Sync
+  now" e "Revisar pendentes") de uma vez: as linhas são descartadas antes de
+  chegar à prévia.
+- **UI**: novo `CollapsibleCard` "Ignored SimpleFin accounts" na tab Settings,
+  reusando `ManagedList`. `ManagedList` também ganhou uma guarda
+  (`onReorder?.()`), já que antes ele quebrava se a lista não fosse
+  reordenável.
+- Em `applyConfig`, esta lista **não** leva o guarda `&& length` das demais:
+  array vazio aqui significa "não ignorar nada", não "não configurado" —
+  sem isso, remover o último padrão não teria efeito.
+
+**Sem cascata retroativa**, mesmo padrão das outras seções de regra: só afeta
+syncs futuros, nada do que já foi importado muda. O hardcode da Fidelity
+continua no servidor (também mantém a fila do cron menor, o que é relevante
+depois do incidente de memória da v1.56.5).
+
+Versão anterior: **v1.56.5** — **fix: Redis estourou `maxmemory` por causa dos
 snapshots diários e o ledger ficou impossível de salvar**
 (`api/transactions.js`).
 

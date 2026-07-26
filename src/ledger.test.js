@@ -29,6 +29,7 @@ import {
   descWords,
   mergeTransactions,
   repairUnsavableRows,
+  isIgnoredSimplefinAccount,
 } from "./ledger.js";
 
 const INCOME = ["Salary", "Bonus", "Bela Income", "Other Income"];
@@ -679,5 +680,44 @@ describe("repairUnsavableRows", () => {
 
   it("tolerates a non-array input", () => {
     expect(repairUnsavableRows(undefined, "2026-07-26")).toEqual({ transactions: [], repaired: 0 });
+  });
+});
+
+describe("isIgnoredSimplefinAccount", () => {
+  const row = { srcAccount: "Chase Auto Lease (0870)", accountUrn: "acc-9f21" };
+
+  it("ignores nothing when the list is empty or absent", () => {
+    expect(isIgnoredSimplefinAccount(row, [])).toBe(false);
+    expect(isIgnoredSimplefinAccount(row, undefined)).toBe(false);
+  });
+
+  it("matches a case-insensitive substring of the account name", () => {
+    expect(isIgnoredSimplefinAccount(row, ["auto lease"])).toBe(true);
+    expect(isIgnoredSimplefinAccount(row, ["AUTO LEASE"])).toBe(true);
+    expect(isIgnoredSimplefinAccount(row, ["Chase Auto Lease (0870)"])).toBe(true);
+  });
+
+  it("matches the last 4 / any fragment of the id, so a rename doesn't break it", () => {
+    expect(isIgnoredSimplefinAccount(row, ["0870"])).toBe(true);
+    expect(isIgnoredSimplefinAccount(row, ["acc-9f21"])).toBe(true);
+  });
+
+  it("does NOT ignore a different Chase account", () => {
+    // The whole point: "Chase" alone would take out Chase Reserve too, but a
+    // specific pattern must leave sibling accounts alone.
+    const reserve = { srcAccount: "Chase Reserve", accountUrn: "acc-1111" };
+    expect(isIgnoredSimplefinAccount(reserve, ["auto lease"])).toBe(false);
+    expect(isIgnoredSimplefinAccount(reserve, ["0870"])).toBe(false);
+    expect(isIgnoredSimplefinAccount(reserve, ["chase"])).toBe(true); // too broad, by design
+  });
+
+  it("any pattern in the list can match, and blank entries never match", () => {
+    expect(isIgnoredSimplefinAccount(row, ["fidelity", "auto lease"])).toBe(true);
+    expect(isIgnoredSimplefinAccount(row, ["", "   "])).toBe(false);
+  });
+
+  it("tolerates rows missing the account fields", () => {
+    expect(isIgnoredSimplefinAccount({}, ["auto lease"])).toBe(false);
+    expect(isIgnoredSimplefinAccount(undefined, ["auto lease"])).toBe(false);
   });
 });
