@@ -1,4 +1,4 @@
-# Household Ledger · v1.57.0
+# Household Ledger · v1.58.0
 
 Aplicativo mobile-first de controle financeiro doméstico. Registra
 transações da casa (despesas e receitas) por categoria e conta, com
@@ -31,7 +31,13 @@ O `feature-auditor` deve conferir, como parte da checklist de auditoria, que
 o diff inclui o bump nos dois arquivos antes de aprovar — se faltar, isso é
 motivo de reprovação (devolver ao coder), não um detalhe opcional.
 
-Versão atual: **v1.57.0** — **feat: lista editável de contas do SimpleFin a
+Versão atual: **v1.58.0** — **feat: Account Balances card na Home** com
+saldos por conta via SimpleFin, classificação manual de tipo de conta
+(credit/checking-savings) em Settings, e remoção do hardcode de exclusão da
+Fidelity, substituído pela lista configurável `ignoredSimplefinAccounts`
+(agora respeitada também no servidor).
+
+Versão anterior: **v1.57.0** — **feat: lista editável de contas do SimpleFin a
 ignorar** (`api/config.js`, `src/ledger.js`, `src/App.jsx`).
 
 Contas cujas transações já chegam ao ledger por outra fonte (Credit Karma,
