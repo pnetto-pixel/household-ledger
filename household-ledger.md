@@ -2996,6 +2996,17 @@ shell de altura cheia (`#root` em `100lvh` + shell `height:100%`): só o
    também foi traduzido PT→EN (PR #104, v1.7.0) — o restante do componente
    `ImportTransactions` já estava em inglês.
 
+   **Filtros de coluna no header da tabela (desktop, v1.62.0, PR #247)** —
+   no preview de import em `<table>` (desktop, `isWide`, ver v1.61.0 acima),
+   os headers de conta/categoria/data passaram a ser `HeaderFilter`/
+   `DateHeaderFilter` (mesmos componentes reaproveitados da tab
+   Transactions), em vez de texto estático; estado do filtro é local ao
+   `ImportTransactions` (não persiste entre sessões/imports). A preview
+   também passou a ordenar por data decrescente com tie-break estável (por
+   índice original), mesmo padrão adotado na tab Transactions. **Escopo:
+   só a visão desktop em tabela** — a visão mobile (cards) do preview de
+   import não ganhou filtro de header nesta versão.
+
    **SimpleFin (auto)** (v1.48.0, PR #213, Fase 1) — terceiro card na tab
    Import, ao lado de Credit Karma (CSV) e CSV genérico, com botão "Sync
    now". Ao clicar, busca `GET /api/simplefin-sync` (endpoint autenticado,
@@ -4641,6 +4652,16 @@ riscos reais de perda de dados.
     para contas Amazon (o `description` que a Amazon manda é genérico;
     o detalhe do pedido está em `memo`). `accountCount` do retorno passou a
     contar só contas efetivamente sincronizadas.
+  - [x] **Fix: duplicatas SimpleFin (reissue pending → posted) não eram
+    detectadas** (v1.62.0, PR #247) — `markDuplicates` (`src/ledger.js`)
+    vetava automaticamente candidatos com `sourceId` diferente sempre que
+    o feed batia (`sameFeed`), inclusive quando ambos os lados eram `"sf"`
+    (SimpleFin), impedindo pares Amazon Card reemitidos (pending → posted)
+    de sequer entrar no scoring fuzzy. O veto agora só se aplica a
+    `sameFeed && !bothSf` (mesmo feed legado/"ck"); pares sf/sf com
+    `sourceId` diferente passam pelo scoring normal. Testes novos em
+    `src/ledger.test.js` cobrindo o caso positivo e a não-regressão do
+    PR #51. Ver também item de UI abaixo (filtros de header no import).
   - [ ] UI de configuração de credencial SimpleFin na Settings — ainda
     hardcoded via env var `SIMPLEFIN_ACCESS_URL` (single-tenant).
   - [ ] **Follow-ups da v1.56.0** (não bloqueantes, achados na auditoria):
