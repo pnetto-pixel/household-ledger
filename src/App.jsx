@@ -145,12 +145,19 @@ let CATEGORIES = [...EXPENSE_CATEGORIES, ...INCOME_CATEGORIES, TRANSFER_CATEGORY
 // Unlike the lists above, an EMPTY array is meaningful here — it means "ignore
 // nothing" — so applyConfig must not treat empty as "unset".
 let IGNORED_SIMPLEFIN_ACCOUNTS = [];
-// Manual classification of a SimpleFin account (by accountUrn) as a credit
-// card or a checking/savings account — feeds the Home tab's Account Balances
-// card grouping (AccountBalancesCard). Accounts with no entry here default to
-// "depository". Same "empty object is meaningful" rule as
-// IGNORED_SIMPLEFIN_ACCOUNTS above.
+// Manual classification of a SimpleFin account (by accountUrn) as
+// "checking" | "savings" | "credit" | "other" — feeds the Home tab's Account
+// Balances card grouping (AccountBalancesCard). Accounts with no entry here
+// default to "checking". "depository" is a legacy value (pre-v1.59.0, back
+// when the only choices were "credit"/"depository") still accepted on read
+// and treated as an alias for "checking" — never written by the UI anymore.
+// Same "empty object is meaningful" rule as IGNORED_SIMPLEFIN_ACCOUNTS above.
 let ACCOUNT_TYPE_OVERRIDES = {};
+// accountUrns the user has explicitly acted on in Settings → "SimpleFin
+// accounts" (mapped, classified, or ignored/unignored) — used only to
+// compute the "new accounts" badge (see App's `sfNewAccountsCount`). Same
+// "empty array is meaningful" rule as IGNORED_SIMPLEFIN_ACCOUNTS above.
+let SIMPLEFIN_ACKNOWLEDGED_ACCOUNTS = [];
 
 function applyConfig(cfg) {
   if (Array.isArray(cfg?.accounts) && cfg.accounts.length) ACCOUNTS = [...cfg.accounts];
@@ -168,6 +175,8 @@ function applyConfig(cfg) {
   if (cfg?.accountTypeOverrides && typeof cfg.accountTypeOverrides === "object" && !Array.isArray(cfg.accountTypeOverrides)) {
     ACCOUNT_TYPE_OVERRIDES = { ...cfg.accountTypeOverrides };
   }
+  // No `.length` guard: clearing the last entry must actually clear the list.
+  if (Array.isArray(cfg?.simplefinAcknowledgedAccounts)) SIMPLEFIN_ACKNOWLEDGED_ACCOUNTS = [...cfg.simplefinAcknowledgedAccounts];
 }
 
 // The current runtime config as a plain object (for seeding React state).
@@ -178,6 +187,7 @@ function currentConfig() {
     incomeCategories: [...INCOME_CATEGORIES],
     ignoredSimplefinAccounts: [...IGNORED_SIMPLEFIN_ACCOUNTS],
     accountTypeOverrides: { ...ACCOUNT_TYPE_OVERRIDES },
+    simplefinAcknowledgedAccounts: [...SIMPLEFIN_ACKNOWLEDGED_ACCOUNTS],
   };
 }
 
@@ -619,6 +629,26 @@ async function loadSfBalances({ force = false } = {}) {
   }
 }
 
+// React hook wrapping loadSfBalances/refresh — lifted to App level (v1.59.0)
+// so a single fetch (on top of loadSfBalances's own sessionStorage cache)
+// feeds both Settings' consolidated "SimpleFin accounts" card and the
+// TabBar's "new accounts" badge, which need the same accountBalances list.
+function useSfBalances(enabled) {
+  const [state, setState] = useState({ status: "idle", accountBalances: [], error: null, notConfigured: false });
+  const refresh = useCallback(async (opts) => {
+    const result = await loadSfBalances(opts);
+    if (!result.ok) {
+      setState({ status: "error", accountBalances: [], error: result.error, notConfigured: result.status === 501 });
+    } else {
+      setState({ status: "ready", accountBalances: result.accountBalances, error: null, notConfigured: false });
+    }
+  }, []);
+  useEffect(() => {
+    if (enabled) refresh();
+  }, [enabled, refresh]);
+  return [state, refresh];
+}
+
 // ---------------------------------------------------------------------------
 // Idle auto-lock (inactivity timeout)
 // ---------------------------------------------------------------------------
@@ -667,7 +697,7 @@ function idleExpired() {
 // path, so the pending copy is discarded with a notice instead).
 
 // Single source for the version shown in the header and in diagnostics.
-const APP_VERSION = "v1.58.0";
+const APP_VERSION = "v1.59.0";
 
 const PENDING_SAVE_KEY = "household_pending_save";
 
@@ -810,6 +840,45 @@ export default function App() {
   // User-managed lists (accounts + categories) — loaded from /api/config.
   // Seeded from the module defaults so the UI has values before the fetch.
   const [config, setConfig] = useState(() => currentConfig());
+
+  // SimpleFin account balances — lifted to App level (v1.59.0) so both
+  // Settings' consolidated "SimpleFin accounts" card and the TabBar badge
+  // below share one fetch (loadSfBalances already caches in sessionStorage).
+  const [sfBalances, refreshSfBalances] = useSfBalances(authed);
+
+  // "New, unconfigured SimpleFin account" badge (v1.59.0): an accountUrn
+  // present in the last synced accountBalances but absent from every one of
+  // accountMap / accountTypeOverrides / ignoredSimplefinAccounts /
+  // simplefinAcknowledgedAccounts has never been looked at in Settings.
+  // Purely a client-side diff over data already in memory — no new endpoint.
+  const sfNewAccountsCount = useMemo(() => {
+    const balances = sfBalances.accountBalances || [];
+    if (balances.length === 0) return 0;
+    const typeOverrides = config.accountTypeOverrides || {};
+    const ignored = config.ignoredSimplefinAccounts || [];
+    const acknowledged = config.simplefinAcknowledgedAccounts || [];
+    let n = 0;
+    for (const acc of balances) {
+      const urn = acc.accountUrn;
+      if (!urn) continue;
+      const known = accountMap[urn] || typeOverrides[urn] || ignored.includes(urn) || acknowledged.includes(urn);
+      if (!known) n++;
+    }
+    return n;
+  }, [sfBalances.accountBalances, accountMap, config.accountTypeOverrides, config.ignoredSimplefinAccounts, config.simplefinAcknowledgedAccounts]);
+
+  // Import tab's "Sync now" (syncSimpleFin) already fetches GET
+  // /api/simplefin-sync directly (it needs the raw transactions for the
+  // preview pipeline) instead of going through loadSfBalances — so its
+  // response's accountBalances would otherwise never reach the shared
+  // sessionStorage cache/sfBalances state above. This callback lets it feed
+  // that same result in, keeping the Settings table/badge fresh right after
+  // a manual sync instead of waiting up to 5 minutes for the cache to expire.
+  const handleSfSynced = useCallback((accountBalances) => {
+    if (!Array.isArray(accountBalances)) return;
+    writeSfBalancesCache(accountBalances);
+    refreshSfBalances();
+  }, [refreshSfBalances]);
 
   // Format a money value, respecting the global eye toggle.
   const money = useCallback(
@@ -1894,40 +1963,63 @@ export default function App() {
 
   const reorderAccounts = useCallback((names) => saveConfig({ accounts: names }), [saveConfig]);
 
-  // Ignored SimpleFin accounts. Plain string patterns — no cascade over
-  // existing transactions: this only decides what FUTURE syncs bring in, so
-  // rows already imported stay exactly as they are.
-  const addIgnoredSimplefinAccount = useCallback((raw) => {
-    const n = String(raw || "").trim();
-    if (!n || IGNORED_SIMPLEFIN_ACCOUNTS.includes(n)) return;
-    saveConfig({ ignoredSimplefinAccounts: [...IGNORED_SIMPLEFIN_ACCOUNTS, n] });
-  }, [saveConfig]);
-  const renameIgnoredSimplefinAccount = useCallback((oldName, raw) => {
-    const n = String(raw || "").trim();
-    if (!n || n === oldName) return;
-    saveConfig({ ignoredSimplefinAccounts: IGNORED_SIMPLEFIN_ACCOUNTS.map((p) => (p === oldName ? n : p)) });
-  }, [saveConfig]);
-  const deleteIgnoredSimplefinAccount = useCallback((name) => {
-    saveConfig({ ignoredSimplefinAccounts: IGNORED_SIMPLEFIN_ACCOUNTS.filter((p) => p !== name) });
-  }, [saveConfig]);
-  // Order carries no meaning here (every pattern is tested), but ManagedList
-  // shows a drag handle, so persist what the user arranges rather than
-  // leaving a control that silently does nothing.
-  const reorderIgnoredSimplefinAccounts = useCallback(
-    (names) => saveConfig({ ignoredSimplefinAccounts: names }),
-    [saveConfig]
+  // ---- SimpleFin accounts table (Settings, v1.59.0) ------------------------
+  // Consolidates the old three cards (Card mapping / Ignored SimpleFin
+  // accounts / Account types) into one table, one row per SimpleFin account
+  // (see SimplefinAccountsSection). Any of the three actions below also
+  // "acknowledges" the account (adds its urn to simplefinAcknowledgedAccounts)
+  // — that's how sfNewAccountsCount's badge clears once the user has looked
+  // at a newly-synced account, even if they leave it Unassigned/uncategorized.
+  const acknowledgeSfAccount = useCallback(
+    (urn) => (SIMPLEFIN_ACKNOWLEDGED_ACCOUNTS.includes(urn) ? SIMPLEFIN_ACKNOWLEDGED_ACCOUNTS : [...SIMPLEFIN_ACKNOWLEDGED_ACCOUNTS, urn]),
+    []
   );
 
-  // Manual per-account classification (Settings → "Account types") backing
-  // the Home tab's Account Balances card grouping. `type` of anything other
-  // than "credit"/"depository" clears the override (back to the default).
-  const setAccountTypeOverride = useCallback((accountUrn, type) => {
-    if (!accountUrn) return;
-    const next = { ...ACCOUNT_TYPE_OVERRIDES };
-    if (type === "credit" || type === "depository") next[accountUrn] = type;
-    else delete next[accountUrn];
-    saveConfig({ accountTypeOverrides: next });
-  }, [saveConfig]);
+  const setSimplefinAccountMapping = useCallback((urn, account) => {
+    if (!urn) return;
+    const nextMap = { ...accountMap };
+    if (account) nextMap[urn] = account; else delete nextMap[urn];
+    saveAndApplyAccountMap(nextMap); // persists + cascades onto matching transactions
+    saveConfig({ simplefinAcknowledgedAccounts: acknowledgeSfAccount(urn) });
+  }, [accountMap, saveAndApplyAccountMap, saveConfig, acknowledgeSfAccount]);
+
+  const setSimplefinAccountType = useCallback((urn, type) => {
+    if (!urn) return;
+    const nextOverrides = { ...ACCOUNT_TYPE_OVERRIDES };
+    if (type === "checking" || type === "savings" || type === "credit" || type === "other") nextOverrides[urn] = type;
+    else delete nextOverrides[urn];
+    saveConfig({
+      accountTypeOverrides: nextOverrides,
+      simplefinAcknowledgedAccounts: acknowledgeSfAccount(urn),
+    });
+  }, [saveConfig, acknowledgeSfAccount]);
+
+  // Ignoring/unignoring is always by the account's EXACT accountUrn (never a
+  // free-text fragment the old list used) — can't collide with a
+  // differently-named account. Ignoring clears the account's mapping/type
+  // (they stop meaning anything once the account is skipped) but — same
+  // guarantee the old free-text list always gave — never touches
+  // already-imported transactions; it only changes what FUTURE syncs bring
+  // in (lib/simplefin.js still just skips a matching account's rows).
+  const setSimplefinAccountIgnored = useCallback((urn, ignored) => {
+    if (!urn) return;
+    const nextIgnored = ignored
+      ? (IGNORED_SIMPLEFIN_ACCOUNTS.includes(urn) ? IGNORED_SIMPLEFIN_ACCOUNTS : [...IGNORED_SIMPLEFIN_ACCOUNTS, urn])
+      : IGNORED_SIMPLEFIN_ACCOUNTS.filter((p) => p !== urn);
+    const nextOverrides = { ...ACCOUNT_TYPE_OVERRIDES };
+    if (ignored) delete nextOverrides[urn];
+    saveConfig({
+      ignoredSimplefinAccounts: nextIgnored,
+      accountTypeOverrides: nextOverrides,
+      simplefinAcknowledgedAccounts: acknowledgeSfAccount(urn),
+    });
+    if (ignored && accountMap[urn]) {
+      const nextMap = { ...accountMap };
+      delete nextMap[urn];
+      saveAndApplyAccountMap(nextMap);
+    }
+  }, [accountMap, saveAndApplyAccountMap, saveConfig, acknowledgeSfAccount]);
+
   const reorderCategories = useCallback((kind, names) => {
     saveConfig(kind === "income" ? { incomeCategories: names } : { expenseCategories: names });
   }, [saveConfig]);
@@ -2012,6 +2104,7 @@ export default function App() {
             money={money}
             hideValues={hideValues}
             onConfirmDuplicateMatch={confirmDuplicateMatch}
+            onSfSynced={handleSfSynced}
           />
         ) : tab === "settings" ? (
           <SettingsTab
@@ -2026,7 +2119,11 @@ export default function App() {
             categoryDescriptionRules={categoryDescriptionRules}
             onSaveCategoryDescriptionRules={saveCategoryDescriptionRules}
             config={config}
-            onSaveAccountMap={saveAndApplyAccountMap}
+            money={money}
+            sfBalances={sfBalances}
+            onSetSimplefinMapping={setSimplefinAccountMapping}
+            onSetSimplefinType={setSimplefinAccountType}
+            onSetSimplefinIgnored={setSimplefinAccountIgnored}
             onAddAccount={addAccount}
             onRenameAccount={renameAccount}
             onDeleteAccount={deleteAccount}
@@ -2035,11 +2132,6 @@ export default function App() {
             onDeleteCategory={deleteCategory}
             onReorderAccounts={reorderAccounts}
             onReorderCategories={reorderCategories}
-            onAddIgnoredSf={addIgnoredSimplefinAccount}
-            onRenameIgnoredSf={renameIgnoredSimplefinAccount}
-            onDeleteIgnoredSf={deleteIgnoredSimplefinAccount}
-            onReorderIgnoredSf={reorderIgnoredSimplefinAccounts}
-            onSetAccountTypeOverride={setAccountTypeOverride}
             onRestoreTransactions={restoreTransactions}
             budgets={budgets}
             onSaveBudgets={saveBudgets}
@@ -2050,7 +2142,7 @@ export default function App() {
         </TabErrorBoundary>
       </main>
 
-      <TabBar tab={tab} setTab={setTab} wide={isWide} />
+      <TabBar tab={tab} setTab={setTab} wide={isWide} settingsBadge={sfNewAccountsCount} />
     </div>
   );
 }
@@ -2284,16 +2376,20 @@ const TABS = [
   { id: "settings", label: "Settings", Icon: Settings },
 ];
 
-function TabBar({ tab, setTab, wide }) {
+// `settingsBadge`: count of newly-synced, unconfigured SimpleFin accounts
+// (v1.59.0) — shown as a small red dot on the Settings tab icon so it's
+// noticed without opening the tab. 0/undefined renders nothing.
+function TabBar({ tab, setTab, wide, settingsBadge }) {
   return (
     <nav style={{ ...S.tabBar, maxWidth: wide ? 1180 : 560 }}>
       {TABS.map(({ id, label, Icon }) => {
         const active = tab === id;
+        const showDot = id === "settings" && settingsBadge > 0;
         return (
           <button
             key={id}
             onClick={() => setTab(id)}
-            aria-label={label}
+            aria-label={showDot ? `${label} (${settingsBadge} new)` : label}
             title={label}
             style={{ ...S.tabBtn, color: active ? "#0A84FF" : "#8b94a3", position: "relative" }}
           >
@@ -2305,6 +2401,7 @@ function TabBar({ tab, setTab, wide }) {
                 }} />
               )}
               <Icon size={20} />
+              {showDot ? <span style={S.tabBadgeDot} /> : null}
             </div>
             <span style={{ fontSize: 10, marginTop: 2, fontWeight: active ? 600 : 500 }}>{label}</span>
           </button>
@@ -3040,8 +3137,8 @@ function Dashboard({ transactions, money, hideValues, isWide, budgets, config })
 }
 
 // Home tab: current balance per SimpleFin-linked account, grouped into
-// "Credit Cards" and "Checking/Savings" using `accountTypeOverrides` (from
-// /api/config, set in Settings → "Account types"). Fetches
+// "Credit Cards" / "Checking & Savings" / "Other" using `accountTypeOverrides`
+// (from /api/config, set in Settings → "SimpleFin accounts"). Fetches
 // GET /api/simplefin-sync (cached — see loadSfBalances/readSfBalancesCache
 // above) rather than the ledger's own transactions, since a balance isn't
 // derivable from the transaction history the app stores.
@@ -3062,18 +3159,27 @@ function AccountBalancesCard({ money, hideValues, accountTypeOverrides }) {
     return () => { cancelled = true; };
   }, []);
 
-  const { credit, depository } = useMemo(() => {
+  const { credit, checking, other } = useMemo(() => {
     const overrides = accountTypeOverrides || {};
     const credit = [];
-    const depository = [];
+    const checking = [];
+    const other = [];
     for (const acc of state.accountBalances) {
-      const type = overrides[acc.accountUrn] === "credit" ? "credit" : "depository";
-      (type === "credit" ? credit : depository).push(acc);
+      // Ignored accounts (Settings → "SimpleFin accounts") are additive-only
+      // in the API response (lib/simplefin.js, v1.59.0) — filter them out
+      // here explicitly, or an ignored account would reappear in the Home
+      // balance list it was removed from before that change.
+      if (acc.ignored) continue;
+      const type = overrides[acc.accountUrn]; // "checking" | "savings" | "credit" | "other" | "depository" (legacy) | undefined
+      if (type === "credit") credit.push(acc);
+      else if (type === "other") other.push(acc);
+      else checking.push(acc); // "checking" | "savings" | "depository" (legacy alias) | unset all bucket here
     }
     const byName = (a, b) => (a.name || "").localeCompare(b.name || "");
     credit.sort(byName);
-    depository.sort(byName);
-    return { credit, depository };
+    checking.sort(byName);
+    other.sort(byName);
+    return { credit, checking, other };
   }, [state.accountBalances, accountTypeOverrides]);
 
   const renderGroup = (title, accounts) => (
@@ -3116,12 +3222,17 @@ function AccountBalancesCard({ money, hideValues, accountTypeOverrides }) {
         </div>
       ) : state.status === "error" ? (
         <Empty>{state.error}</Empty>
-      ) : state.accountBalances.length === 0 ? (
-        <Empty>No SimpleFin accounts synced yet.</Empty>
+      ) : credit.length + checking.length + other.length === 0 ? (
+        <Empty>
+          {state.accountBalances.length === 0
+            ? "No SimpleFin accounts synced yet."
+            : "Every synced SimpleFin account is ignored (Settings → SimpleFin accounts)."}
+        </Empty>
       ) : (
         <div style={S.col}>
           {credit.length > 0 && renderGroup("Credit Cards", credit)}
-          {depository.length > 0 && renderGroup("Checking/Savings", depository)}
+          {checking.length > 0 && renderGroup("Checking & Savings", checking)}
+          {other.length > 0 && renderGroup("Other", other)}
         </div>
       )}
     </div>
@@ -6071,93 +6182,181 @@ function CollapsibleCard({ title, badge, defaultOpen = false, icon: Icon, childr
   );
 }
 
-// Map each source card to an account (lives inside Settings). Cards are keyed
-// on the source's stable account URN (so five Chase "CREDIT CARD"s are told
-// apart by their last-4), labeled by issuer + last-4. Saving persists the map
-// and re-applies it to existing transactions; future imports classify by it.
-function AccountMapSection({ transactions, accountMap, onSave }) {
-  const cards = useMemo(() => {
-    const m = new Map();
+// Account type choices for the SimpleFin accounts table (v1.59.0) — replaces
+// the old binary credit/depository choice. "depository" (legacy, still
+// accepted server-side) is treated as an alias for "checking" wherever it's
+// displayed, but is never written by this UI.
+const SF_ACCOUNT_TYPE_OPTIONS = [
+  { value: "checking", label: "Checking" },
+  { value: "savings", label: "Savings" },
+  { value: "credit", label: "Credit Card" },
+  { value: "other", label: "Other" },
+];
+function sfDisplayType(type) {
+  return type === "depository" ? "checking" : (type || "checking");
+}
+
+// One row of the consolidated SimpleFin accounts table: identity + card
+// mapping + account type + ignore toggle for a single SimpleFin account.
+// Ignoring requires two clicks (chip turns red and asks to confirm, same
+// pattern as ManagedRow's swipe-to-delete — no window.confirm) and
+// auto-resets after 2.5s if the second click never comes.
+function SimplefinAccountRow({ acc, mappedAccount, type, exactIgnored, legacyIgnored, money, onSetMapping, onSetType, onSetIgnored }) {
+  const [confirming, setConfirming] = useState(false);
+  useEffect(() => {
+    if (!confirming) return;
+    const t = setTimeout(() => setConfirming(false), 2500);
+    return () => clearTimeout(t);
+  }, [confirming]);
+
+  const ignored = exactIgnored || legacyIgnored;
+  const label = acc.orgName ? `${acc.orgName} — ${acc.name || "—"}` : (acc.name || "—");
+
+  const handleToggle = () => {
+    if (legacyIgnored) return; // locked — see the card's help text
+    if (!confirming) { setConfirming(true); return; }
+    setConfirming(false);
+    onSetIgnored(acc.accountUrn, !exactIgnored);
+  };
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 8, padding: "10px 10px", borderRadius: 10, background: "#161a20" }}>
+      <div style={{ fontSize: 13, color: "#e5e7eb", overflowWrap: "anywhere", lineHeight: 1.35, display: "flex", alignItems: "center", flexWrap: "wrap", gap: 6 }}>
+        <span style={{ width: 8, height: 8, borderRadius: "50%", display: "inline-block", background: ignored ? "#8b94a3" : (mappedAccount ? "#34d399" : "#fbbf24"), flexShrink: 0 }} />
+        <span>{label} {acc.last4 ? <span style={{ color: "#8b94a3" }}>· ••{acc.last4}</span> : null}</span>
+        {legacyIgnored ? (
+          <span style={{ fontSize: 10, color: "#fbbf24", background: "rgba(251,191,36,0.12)", border: "1px solid rgba(251,191,36,0.3)", borderRadius: 999, padding: "1px 7px" }}>
+            Ignored (legacy rule)
+          </span>
+        ) : null}
+      </div>
+      <div style={{ fontSize: 11, color: "#8b94a3" }}>
+        {acc.count ? `${acc.count} txn${acc.count === 1 ? "" : "s"} imported` : "No imported transactions yet"}
+        {acc.balance != null ? ` · balance ${money(acc.balance)}` : ""}
+      </div>
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+        <select
+          value={mappedAccount}
+          disabled={ignored}
+          onChange={(e) => onSetMapping(acc.accountUrn, e.target.value)}
+          style={{ ...S.cellSelect, flex: "1 1 140px", maxWidth: "none", opacity: ignored ? 0.5 : 1 }}
+        >
+          <option value="">— Unassigned —</option>
+          {ACCOUNTS.map((a) => (
+            <option key={a}>{a}</option>
+          ))}
+        </select>
+        <select
+          value={sfDisplayType(type)}
+          disabled={ignored}
+          onChange={(e) => onSetType(acc.accountUrn, e.target.value)}
+          style={{ ...S.select, flex: "1 1 130px", opacity: ignored ? 0.5 : 1 }}
+        >
+          {SF_ACCOUNT_TYPE_OPTIONS.map((o) => (
+            <option key={o.value} value={o.value}>{o.label}</option>
+          ))}
+        </select>
+        <button
+          type="button"
+          onClick={handleToggle}
+          disabled={legacyIgnored}
+          title={legacyIgnored ? "Ignored by a legacy text pattern — this table can't safely toggle it (may match other accounts too)" : undefined}
+          style={{
+            ...S.secondaryBtn,
+            width: "auto",
+            flex: "0 0 auto",
+            padding: "8px 14px",
+            fontSize: 13,
+            color: exactIgnored ? "#93c5fd" : (confirming ? "#f87171" : "#cbd5e1"),
+            borderColor: exactIgnored ? "rgba(96,165,250,0.4)" : (confirming ? "rgba(248,113,113,0.5)" : undefined),
+            opacity: legacyIgnored ? 0.5 : 1,
+            cursor: legacyIgnored ? "not-allowed" : "pointer",
+          }}
+        >
+          {exactIgnored ? "Unignore" : confirming ? "Confirm ignore?" : "Ignore"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// Settings: single consolidated table of every SimpleFin account the bridge
+// has ever synced a balance for — card mapping (accountMap), account type
+// (accountTypeOverrides) and ignore state (ignoredSimplefinAccounts) all live
+// per-row here (v1.59.0), replacing the three separate cards this used to be
+// ("Card mapping" / "Ignored SimpleFin accounts" / "Account types"). The
+// master row list comes from `sfBalances` (GET /api/simplefin-sync via
+// loadSfBalances/useSfBalances) rather than `transactions`, since it's the
+// only source that also sees an account that has synced a balance but never
+// had a transaction imported; `transactions` is only used to enrich rows
+// with a last4/import count for display.
+function SimplefinAccountsSection({ sfBalances, transactions, accountMap, config, money, onSetMapping, onSetType, onSetIgnored }) {
+  const enriched = useMemo(() => {
+    const meta = new Map();
     for (const t of transactions) {
       const urn = t.accountUrn;
       if (!urn) continue;
-      const e = m.get(urn) || { urn, label: "", last4: t.last4 || "", count: 0 };
+      const e = meta.get(urn) || { last4: "", count: 0 };
       e.count++;
-      if (!e.label && t.srcAccount) e.label = t.srcAccount;
       if (!e.last4 && t.last4) e.last4 = t.last4;
-      m.set(urn, e);
+      meta.set(urn, e);
     }
-    return [...m.values()]
-      .map((c) => ({ ...c, suggested: matchAccount(c.label) }))
-      .sort((a, b) => b.count - a.count);
-  }, [transactions]);
+    return (sfBalances.accountBalances || [])
+      .map((acc) => ({ ...acc, ...(meta.get(acc.accountUrn) || { last4: "", count: 0 }) }))
+      .sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+  }, [sfBalances.accountBalances, transactions]);
 
-  const [draft, setDraft] = useState(accountMap || {});
-  // Keep the draft in sync if the saved map loads/changes while open.
-  useEffect(() => { setDraft(accountMap || {}); }, [accountMap]);
-  const setOne = (urn, account) =>
-    setDraft((prev) => {
-      const next = { ...prev };
-      if (account) next[urn] = account;
-      else delete next[urn];
-      return next;
-    });
+  const ignoredPatterns = config.ignoredSimplefinAccounts || [];
+  const acknowledged = config.simplefinAcknowledgedAccounts || [];
+  const typeOverrides = config.accountTypeOverrides || {};
 
-  const unmapped = cards.filter((c) => !draft[c.urn]).length;
-  const dirty = useMemo(() => JSON.stringify(draft) !== JSON.stringify(accountMap || {}), [draft, accountMap]);
+  const unconfigured = useMemo(() => enriched.filter((acc) => {
+    const urn = acc.accountUrn;
+    return !accountMap[urn] && !typeOverrides[urn] && !ignoredPatterns.includes(urn) && !acknowledged.includes(urn);
+  }).length, [enriched, accountMap, typeOverrides, ignoredPatterns, acknowledged]);
 
   return (
-    <CollapsibleCard title="Card mapping" badge={cards.length ? `${unmapped} unmapped` : 0}>
-      {cards.length === 0 ? (
-        <p style={{ color: "#8b94a3", fontSize: 13, lineHeight: 1.5, margin: 0 }}>
-          No card identities found. Re-export with the updated Credit Karma
-          bookmarklet (or run a SimpleFin sync) and re-import, then map each
-          card here.
-        </p>
+    <CollapsibleCard
+      id="simplefin-accounts-section"
+      title="SimpleFin accounts"
+      badge={unconfigured > 0 ? `${unconfigured} new` : (enriched.length || undefined)}
+    >
+      <div style={{ fontSize: 11, color: "#8b94a3", lineHeight: 1.45, marginBottom: 10 }}>
+        Every account SimpleFin has synced a balance for at least once. Map it
+        to a ledger account, classify it, or ignore it. Ignoring only affects
+        FUTURE syncs — nothing already imported is deleted or changed, and
+        it's reversible any time.
+      </div>
+      {sfBalances.status === "loading" || sfBalances.status === "idle" ? (
+        <div style={{ fontSize: 13, color: "#8b94a3" }}>Loading synced accounts…</div>
+      ) : sfBalances.status === "error" ? (
+        <div style={{ fontSize: 13, color: "#8b94a3" }}>{sfBalances.error}</div>
+      ) : enriched.length === 0 ? (
+        <Empty>No SimpleFin accounts synced yet — visit Home or Import to sync first.</Empty>
       ) : (
-        <>
-          <div style={{ fontSize: 12, color: "#8b94a3", margin: "0 0 10px" }}>
-            Assign each source card to an account; saving applies it to existing
-            rows and all future imports.
-          </div>
-          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-            {cards.map((c) => (
-              <div
-                key={c.urn}
-                style={{ display: "flex", gap: 10, alignItems: "flex-start", padding: "8px 10px", borderRadius: 10, background: "#161a20" }}
-              >
-                <div style={{ minWidth: 0, flex: 1 }}>
-                  <div style={{ fontSize: 13, color: "#e5e7eb", overflowWrap: "anywhere", lineHeight: 1.35, display: "flex", alignItems: "center", flexWrap: "wrap", gap: 4 }}>
-                    <span style={{ width: 8, height: 8, borderRadius: "50%", display: "inline-block", marginRight: 6, background: draft[c.urn] ? "#34d399" : "#fbbf24", flexShrink: 0 }} />
-                    {c.label || "—"} {c.last4 ? <span style={{ color: "#8b94a3" }}>· ••{c.last4}</span> : null}
-                  </div>
-                  <div style={{ fontSize: 11, color: "#8b94a3", marginTop: 2 }}>
-                    {c.count} txn{c.count === 1 ? "" : "s"}
-                    {c.suggested ? ` · alias: ${c.suggested}` : ""}
-                  </div>
-                </div>
-                <select
-                  value={draft[c.urn] || ""}
-                  onChange={(e) => setOne(c.urn, e.target.value)}
-                  style={{ ...S.cellSelect, minWidth: 150 }}
-                >
-                  <option value="">— Unassigned —</option>
-                  {ACCOUNTS.map((a) => (
-                    <option key={a}>{a}</option>
-                  ))}
-                </select>
-              </div>
-            ))}
-          </div>
-          <button
-            type="button"
-            onClick={() => onSave(draft)}
-            disabled={!dirty}
-            style={{ ...S.primaryBtn, marginTop: 12, opacity: dirty ? 1 : 0.5, cursor: dirty ? "pointer" : "not-allowed" }}
-          >
-            Save &amp; apply
-          </button>
-        </>
+        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+          {enriched.map((acc) => {
+            const exactIgnored = ignoredPatterns.includes(acc.accountUrn);
+            const legacyIgnored = !exactIgnored && isIgnoredSimplefinAccount(
+              { srcAccount: acc.name, accountUrn: acc.accountUrn },
+              ignoredPatterns
+            );
+            return (
+              <SimplefinAccountRow
+                key={acc.accountUrn}
+                acc={acc}
+                mappedAccount={accountMap[acc.accountUrn] || ""}
+                type={typeOverrides[acc.accountUrn] || ""}
+                exactIgnored={exactIgnored}
+                legacyIgnored={legacyIgnored}
+                money={money}
+                onSetMapping={onSetMapping}
+                onSetType={onSetType}
+                onSetIgnored={onSetIgnored}
+              />
+            );
+          })}
+        </div>
       )}
     </CollapsibleCard>
   );
@@ -6988,87 +7187,17 @@ function BudgetsSection({ budgets, expenseCategories, onSave }) {
   );
 }
 
-// Settings: manual classification (Credit Card vs Checking/Savings) of each
-// SimpleFin-linked account, keyed by accountUrn — backs the grouping in the
-// Home tab's AccountBalancesCard. Only accounts that have synced at least
-// once (i.e. appear in the last fetched/cached accountBalances) can be
-// classified here; a brand-new account defaults to "Checking/Savings" until
-// classified.
-function AccountTypeOverridesSection({ accountTypeOverrides, onSetOverride }) {
-  const [state, setState] = useState({ status: "loading", accountBalances: [], error: null });
-
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      const result = await loadSfBalances();
-      if (cancelled) return;
-      if (!result.ok) setState({ status: "error", accountBalances: [], error: result.error });
-      else setState({ status: "ready", accountBalances: result.accountBalances, error: null });
-    })();
-    return () => { cancelled = true; };
-  }, []);
-
-  const sorted = useMemo(
-    () => [...state.accountBalances].sort((a, b) => (a.name || "").localeCompare(b.name || "")),
-    [state.accountBalances]
-  );
-
-  return (
-    <CollapsibleCard title="Account types" badge={sorted.length || undefined}>
-      <div style={{ fontSize: 11, color: "#8b94a3", lineHeight: 1.45, marginBottom: 10 }}>
-        Classify each synced SimpleFin account as a Credit Card or a
-        Checking/Savings account — used to group the Home tab's Account
-        Balances card. Accounts with no classification default to
-        Checking/Savings. Only accounts that have synced at least once show
-        up here.
-      </div>
-      {state.status === "loading" ? (
-        <div style={{ fontSize: 13, color: "#8b94a3" }}>Loading synced accounts…</div>
-      ) : state.status === "error" ? (
-        <div style={{ fontSize: 13, color: "#8b94a3" }}>{state.error}</div>
-      ) : sorted.length === 0 ? (
-        <div style={{ fontSize: 13, color: "#8b94a3" }}>
-          No SimpleFin accounts synced yet — visit Home or Import to sync first.
-        </div>
-      ) : (
-        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-          {sorted.map((acc) => {
-            const label = acc.orgName ? `${acc.orgName} — ${acc.name}` : acc.name;
-            const current = accountTypeOverrides[acc.accountUrn] === "credit" ? "credit" : "depository";
-            return (
-              <div key={acc.accountUrn} style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                <span style={{ flex: 1, fontSize: 13, color: "#e5e7eb", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                  {label}
-                </span>
-                <select
-                  value={current}
-                  onChange={(e) => onSetOverride(acc.accountUrn, e.target.value)}
-                  style={{ ...S.select, flex: "0 0 auto", width: 160 }}
-                >
-                  <option value="depository">Checking/Savings</option>
-                  <option value="credit">Credit Card</option>
-                </select>
-              </div>
-            );
-          })}
-        </div>
-      )}
-    </CollapsibleCard>
-  );
-}
-
 function SettingsTab({
   transactions, accountMap, accountAliases, onSaveAccountAliases,
   dismissedSuggestions, onDismissSuggestion,
   ckCategoryMap, onSaveCkCategoryMap,
   categoryDescriptionRules, onSaveCategoryDescriptionRules,
   config,
-  onSaveAccountMap,
+  money, sfBalances,
+  onSetSimplefinMapping, onSetSimplefinType, onSetSimplefinIgnored,
   onAddAccount, onRenameAccount, onDeleteAccount,
   onAddCategory, onRenameCategory, onDeleteCategory,
   onReorderAccounts, onReorderCategories,
-  onAddIgnoredSf, onRenameIgnoredSf, onDeleteIgnoredSf, onReorderIgnoredSf,
-  onSetAccountTypeOverride,
   onRestoreTransactions,
   budgets, onSaveBudgets,
 }) {
@@ -7146,10 +7275,15 @@ function SettingsTab({
         onSave={onSaveAccountAliases}
         prefillFragment={aliasPrefill}
       />
-      <AccountMapSection
+      <SimplefinAccountsSection
+        sfBalances={sfBalances}
         transactions={transactions}
         accountMap={accountMap}
-        onSave={onSaveAccountMap}
+        config={config}
+        money={money}
+        onSetMapping={onSetSimplefinMapping}
+        onSetType={onSetSimplefinType}
+        onSetIgnored={onSetSimplefinIgnored}
       />
       <BudgetsSection
         budgets={budgets}
@@ -7193,33 +7327,6 @@ function SettingsTab({
           onReorder={(names) => onReorderCategories("income", names)}
         />
       </CollapsibleCard>
-      <CollapsibleCard
-        title="Ignored SimpleFin accounts"
-        badge={(config.ignoredSimplefinAccounts || []).length || undefined}
-      >
-        <div style={{ fontSize: 11, color: "#8b94a3", lineHeight: 1.45, marginBottom: 10 }}>
-          Rows from a matching SimpleFin account are skipped before the import
-          preview — for accounts whose transactions already reach the ledger
-          through Credit Karma or a CSV, where syncing them only creates
-          duplicates. Matched as a case-insensitive substring of the account
-          name or id, so both <b>Auto Lease</b> and <b>0870</b> work. Only
-          affects future syncs; nothing already imported changes.
-        </div>
-        <ManagedList
-          bare
-          title="Ignored accounts"
-          items={config.ignoredSimplefinAccounts || []}
-          usage={{}}
-          onAdd={onAddIgnoredSf}
-          onRename={onRenameIgnoredSf}
-          onDelete={onDeleteIgnoredSf}
-          onReorder={onReorderIgnoredSf}
-        />
-      </CollapsibleCard>
-      <AccountTypeOverridesSection
-        accountTypeOverrides={config.accountTypeOverrides || {}}
-        onSetOverride={onSetAccountTypeOverride}
-      />
       <DescriptionRulesSection
         rules={categoryDescriptionRules}
         onSave={onSaveCategoryDescriptionRules}
@@ -7965,7 +8072,7 @@ function buildRow(raw, mapping, profile, accountMap) {
 // src/ledger.js (imported above).
 
 
-function ImportTransactions({ onImport, accountMap, config, transactions, ckCategoryMap, categoryDescriptionRules, money, hideValues, onConfirmDuplicateMatch }) {
+function ImportTransactions({ onImport, accountMap, config, transactions, ckCategoryMap, categoryDescriptionRules, money, hideValues, onConfirmDuplicateMatch, onSfSynced }) {
   // Three methods, in the order they're actually used now: SimpleFin
   // (on-demand/cron pull via api/simplefin-sync.js — the day-to-day path
   // since v1.56.0, so it leads and is the default), Credit Karma (CSV
@@ -8254,6 +8361,11 @@ function ImportTransactions({ onImport, accountMap, config, transactions, ckCate
       if (data.errors && data.errors.length) {
         setError(`SimpleFin warnings: ${data.errors.join("; ")}`);
       }
+      // Feed this fetch's accountBalances into the shared cache Settings'
+      // consolidated SimpleFin accounts table / "new accounts" badge read
+      // from, so a manual sync surfaces a brand-new account immediately
+      // instead of waiting out the cache's TTL.
+      onSfSynced?.(data.accountBalances);
     } catch (err) {
       setError(`Could not reach the sync endpoint: ${err.message}`);
       setSfRows([]);
@@ -9066,6 +9178,20 @@ const S = {
     alignItems: "center",
     flex: 1,
     padding: 0,
+  },
+  // Small notification dot on a TabBar icon (v1.59.0: Settings tab, new
+  // SimpleFin accounts) — positioned absolute against the icon's own
+  // (already `position: relative`) wrapper div, not the whole tab button, so
+  // it sits next to the icon regardless of the button's actual flex width.
+  tabBadgeDot: {
+    position: "absolute",
+    top: -1,
+    right: 2,
+    width: 8,
+    height: 8,
+    borderRadius: "50%",
+    background: "#f87171",
+    border: "1.5px solid #0b0d10",
   },
   input: {
     width: "100%",
