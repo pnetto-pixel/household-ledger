@@ -3315,6 +3315,13 @@ shell de altura cheia (`#root` em `100lvh` + shell `height:100%`): só o
      importadas, só afeta syncs futuros. Contas afetadas por um padrão de
      texto livre legado (pré-v1.59.0) aparecem como "Ignored (legacy
      rule)"; o botão remove o(s) padrão(ões) correspondentes.
+   - **Badge "Source"** (v1.64.0, PR #250): não existe campo `source`
+     persistido por conta, só por transação (`t.source`: `"sf"` | `"ck"` |
+     `"csv"`), então o badge é derivado em runtime a partir das transações
+     já casadas por `accountUrn` — `"sf"` presente e nenhuma `"ck"`/`"csv"`,
+     ou ainda sem nenhuma transação casada, vira "SimpleFin"; só `"ck"`/
+     `"csv"` (sem `"sf"`) vira "Credit Karma" (tratadas como a mesma origem
+     "importada"); `"sf"` + `"ck"`/`"csv"` juntas vira "Mixed".
 
    Contas ainda não configuradas — sem card mapping, sem tipo, não
    ignoradas e ausentes de `simplefinAcknowledgedAccounts` (ver Modelo de
@@ -4704,11 +4711,13 @@ riscos reais de perda de dados.
     PR #51. Ver também item de UI abaixo (filtros de header no import).
   - [ ] UI de configuração de credencial SimpleFin na Settings — ainda
     hardcoded via env var `SIMPLEFIN_ACCESS_URL` (single-tenant).
-  - [ ] **Coluna "source" (SimpleFin vs Credit Karma) na tabela
-    `SimplefinAccountsSection`** — cogitada e cancelada na v1.63.0/PR #248:
-    hoje esse dado só existe por transação (feed/`sourceId`), não por conta;
-    exigiria inferir a partir das transações da conta ou introduzir um campo
-    novo no modelo de conta.
+  - [x] **Coluna "Source" (SimpleFin vs Credit Karma) na tabela
+    `SimplefinAccountsSection`** — cogitada e cancelada na v1.63.0/PR #248
+    (o dado não existe persistido por conta); implementada na v1.64.0/PR
+    #250 com abordagem derivada por transação: badge calculado em runtime a
+    partir de `t.source` das transações já casadas por `accountUrn`
+    ("SimpleFin" / "Credit Karma" / "Mixed"), sem novo campo no modelo de
+    conta. Ver seção UI (item 5. Settings).
 - [x] **Reorganização da tab Settings** (v1.63.0, PR #248) —
   `SimplefinAccountsSection` e `DescriptionRulesSection` convertidas de
   cards empilhados para tabela compacta (padrão `TxnTable`); "Daily
