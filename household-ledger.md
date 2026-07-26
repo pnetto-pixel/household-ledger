@@ -1,4 +1,4 @@
-# Household Ledger · v1.56.2
+# Household Ledger · v1.56.3
 
 Aplicativo mobile-first de controle financeiro doméstico. Registra
 transações da casa (despesas e receitas) por categoria e conta, com
@@ -31,7 +31,35 @@ O `feature-auditor` deve conferir, como parte da checklist de auditoria, que
 o diff inclui o bump nos dois arquivos antes de aprovar — se faltar, isso é
 motivo de reprovação (devolver ao coder), não um detalhe opcional.
 
-Versão atual: **v1.56.2** — **fix: linhas de duplicata colapsavam na prévia
+Versão atual: **v1.56.3** — **fix: linha do SimpleFin sem data travava TODO
+save do ledger; SimpleFin vira o método padrão do Import**
+(`lib/simplefin.js`, `src/ledger.js`, `src/App.jsx`).
+
+- **Ledger permanentemente travado em "unsaved…" (crítico).**
+  `mapTransaction` (`lib/simplefin.js`) emitia `date: ''` quando a transação
+  chegava sem `transacted_at` **e** sem `posted` (ausente, `null` ou `0` —
+  todos falsy). O `PUT /api/transactions` valida **todas** as linhas
+  (`findInvalidRow`) e rejeita o **ledger inteiro** com 400 se uma só tiver
+  data fora de `YYYY-MM-DD`. O resultado era terminal e silencioso: o save
+  falhava, a mudança voltava para o espelho pendente do `localStorage`, o
+  load seguinte restaurava e falhava de novo — "unsaved…" para sempre, com
+  toda edição posterior presa atrás disso. O caminho CSV sempre se protegeu
+  (`buildRow`: `if (!date) date = todayISO()`); o mapper do SimpleFin não —
+  essa assimetria é o bug. Três frentes de correção: (a) `mapTransaction`
+  agora cai para a data de hoje quando não há timestamp usável (e valida o
+  `Date` resultante); (b) nova função pura `repairUnsavableRows` em
+  `src/ledger.js`, aplicada às linhas restauradas do espelho pendente no
+  `load()`, conserta data/valor inválidos (e descarta entradas que nem são
+  objeto) para **destravar ledgers já envenenados**, avisando quantas linhas
+  foram reparadas; (c) erro de save 4xx virou permanente em vez de um toast
+  de 5s — "o servidor rejeitou este ledger" não é transitório e não pode
+  sumir da tela antes de o usuário ler.
+- **SimpleFin passou a ser a primeira opção e o default** do seletor de
+  método da tab Import (era o terceiro, com `useState("ck")`). Reflete o uso
+  real desde a v1.56.0: o sync é o caminho diário, o Credit Karma virou
+  export ocasional e o CSV segue como backfill de histórico.
+
+Versão anterior: **v1.56.2** — **fix: linhas de duplicata colapsavam na prévia
 do import, e o resumo mentia depois de "Select all"** (`src/App.jsx`). Dois
 bugs achados no primeiro sync real com a v1.56.x:
 

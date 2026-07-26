@@ -28,6 +28,7 @@ import {
   DUP_SCORE_REVIEW,
   descWords,
   mergeTransactions,
+  repairUnsavableRows,
 } from "./ledger.js";
 
 const INCOME = ["Salary", "Bonus", "Bela Income", "Other Income"];
@@ -629,5 +630,54 @@ describe("mergeTransactions", () => {
     const merged = mergeTransactions(base, local, server);
     expect(merged[0].altSourceIds).toEqual(["sf_9"]);
     expect(merged[0].source).toBe("ck");
+  });
+});
+
+describe("repairUnsavableRows", () => {
+  const ok = { id: "a", date: "2026-07-01", amount: -10, description: "Coffee" };
+
+  it("leaves a valid ledger untouched (same object identities)", () => {
+    const out = repairUnsavableRows([ok], "2026-07-26");
+    expect(out.repaired).toBe(0);
+    expect(out.transactions[0]).toBe(ok);
+  });
+
+  it("fills an empty date — the shape a dateless SimpleFin row used to take", () => {
+    // A single one of these 400s the whole PUT server-side (findInvalidRow),
+    // so the ledger could never save again until it was repaired.
+    const out = repairUnsavableRows([{ ...ok, date: "" }], "2026-07-26");
+    expect(out.repaired).toBe(1);
+    expect(out.transactions[0].date).toBe("2026-07-26");
+    expect(out.transactions[0].amount).toBe(-10); // everything else preserved
+    expect(out.transactions[0].description).toBe("Coffee");
+  });
+
+  it("repairs a non-ISO date, a missing date, and a non-finite amount", () => {
+    const out = repairUnsavableRows(
+      [
+        { ...ok, id: "b", date: "07/01/2026" },
+        { ...ok, id: "c", date: undefined },
+        { ...ok, id: "d", amount: NaN },
+      ],
+      "2026-07-26"
+    );
+    expect(out.repaired).toBe(3);
+    expect(out.transactions.map((t) => t.date)).toEqual(["2026-07-26", "2026-07-26", "2026-07-01"]);
+    expect(out.transactions[2].amount).toBe(0);
+  });
+
+  it("drops entries that aren't objects at all", () => {
+    const out = repairUnsavableRows([ok, null, "nope"], "2026-07-26");
+    expect(out.transactions).toEqual([ok]);
+    expect(out.repaired).toBe(2);
+  });
+
+  it("falls back to today when the supplied fallback is itself invalid", () => {
+    const out = repairUnsavableRows([{ ...ok, date: "" }], "not-a-date");
+    expect(out.transactions[0].date).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+  });
+
+  it("tolerates a non-array input", () => {
+    expect(repairUnsavableRows(undefined, "2026-07-26")).toEqual({ transactions: [], repaired: 0 });
   });
 });
