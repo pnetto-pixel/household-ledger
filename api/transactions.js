@@ -35,7 +35,47 @@
 import { getRedis } from '../lib/redis.js';
 import { authenticate } from '../lib/auth.js';
 
-const SNAPSHOT_TTL_SECONDS = 30 * 24 * 60 * 60;
+// Daily snapshots are by far the biggest thing this app stores: a full copy
+// of the ledger per day. At ~2 MB per copy (a ~9.5k-row household) a 30-day
+// window is ~60 MB against ~2 MB of live data — 97% of the footprint. That is
+// what pushed a real ledger's Redis past `maxmemory`, at which point Redis
+// refuses EVERY write, including the CAS script, and the ledger became
+// completely unsaveable ("OOM command not allowed when used memory >
+// 'maxmemory'"). A week of daily snapshots is still a real safety net and
+// costs a fifth of the memory.
+const SNAPSHOT_RETENTION_DAYS = 7;
+const SNAPSHOT_TTL_SECONDS = SNAPSHOT_RETENTION_DAYS * 24 * 60 * 60;
+
+// Lowering the TTL only affects snapshots written from now on — the ones
+// already stored keep the 30-day expiry they were created with, so they'd
+// hold the memory for three more weeks and the ledger would stay stuck.
+// Delete them explicitly. The keys are deterministic dates, so this needs no
+// SCAN (which is expensive and, on some hosted Redis plans, unavailable).
+const SNAPSHOT_SWEEP_DAYS = 45;
+
+function oldSnapshotKeys(storageKey) {
+  const keys = [];
+  const now = Date.now();
+  for (let d = SNAPSHOT_RETENTION_DAYS; d <= SNAPSHOT_SWEEP_DAYS; d++) {
+    const day = new Date(now - d * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    keys.push(`${storageKey}:snapshot:${day}`);
+  }
+  return keys;
+}
+
+// DEL is one of the few commands Redis still accepts while over `maxmemory`
+// (it frees memory rather than consuming it), which is what makes this able
+// to unwedge a ledger that can no longer be written at all.
+async function sweepOldSnapshots(redis, storageKey) {
+  try {
+    return await redis.del(...oldSnapshotKeys(storageKey));
+  } catch (err) {
+    console.error('snapshot sweep failed:', err.message);
+    return 0;
+  }
+}
+
+const isOomError = (err) => /OOM |maxmemory/i.test(err?.message || '');
 
 // Atomic compare-and-set for the optimistic-concurrency PUT. The old
 // JS-side "GET savedAt → compare → SET" left a window where two devices
@@ -219,11 +259,47 @@ export default async function handler(req, res) {
       // Optimistic-concurrency write (only when the client opted in by
       // sending expectedSavedAt; null means "I loaded an empty ledger").
       // Atomic compare-and-set via Lua — see CAS_PUT_SCRIPT.
+      //
+      // Self-healing on OOM: once Redis is over `maxmemory` it rejects every
+      // write, so the ledger can't be saved AND can't shrink on its own — the
+      // app just retries forever. Reclaim the stale snapshots (DEL still
+      // works over the limit) and try the write once more, so a household
+      // that grew into the limit recovers without intervention.
+      const writeLedger = async () => {
+        if ('expectedSavedAt' in body) {
+          const expected = body.expectedSavedAt || '';
+          return await redis.eval(
+            CAS_PUT_SCRIPT, 2, storageKey, metaKey, expected, payload, clientId, metaValue
+          );
+        }
+        // No expectedSavedAt — old client, keep last-write-wins (back-compat).
+        await redis.set(storageKey, payload);
+        await redis.set(metaKey, metaValue);
+        return [1, '', ''];
+      };
+
+      let writeResult;
+      try {
+        writeResult = await writeLedger();
+      } catch (err) {
+        if (!isOomError(err)) throw err;
+        const freed = await sweepOldSnapshots(redis, storageKey);
+        console.error(`redis OOM on save; swept ${freed} old snapshot(s), retrying`);
+        try {
+          writeResult = await writeLedger();
+        } catch (retryErr) {
+          if (!isOomError(retryErr)) throw retryErr;
+          // Still out of memory with nothing left to reclaim here. Say so in
+          // terms the user can act on instead of leaking a raw Redis error.
+          return res.status(507).json({
+            error:
+              'Storage is out of memory, so the ledger cannot be saved. Old daily snapshots were already cleared and it is still full — the Redis instance needs more memory or other keys need pruning. Your changes are kept on this device.',
+          });
+        }
+      }
+
       if ('expectedSavedAt' in body) {
-        const expected = body.expectedSavedAt || '';
-        const [okFlag, storedSavedAt, storedClientId] = await redis.eval(
-          CAS_PUT_SCRIPT, 2, storageKey, metaKey, expected, payload, clientId, metaValue
-        );
+        const [okFlag, storedSavedAt, storedClientId] = writeResult;
         if (okFlag !== 1) {
           // savedAt + clientId of the conflicting write feed the client's
           // on-screen diagnostics (who wrote, when, from which device).
@@ -233,16 +309,16 @@ export default async function handler(req, res) {
             clientId: storedClientId || null,
           });
         }
-      } else {
-        // No expectedSavedAt — old client, keep last-write-wins (back-compat).
-        await redis.set(storageKey, payload);
-        await redis.set(metaKey, metaValue);
       }
 
       // Daily snapshot (best-effort — a snapshot failure never fails the save).
       try {
         const snapKey = `${storageKey}:snapshot:${savedAt.slice(0, 10)}`;
-        await redis.set(snapKey, payload, 'EX', SNAPSHOT_TTL_SECONDS, 'NX');
+        const wrote = await redis.set(snapKey, payload, 'EX', SNAPSHOT_TTL_SECONDS, 'NX');
+        // First save of the day: also reclaim snapshots written under the old
+        // 30-day TTL, which would otherwise hold ~2 MB each for three more
+        // weeks. Runs once a day per household, not on every save.
+        if (wrote) await sweepOldSnapshots(redis, storageKey);
       } catch (err) {
         console.error('snapshot write failed:', err.message);
       }

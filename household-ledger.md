@@ -1,4 +1,4 @@
-# Household Ledger · v1.56.4
+# Household Ledger · v1.56.5
 
 Aplicativo mobile-first de controle financeiro doméstico. Registra
 transações da casa (despesas e receitas) por categoria e conta, com
@@ -31,7 +31,42 @@ O `feature-auditor` deve conferir, como parte da checklist de auditoria, que
 o diff inclui o bump nos dois arquivos antes de aprovar — se faltar, isso é
 motivo de reprovação (devolver ao coder), não um detalhe opcional.
 
-Versão atual: **v1.56.4** — **fix: save que falha por motivo transitório
+Versão atual: **v1.56.5** — **fix: Redis estourou `maxmemory` por causa dos
+snapshots diários e o ledger ficou impossível de salvar**
+(`api/transactions.js`).
+
+**Causa raiz encontrada** (o diagnóstico da v1.56.4 é que a revelou — a
+mensagem em campo foi `OOM command not allowed when used memory >
+'maxmemory'. script: 5983ef… on @user_script:32`, com `9511 rows · 1944 KB`).
+As v1.56.3/v1.56.4 trataram sintomas: nem dado inválido nem falta de retry
+eram o problema. **O Redis estava cheio e recusava toda escrita**, o script
+Lua do CAS incluído.
+
+O consumo vinha dos **snapshots diários**: `api/transactions.js` grava uma
+cópia integral do ledger por dia em `household:*:transactions:snapshot:
+YYYY-MM-DD` com TTL de 30 dias. Com ~1,9 MB por cópia, isso é **~57 MB de
+snapshots contra ~1,9 MB de dado vivo — 97% da memória**, e a proporção piora
+conforme o ledger cresce. O ledger cresceu até bater no teto, e a partir daí
+não dava mais nem para salvar nem para o Redis encolher sozinho.
+
+- **Retenção de snapshot: 30 → 7 dias** (`SNAPSHOT_RETENTION_DAYS`). Uma
+  semana de cópias diárias ainda é rede de segurança real e custa um quinto
+  da memória.
+- **Varredura explícita dos snapshots antigos** (`sweepOldSnapshots`).
+  Baixar o TTL só afeta os snapshots novos — os já gravados manteriam a
+  expiração de 30 dias e segurariam a memória por mais três semanas. As
+  chaves são datas determinísticas, então a limpeza não precisa de `SCAN`
+  (caro, e indisponível em alguns planos de Redis hospedado).
+- **Auto-reparo na escrita.** `DEL` é um dos poucos comandos que o Redis
+  ainda aceita acima do `maxmemory` (libera memória em vez de consumir), o
+  que permite destravar sozinho: se a escrita falha com OOM, a requisição
+  varre os snapshots antigos e tenta de novo. Persistindo o OOM, responde
+  **507** com uma mensagem acionável em vez de vazar o erro cru do Redis.
+- A varredura também roda **uma vez por dia** por household, junto da
+  primeira gravação de snapshot do dia (o `SET NX` só passa uma vez), para
+  higiene contínua sem custo por save.
+
+Versão anterior: **v1.56.4** — **fix: save que falha por motivo transitório
 nunca era re-tentado, e a razão sumia num toast de 5s** (`src/App.jsx`).
 
 Contexto: a v1.56.3 atacou uma causa possível do "unsaved…" permanente (linha
