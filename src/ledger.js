@@ -555,11 +555,17 @@ export function scoreDuplicateCandidate(a, b) {
 //   1. shared source id with any unconsumed known row → certain. Id overlap is
 //      checked ACROSS sources on purpose: that's what `altSourceIds` is for.
 //   2. otherwise, candidates are unconsumed rows with the same signed cents,
-//      minus those PROVEN distinct: both sides carry a sourceId and belong to
-//      the same source, yet the ids differ (PR #51 — two identical coffees on
-//      the same day are two coffees). `source` missing on both sides counts as
-//      the same source, so legacy data keeps that protection; only an explicit
-//      difference ("ck" vs "sf") unlocks cross-source fuzzy matching.
+//      minus those PROVEN distinct: both sides carry a sourceId, belong to the
+//      same source, AND that source's ids are known to be stable per physical
+//      transaction (legacy/untagged data), yet the ids differ (PR #51 — two
+//      identical coffees on the same day are two coffees). SimpleFin ("sf")
+//      is excluded from this veto even when both sides are "sf": SimpleFin
+//      can reissue a card transaction's sourceId when it moves from pending
+//      to posted, so two "sf" rows with different ids are NOT proof of
+//      distinctness — they fall through to scoring instead (bugfix, see
+//      test "SimpleFin pending->posted resurfaces as a duplicate
+//      candidate"). An explicit cross-source difference ("ck" vs "sf") still
+//      unlocks fuzzy matching as before.
 //   3. identical content fingerprint among those → certain.
 //   4. otherwise the best scoring candidate decides (see scoreDuplicateCandidate).
 export function markDuplicates(rows, existing) {
@@ -629,8 +635,16 @@ export function markDuplicates(rows, existing) {
         // ever writes "sf" (lib/simplefin.js), so an untagged row is provably
         // NOT SimpleFin, which is enough to decide without tagging history.
         if (r.sourceId && e.t.sourceId) {
-          const feedsProvablyDiffer = (r.source === "sf") !== (e.t.source === "sf");
-          if (!feedsProvablyDiffer) return false;
+          const sameFeed = (r.source === "sf") === (e.t.source === "sf");
+          const bothSf = r.source === "sf" && e.t.source === "sf";
+          // Block the fuzzy path only within a feed whose ids are known to be
+          // stable per physical transaction (legacy/"ck", untagged on both
+          // sides) — that's what proves two same-day, same-amount rows are
+          // genuinely distinct (PR #51). SimpleFin ("sf") can reissue a new
+          // sourceId when a card transaction moves from pending to posted, so
+          // two "sf" rows with different ids are NOT proof of distinctness —
+          // let scoreDuplicateCandidate decide instead of vetoing them here.
+          if (sameFeed && !bothSf) return false;
         }
         return true;
       });

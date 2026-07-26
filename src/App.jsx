@@ -697,7 +697,7 @@ function idleExpired() {
 // path, so the pending copy is discarded with a notice instead).
 
 // Single source for the version shown in the header and in diagnostics.
-const APP_VERSION = "v1.61.1";
+const APP_VERSION = "v1.62.0";
 
 const PENDING_SAVE_KEY = "household_pending_save";
 
@@ -5200,7 +5200,13 @@ function Transactions({ transactions, money, hideValues, isWide, onDelete, onUpd
               .includes(q)
           : true
       )
-      .sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));
+      .map((t, i) => ({ t, i }))
+      // Tie-break by original index (stable) so same-date rows keep a fixed
+      // relative order across re-renders instead of reshuffling — `.sort` is
+      // not guaranteed stable-independent of engine, and same-date groups are
+      // common (e.g. a batch import) where visible reordering reads as a bug.
+      .sort((a, b) => (a.t.date < b.t.date ? 1 : a.t.date > b.t.date ? -1 : a.i - b.i))
+      .map(({ t }) => t);
   }, [transactions, catFilter, acctFilter, typeFilter, query, year, month, from, to, dateYears, dateMonths, isWide]);
 
   // Reset visible window whenever filters change.
@@ -8405,6 +8411,16 @@ function ImportTransactions({ onImport, accountMap, config, transactions, ckCate
   // Duplicate-visibility filter for the preview list only ("all" | "new" |
   // "review" | "dup"). Independent from `selected` (what actually gets imported).
   const [dupFilter, setDupFilter] = useState("all");
+  // Header-column filters for the desktop preview table, same shape/behavior
+  // as the Transactions tab's HeaderFilter/DateHeaderFilter (multi-select for
+  // account/category, year/month tree + from/to range for date). Filtering
+  // only — never changes what's checked for import.
+  const [importAcctFilter, setImportAcctFilter] = useState([]);
+  const [importCatFilter, setImportCatFilter] = useState([]);
+  const [importDateYears, setImportDateYears] = useState([]);
+  const [importDateMonths, setImportDateMonths] = useState([]);
+  const [importFrom, setImportFrom] = useState("");
+  const [importTo, setImportTo] = useState("");
   // Rows the user explicitly confirmed as "this IS the existing transaction"
   // in the review band (id -> matched existing id). Kept locally just to render
   // the confirmation; the actual write (altSourceIds on the EXISTING row) goes
@@ -8422,6 +8438,12 @@ function ImportTransactions({ onImport, accountMap, config, transactions, ckCate
     setDupFilter("all");
     setCategoryOverrides(new Map());
     setConfirmedDups(new Map());
+    setImportAcctFilter([]);
+    setImportCatFilter([]);
+    setImportDateYears([]);
+    setImportDateMonths([]);
+    setImportFrom("");
+    setImportTo("");
   }, [dedupedRows]);
 
   // "Yes, this new row is the existing transaction": records the new row's
@@ -8462,6 +8484,30 @@ function ImportTransactions({ onImport, accountMap, config, transactions, ckCate
       return ov ? { ...r, ...ov } : r;
     });
   }, [dedupedRows, categoryOverrides]);
+
+  // Options for the header-filter dropdowns, derived from the current preview
+  // batch (not the whole ledger) — matches what's actually on screen.
+  const importAcctOptions = useMemo(
+    () => Array.from(new Set(displayRows.map((t) => t.account || "Unassigned"))).sort(),
+    [displayRows]
+  );
+  const importCatOptions = useMemo(
+    () => Array.from(new Set(displayRows.map((t) => t.category))).sort(),
+    [displayRows]
+  );
+  const importYears = useMemo(
+    () => Array.from(new Set(displayRows.map((t) => (t.date || "").slice(0, 4)).filter(Boolean))).sort(),
+    [displayRows]
+  );
+  const matchesImportHeaderFilters = (t) => {
+    if (importAcctFilter.length && !importAcctFilter.includes(t.account || "Unassigned")) return false;
+    if (importCatFilter.length && !importCatFilter.includes(t.category)) return false;
+    if (importFrom && (t.date || "") < importFrom) return false;
+    if (importTo && (t.date || "") > importTo) return false;
+    const ym = (t.date || "").slice(0, 7);
+    if (importDateMonths.length && !importDateMonths.includes(ym)) return false;
+    return true;
+  };
 
   const toggleRow = (id) => setSelected((prev) => {
     const next = new Set(prev);
@@ -8738,12 +8784,19 @@ function ImportTransactions({ onImport, accountMap, config, transactions, ckCate
             ) : null}
           </div>
           {(() => {
-            const previewRows = displayRows.filter((t) =>
-              dupFilter === "dup" ? t._dupState === "certain"
-                : dupFilter === "review" ? t._dupState === "uncertain"
-                : dupFilter === "new" ? t._dupState === "new"
-                : true
-            );
+            const previewRows = displayRows
+              .filter((t) =>
+                dupFilter === "dup" ? t._dupState === "certain"
+                  : dupFilter === "review" ? t._dupState === "uncertain"
+                  : dupFilter === "new" ? t._dupState === "new"
+                  : true
+              )
+              .filter((t) => matchesImportHeaderFilters(t))
+              .map((t, i) => ({ t, i }))
+              // Same newest-first order as the Transactions tab, with a stable
+              // tie-break by original index (see filtered's comment there).
+              .sort((a, b) => (a.t.date < b.t.date ? 1 : a.t.date > b.t.date ? -1 : a.i - b.i))
+              .map(({ t }) => t);
             const shown = previewRows.slice(0, 400);
             const overflowNotice = previewRows.length > 400 ? (
               <div style={{ fontSize: 11, color: "#fbbf24", padding: "8px 12px", textAlign: "center" }}>
@@ -8763,10 +8816,26 @@ function ImportTransactions({ onImport, accountMap, config, transactions, ckCate
                     <thead>
                       <tr>
                         <th style={{ ...S.th, width: 36, textAlign: "center" }} />
-                        <th style={S.th}>Date</th>
+                        <th style={S.th}>
+                          <DateHeaderFilter
+                            years={importYears}
+                            dateYears={importDateYears}
+                            setDateYears={setImportDateYears}
+                            dateMonths={importDateMonths}
+                            setDateMonths={setImportDateMonths}
+                            from={importFrom}
+                            setFrom={setImportFrom}
+                            to={importTo}
+                            setTo={setImportTo}
+                          />
+                        </th>
                         <th style={S.th}>Description</th>
-                        <th style={S.th}>Account</th>
-                        <th style={S.th}>Category</th>
+                        <th style={S.th}>
+                          <HeaderFilter label="Account" value={importAcctFilter} options={importAcctOptions} onChange={setImportAcctFilter} />
+                        </th>
+                        <th style={S.th}>
+                          <HeaderFilter label="Category" value={importCatFilter} options={importCatOptions} onChange={setImportCatFilter} />
+                        </th>
                         <th style={{ ...S.th, textAlign: "right" }}>Amount</th>
                       </tr>
                     </thead>

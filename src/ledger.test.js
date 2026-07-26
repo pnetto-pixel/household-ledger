@@ -357,6 +357,45 @@ describe("markDuplicates", () => {
     expect(out[0]._dup).toBe(false);
   });
 
+  it("SimpleFin pending->posted resurfaces as a duplicate candidate (sf vs sf, different sourceId)", () => {
+    // SimpleFin can reissue a card transaction's sourceId when it moves from
+    // pending to posted, so two "sf" rows with the same amount/account and a
+    // different sourceId are NOT provably distinct — unlike ck/legacy, where
+    // a differing id under the same feed IS proof (PR #51). scoreDuplicateCandidate
+    // should get a chance to decide instead of the row being vetoed outright.
+    const prev = [{
+      source: "sf", sourceId: "sf-pending-1", date: "2026-07-01", amount: -42.17,
+      description: "AMAZON.COM AMZN.COM/BILL", account: "Amazon Card",
+    }];
+    const rows = [{
+      source: "sf", sourceId: "sf-posted-2", date: "2026-07-02", amount: -42.17,
+      description: "AMAZON.COM AMZN.COM/BILL", account: "Amazon Card",
+    }];
+    const out = markDuplicates(rows, prev);
+    expect(out[0]._dupState).not.toBe("new");
+    expect(out[0]._dupScore).toBeGreaterThanOrEqual(DUP_SCORE_REVIEW);
+    expect(out[0]._dupMatch.sourceId).toBe("sf-pending-1");
+  });
+
+  it("two distinct SAME-DAY sf purchases with different descriptions/accounts still score low enough to avoid silent auto-merge", () => {
+    // Confirms the fix doesn't regress the PR #51 guarantee for "sf": a same
+    // amount, same day pair with clearly different description AND account
+    // should not land as "certain" without at least matching more signal.
+    const prev = [{
+      source: "sf", sourceId: "sf-1", date: "2026-07-01", amount: -20,
+      description: "Uber Trip 8F3K2", account: "Checking",
+    }];
+    const rows = [{
+      source: "sf", sourceId: "sf-2", date: "2026-07-01", amount: -20,
+      description: "Netflix Subscription", account: "Amazon Card",
+    }];
+    const out = markDuplicates(rows, prev);
+    // Different description and different account should keep the score
+    // below certainty — it may still be a "review" candidate (same amount,
+    // same day), but never auto-merged as "certain".
+    expect(out[0]._dupState).not.toBe("certain");
+  });
+
   it("…and legacy rows with no `source` at all count as the same source", () => {
     // Exactly the same scenario without the new field, so the whole pre-`source`
     // history keeps the protection above.
