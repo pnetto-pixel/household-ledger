@@ -2328,6 +2328,28 @@ cartões vistos (emissor · ••últimos-4 · contagem), você atribui uma con
 cada um, e ao **Save & apply** aplica nas transações existentes (por URN) e
 em todos os imports futuros.
 
+### Classificação de tipo de conta SimpleFin + `ignoredSimplefinAccounts` no servidor (v1.58.0, PR #238)
+
+- **Novo campo `accountTypeOverrides`** em `/api/config.js` (GET/PUT,
+  `household:USERID:config`): `{ [accountUrn]: "credit" | "depository" }`.
+  Alimenta exclusivamente o agrupamento do `AccountBalancesCard` (ver UI,
+  tab Home) — conta sem override entra em "Checking/Savings" por padrão.
+  Não é usado por `classifyAccount`/import; não altera o modelo de
+  transação nem cria endpoint novo (mesmo arquivo `api/config.js`).
+  Editável pela nova seção **Account types** na tab Settings (ver UI).
+- **`ignoredSimplefinAccounts` passou a ser lido também no servidor**
+  (antes só filtrava client-side em `classifySimpleFinRows`, v1.57.0):
+  `fetchSimplefinTransactions` (`lib/simplefin.js`) agora recebe
+  `ignoredPatterns` a partir da mesma lista salva em `/api/config.js` e
+  filtra **transações, holdings e accountBalances** antes de retornar —
+  não só transações. Isso substitui o hardcode de exclusão da conta
+  Fidelity (v1.56.1), removido nesta versão: instalações que dependiam
+  desse hardcode precisam adicionar `"fidelity"` na lista "Ignored
+  SimpleFin accounts" em Settings para manter o comportamento anterior.
+- **`api/simplefin-sync.js`** (GET normal, sem `?pending=1`) passou a
+  retornar também `accountBalances` na resposta, consumido pelo
+  `AccountBalancesCard`.
+
 ---
 
 ## UI
@@ -2484,6 +2506,15 @@ shell de altura cheia (`#root` em `100lvh` + shell `height:100%`): só o
    (mês corrente → até hoje; mês passado → mês completo). Base 0 exibe "—";
    alta de gasto = vermelho, queda = verde. Respeita o toggle de privacidade
    (olho). O bloco só aparece quando há ano+mês específico selecionado.
+   **Desde a v1.58.0** (PR #238), logo abaixo do bloco "by Category", novo
+   card **`AccountBalancesCard`** mostra o saldo de cada conta sincronizada
+   via SimpleFin, agrupado em duas seções — **Credit Cards** e
+   **Checking/Savings** (ordem alfabética dentro de cada grupo). O
+   agrupamento usa o novo campo `accountTypeOverrides` (ver Modelo de
+   dados) — conta sem classificação manual cai em "Checking/Savings" por
+   padrão. Os saldos vêm do `accountBalances` já retornado por
+   `api/simplefin-sync.js`, cacheados em `sessionStorage` com TTL de 5 min
+   (evita refetch a cada troca de tab); respeita `hideValues`/`money`.
    Ao final da página, seção **"All Time"** com 3 StatCards (Income /
    Expenses / Net) totais históricos (`usd0`, sem centavos, para caberem na
    linha em telas estreitas).
@@ -2973,6 +3004,15 @@ shell de altura cheia (`#root` em `100lvh` + shell `height:100%`): só o
    que antes só existiam dentro do `SettingsModal` (por trás da engrenagem
    no header) e agora vivem diretamente na tab, sem modal.
 
+   **Desde a v1.58.0** (PR #238), nova seção **"Account types"** lista as
+   contas já vistas via SimpleFin e permite classificar cada uma
+   manualmente como **Credit** ou **Checking/Savings**
+   (`accountTypeOverrides`, ver Modelo de dados) — usada só pelo
+   agrupamento do `AccountBalancesCard` na Home, sem efeito no
+   import/categorização. Vive perto da seção **"Ignored SimpleFin
+   accounts"** (v1.57.0), já que ambas operam sobre a mesma lista de
+   contas sincronizadas.
+
    > **Nota (PR #117, v1.14.0)**: a seção **"Classification history"** (e a
    > função `explainClassification`/`CLASSIFICATION_PAGE_SIZE`) foi
    > **removida** a pedido do usuário. Não existe mais nesta tab; a única
@@ -3149,7 +3189,7 @@ O app inicia com array vazio quando não há dados salvos (sem SEED).
 ### Fase 3 — Análise
 - [x] Orçamentos por categoria e alertas
 - [x] Tendências e comparação mês a mês
-- [x] Saldo e gastos por conta *(removido do Analyze no PR #8 — seção Account Balances descontinuada)*
+- [x] Saldo e gastos por conta *(removido do Analyze no PR #8 — seção Account Balances descontinuada; reintroduzido na v1.58.0/PR #238 como `AccountBalancesCard` na Home, com saldos ao vivo via SimpleFin em vez de agregação sobre transações históricas)*
 - [x] Recorrentes / assinaturas detectadas
 
 ### Fase 4 — Plataforma
