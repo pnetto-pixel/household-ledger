@@ -1,4 +1,4 @@
-# Household Ledger · v1.59.0
+# Household Ledger · v1.60.0
 
 Aplicativo mobile-first de controle financeiro doméstico. Registra
 transações da casa (despesas e receitas) por categoria e conta, com
@@ -31,7 +31,32 @@ O `feature-auditor` deve conferir, como parte da checklist de auditoria, que
 o diff inclui o bump nos dois arquivos antes de aprovar — se faltar, isso é
 motivo de reprovação (devolver ao coder), não um detalhe opcional.
 
-Versão atual: **v1.59.0** — **feat: card único "SimpleFin accounts" em
+Versão atual: **v1.60.0** — **fix: `memo` do SimpleFin agora tem prioridade
+sobre `description` para QUALQUER conta** (`lib/simplefin.js`).
+
+Desde a v1.56.1, `mapTransaction` só preferia `memo` sobre `description`/
+`payee` para contas da Amazon — o `description` que a Amazon manda é
+boilerplate genérico ("Amazon.com"), enquanto o `memo` carrega o detalhe real
+do pedido. Generalizado: **nada nessa regra é específico da Amazon**, e
+outras instituições sofrem do mesmo problema (código de comerciante cru,
+descrição genérica do gateway) enquanto o `memo` traz o dado útil.
+
+```js
+const memo = String(sfTxn.memo || '').trim();
+const description = memo || sfTxn.description || sfTxn.payee || '(no description)';
+```
+
+`.trim()` evita que um `memo` só com espaço em branco (visto em algumas
+instituições) vença silenciosamente uma `description` real. Como a regra
+deixou de depender do nome/org da conta, o helper `accountMatchesKeyword`
+(usado só para esse propósito) foi removido — sem chamadores restantes, não
+faz sentido mantê-lo à espera de um uso futuro. `accountIsIgnored` (lista de
+contas ignoradas, v1.57–1.59) é independente e não foi tocado.
+
+**Sem cascata retroativa**: só afeta linhas de syncs futuros — a descrição
+das transações já importadas não muda.
+
+Versão anterior: **v1.59.0** — **feat: card único "SimpleFin accounts" em
 Settings**, consolidando os três cards antigos (Card mapping / Ignored
 SimpleFin accounts / Account types) numa única tabela — uma linha por conta
 do SimpleFin, com mapping de card, tipo de conta e um botão Ignorar/Unignore
