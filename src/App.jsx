@@ -145,6 +145,12 @@ let CATEGORIES = [...EXPENSE_CATEGORIES, ...INCOME_CATEGORIES, TRANSFER_CATEGORY
 // Unlike the lists above, an EMPTY array is meaningful here — it means "ignore
 // nothing" — so applyConfig must not treat empty as "unset".
 let IGNORED_SIMPLEFIN_ACCOUNTS = [];
+// Manual classification of a SimpleFin account (by accountUrn) as a credit
+// card or a checking/savings account — feeds the Home tab's Account Balances
+// card grouping (AccountBalancesCard). Accounts with no entry here default to
+// "depository". Same "empty object is meaningful" rule as
+// IGNORED_SIMPLEFIN_ACCOUNTS above.
+let ACCOUNT_TYPE_OVERRIDES = {};
 
 function applyConfig(cfg) {
   if (Array.isArray(cfg?.accounts) && cfg.accounts.length) ACCOUNTS = [...cfg.accounts];
@@ -159,6 +165,9 @@ function applyConfig(cfg) {
   CATEGORIES = [...EXPENSE_CATEGORIES, ...INCOME_CATEGORIES, TRANSFER_CATEGORY];
   // No `.length` guard: clearing the last entry must actually clear the list.
   if (Array.isArray(cfg?.ignoredSimplefinAccounts)) IGNORED_SIMPLEFIN_ACCOUNTS = [...cfg.ignoredSimplefinAccounts];
+  if (cfg?.accountTypeOverrides && typeof cfg.accountTypeOverrides === "object" && !Array.isArray(cfg.accountTypeOverrides)) {
+    ACCOUNT_TYPE_OVERRIDES = { ...cfg.accountTypeOverrides };
+  }
 }
 
 // The current runtime config as a plain object (for seeding React state).
@@ -168,6 +177,7 @@ function currentConfig() {
     expenseCategories: [...EXPENSE_CATEGORIES],
     incomeCategories: [...INCOME_CATEGORIES],
     ignoredSimplefinAccounts: [...IGNORED_SIMPLEFIN_ACCOUNTS],
+    accountTypeOverrides: { ...ACCOUNT_TYPE_OVERRIDES },
   };
 }
 
@@ -547,6 +557,69 @@ function buildAuthHeaders() {
 }
 
 // ---------------------------------------------------------------------------
+// SimpleFin account balances (Home's AccountBalancesCard + Settings' account
+// type classification section share the same GET /api/simplefin-sync result,
+// cached in sessionStorage so switching tabs doesn't re-hit the network/
+// SimpleFin Bridge every time.)
+// ---------------------------------------------------------------------------
+
+const SF_BALANCES_CACHE_KEY = "sf_balances_cache_v1";
+const SF_BALANCES_CACHE_TTL_MS = 5 * 60 * 1000;
+
+function readSfBalancesCache() {
+  try {
+    const raw = sessionStorage.getItem(SF_BALANCES_CACHE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed.fetchedAt !== "number" || !Array.isArray(parsed.accountBalances)) return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+function writeSfBalancesCache(accountBalances) {
+  try {
+    sessionStorage.setItem(
+      SF_BALANCES_CACHE_KEY,
+      JSON.stringify({ fetchedAt: Date.now(), accountBalances })
+    );
+  } catch {
+    // Private mode / quota — the fetched-once-per-mount fallback still works.
+  }
+}
+
+// Shared fetch-or-cache for account balances. Returns
+// { ok: true, accountBalances } or { ok: false, status?, error }. `force`
+// bypasses the cache (used by an explicit refresh action).
+async function loadSfBalances({ force = false } = {}) {
+  if (!force) {
+    const cached = readSfBalancesCache();
+    if (cached && Date.now() - cached.fetchedAt < SF_BALANCES_CACHE_TTL_MS) {
+      return { ok: true, accountBalances: cached.accountBalances };
+    }
+  }
+  try {
+    const res = await fetch("/api/simplefin-sync", { headers: buildAuthHeaders() });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      return {
+        ok: false,
+        status: res.status,
+        error: res.status === 501
+          ? "SimpleFin não configurado (SIMPLEFIN_ACCESS_URL ausente no servidor)."
+          : (data.error || "Falha ao buscar saldos das contas."),
+      };
+    }
+    const accountBalances = Array.isArray(data.accountBalances) ? data.accountBalances : [];
+    writeSfBalancesCache(accountBalances);
+    return { ok: true, accountBalances };
+  } catch (err) {
+    return { ok: false, error: `Could not reach the sync endpoint: ${err.message}` };
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Idle auto-lock (inactivity timeout)
 // ---------------------------------------------------------------------------
 // The stored app password used to live in localStorage forever, so anyone
@@ -594,7 +667,7 @@ function idleExpired() {
 // path, so the pending copy is discarded with a notice instead).
 
 // Single source for the version shown in the header and in diagnostics.
-const APP_VERSION = "v1.57.0";
+const APP_VERSION = "v1.58.0";
 
 const PENDING_SAVE_KEY = "household_pending_save";
 
@@ -1844,6 +1917,17 @@ export default function App() {
     (names) => saveConfig({ ignoredSimplefinAccounts: names }),
     [saveConfig]
   );
+
+  // Manual per-account classification (Settings → "Account types") backing
+  // the Home tab's Account Balances card grouping. `type` of anything other
+  // than "credit"/"depository" clears the override (back to the default).
+  const setAccountTypeOverride = useCallback((accountUrn, type) => {
+    if (!accountUrn) return;
+    const next = { ...ACCOUNT_TYPE_OVERRIDES };
+    if (type === "credit" || type === "depository") next[accountUrn] = type;
+    else delete next[accountUrn];
+    saveConfig({ accountTypeOverrides: next });
+  }, [saveConfig]);
   const reorderCategories = useCallback((kind, names) => {
     saveConfig(kind === "income" ? { incomeCategories: names } : { expenseCategories: names });
   }, [saveConfig]);
@@ -1905,7 +1989,7 @@ export default function App() {
         {loading ? (
           <div style={S.center}>Loading…</div>
         ) : tab === "home" ? (
-          <Dashboard transactions={transactions} money={money} hideValues={hideValues} isWide={isWide} budgets={budgets} />
+          <Dashboard transactions={transactions} money={money} hideValues={hideValues} isWide={isWide} budgets={budgets} config={config} />
         ) : tab === "transactions" ? (
           <Transactions
             transactions={transactions}
@@ -1955,6 +2039,7 @@ export default function App() {
             onRenameIgnoredSf={renameIgnoredSimplefinAccount}
             onDeleteIgnoredSf={deleteIgnoredSimplefinAccount}
             onReorderIgnoredSf={reorderIgnoredSimplefinAccounts}
+            onSetAccountTypeOverride={setAccountTypeOverride}
             onRestoreTransactions={restoreTransactions}
             budgets={budgets}
             onSaveBudgets={saveBudgets}
@@ -2524,7 +2609,7 @@ function SingleCategoryFilter({ value, options, setValue, isWide }) {
 // Dashboard
 // ===========================================================================
 
-function Dashboard({ transactions, money, hideValues, isWide, budgets }) {
+function Dashboard({ transactions, money, hideValues, isWide, budgets, config }) {
   // Default the period to the current month.
   const [year, setYear] = useState(() => todayISO().slice(0, 4));
   const [month, setMonth] = useState(() => todayISO().slice(5, 7));
@@ -2928,6 +3013,8 @@ function Dashboard({ transactions, money, hideValues, isWide, budgets }) {
         </>
       )}
 
+      <AccountBalancesCard money={money} hideValues={hideValues} accountTypeOverrides={config?.accountTypeOverrides} />
+
       {/* Budgets — bullet bars for the selected month (set in Settings) */}
       {year !== "All" && month !== "All" && (
         <BudgetsCard
@@ -2948,6 +3035,95 @@ function Dashboard({ transactions, money, hideValues, isWide, budgets }) {
         <StatCard label="Expenses" value={moneyShort(all.expenses)} accent="#f87171" small />
         <StatCard label="Net" value={moneyShort(all.net)} accent={all.net >= 0 ? "#34d399" : "#f87171"} small />
       </div>
+    </div>
+  );
+}
+
+// Home tab: current balance per SimpleFin-linked account, grouped into
+// "Credit Cards" and "Checking/Savings" using `accountTypeOverrides` (from
+// /api/config, set in Settings → "Account types"). Fetches
+// GET /api/simplefin-sync (cached — see loadSfBalances/readSfBalancesCache
+// above) rather than the ledger's own transactions, since a balance isn't
+// derivable from the transaction history the app stores.
+function AccountBalancesCard({ money, hideValues, accountTypeOverrides }) {
+  const [state, setState] = useState({ status: "loading", accountBalances: [], error: null });
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const result = await loadSfBalances();
+      if (cancelled) return;
+      if (!result.ok) {
+        setState({ status: "error", accountBalances: [], error: result.error, notConfigured: result.status === 501 });
+      } else {
+        setState({ status: "ready", accountBalances: result.accountBalances, error: null });
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  const { credit, depository } = useMemo(() => {
+    const overrides = accountTypeOverrides || {};
+    const credit = [];
+    const depository = [];
+    for (const acc of state.accountBalances) {
+      const type = overrides[acc.accountUrn] === "credit" ? "credit" : "depository";
+      (type === "credit" ? credit : depository).push(acc);
+    }
+    const byName = (a, b) => (a.name || "").localeCompare(b.name || "");
+    credit.sort(byName);
+    depository.sort(byName);
+    return { credit, depository };
+  }, [state.accountBalances, accountTypeOverrides]);
+
+  const renderGroup = (title, accounts) => (
+    <div key={title}>
+      <h3 style={S.sectionTitle}>{title}</h3>
+      <div style={{ ...S.card, padding: "8px 0" }}>
+        {accounts.map((acc, idx) => {
+          const label = acc.orgName ? `${acc.orgName} — ${acc.name}` : acc.name;
+          return (
+            <div
+              key={acc.accountUrn}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                gap: 12,
+                padding: "10px 16px",
+                borderBottom: idx < accounts.length - 1 ? "1px solid #1a1f26" : "none",
+              }}
+            >
+              <div style={{ fontSize: 14, color: "#e5e7eb", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                {label}
+              </div>
+              <div style={{ fontWeight: 700, fontSize: 14, color: acc.balance == null ? "#8b94a3" : (acc.balance < 0 ? "#f87171" : "#34d399"), whiteSpace: "nowrap" }}>
+                {acc.balance == null ? "—" : money(acc.balance)}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+
+  return (
+    <div style={S.col}>
+      <h3 style={S.sectionTitle}>Account Balances</h3>
+      {state.status === "loading" ? (
+        <div style={{ ...S.card, textAlign: "center", color: "#8b94a3", fontSize: 14, padding: 24 }}>
+          Loading account balances…
+        </div>
+      ) : state.status === "error" ? (
+        <Empty>{state.error}</Empty>
+      ) : state.accountBalances.length === 0 ? (
+        <Empty>No SimpleFin accounts synced yet.</Empty>
+      ) : (
+        <div style={S.col}>
+          {credit.length > 0 && renderGroup("Credit Cards", credit)}
+          {depository.length > 0 && renderGroup("Checking/Savings", depository)}
+        </div>
+      )}
     </div>
   );
 }
@@ -6812,6 +6988,75 @@ function BudgetsSection({ budgets, expenseCategories, onSave }) {
   );
 }
 
+// Settings: manual classification (Credit Card vs Checking/Savings) of each
+// SimpleFin-linked account, keyed by accountUrn — backs the grouping in the
+// Home tab's AccountBalancesCard. Only accounts that have synced at least
+// once (i.e. appear in the last fetched/cached accountBalances) can be
+// classified here; a brand-new account defaults to "Checking/Savings" until
+// classified.
+function AccountTypeOverridesSection({ accountTypeOverrides, onSetOverride }) {
+  const [state, setState] = useState({ status: "loading", accountBalances: [], error: null });
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const result = await loadSfBalances();
+      if (cancelled) return;
+      if (!result.ok) setState({ status: "error", accountBalances: [], error: result.error });
+      else setState({ status: "ready", accountBalances: result.accountBalances, error: null });
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  const sorted = useMemo(
+    () => [...state.accountBalances].sort((a, b) => (a.name || "").localeCompare(b.name || "")),
+    [state.accountBalances]
+  );
+
+  return (
+    <CollapsibleCard title="Account types" badge={sorted.length || undefined}>
+      <div style={{ fontSize: 11, color: "#8b94a3", lineHeight: 1.45, marginBottom: 10 }}>
+        Classify each synced SimpleFin account as a Credit Card or a
+        Checking/Savings account — used to group the Home tab's Account
+        Balances card. Accounts with no classification default to
+        Checking/Savings. Only accounts that have synced at least once show
+        up here.
+      </div>
+      {state.status === "loading" ? (
+        <div style={{ fontSize: 13, color: "#8b94a3" }}>Loading synced accounts…</div>
+      ) : state.status === "error" ? (
+        <div style={{ fontSize: 13, color: "#8b94a3" }}>{state.error}</div>
+      ) : sorted.length === 0 ? (
+        <div style={{ fontSize: 13, color: "#8b94a3" }}>
+          No SimpleFin accounts synced yet — visit Home or Import to sync first.
+        </div>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          {sorted.map((acc) => {
+            const label = acc.orgName ? `${acc.orgName} — ${acc.name}` : acc.name;
+            const current = accountTypeOverrides[acc.accountUrn] === "credit" ? "credit" : "depository";
+            return (
+              <div key={acc.accountUrn} style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <span style={{ flex: 1, fontSize: 13, color: "#e5e7eb", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  {label}
+                </span>
+                <select
+                  value={current}
+                  onChange={(e) => onSetOverride(acc.accountUrn, e.target.value)}
+                  style={{ ...S.select, flex: "0 0 auto", width: 160 }}
+                >
+                  <option value="depository">Checking/Savings</option>
+                  <option value="credit">Credit Card</option>
+                </select>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </CollapsibleCard>
+  );
+}
+
 function SettingsTab({
   transactions, accountMap, accountAliases, onSaveAccountAliases,
   dismissedSuggestions, onDismissSuggestion,
@@ -6823,6 +7068,7 @@ function SettingsTab({
   onAddCategory, onRenameCategory, onDeleteCategory,
   onReorderAccounts, onReorderCategories,
   onAddIgnoredSf, onRenameIgnoredSf, onDeleteIgnoredSf, onReorderIgnoredSf,
+  onSetAccountTypeOverride,
   onRestoreTransactions,
   budgets, onSaveBudgets,
 }) {
@@ -6970,6 +7216,10 @@ function SettingsTab({
           onReorder={onReorderIgnoredSf}
         />
       </CollapsibleCard>
+      <AccountTypeOverridesSection
+        accountTypeOverrides={config.accountTypeOverrides || {}}
+        onSetOverride={onSetAccountTypeOverride}
+      />
       <DescriptionRulesSection
         rules={categoryDescriptionRules}
         onSave={onSaveCategoryDescriptionRules}

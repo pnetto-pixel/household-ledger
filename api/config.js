@@ -31,6 +31,12 @@ function configKeyFromAuth(auth) {
 // Vercel Hobby plan caps this project at 12 Serverless Functions).
 const LIST_KEYS = ['accounts', 'expenseCategories', 'incomeCategories', 'ignoredSimplefinAccounts'];
 
+// Valid values for `accountTypeOverrides` — user's manual classification of a
+// SimpleFin account (by accountUrn) as a credit card or a checking/savings
+// account, for grouping in the Home tab's Account Balances card. Accounts
+// with no override default to "depository" client-side.
+const ACCOUNT_TYPE_VALUES = new Set(['credit', 'depository']);
+
 // Keep only the known list fields, each a deduped array of non-empty strings.
 function sanitize(config) {
   const out = {};
@@ -48,6 +54,21 @@ function sanitize(config) {
     }
     out[key] = clean;
   }
+
+  // `accountTypeOverrides`: { [accountUrn]: "credit" | "depository" }. Not a
+  // list (same shape as ignoredSimplefinAccounts's sibling fields would be),
+  // so it needs its own pass — drop empty keys and any value other than the
+  // two recognized ones.
+  const overrides = config?.accountTypeOverrides;
+  if (overrides && typeof overrides === 'object' && !Array.isArray(overrides)) {
+    const clean = {};
+    for (const [urn, type] of Object.entries(overrides)) {
+      const key = typeof urn === 'string' ? urn.trim() : '';
+      if (key && ACCOUNT_TYPE_VALUES.has(type)) clean[key] = type;
+    }
+    out.accountTypeOverrides = clean;
+  }
+
   return out;
 }
 

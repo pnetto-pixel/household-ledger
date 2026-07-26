@@ -38,6 +38,34 @@ function pendingKeyFromAuth(auth) {
   return `${householdKey}:simplefin-pending`;
 }
 
+// Same derivation as api/config.js's configKeyFromAuth — duplicated rather
+// than imported to keep this endpoint's dependency surface small; both
+// derive "household:<scope>:config" from the same auth.storageKey.
+function configKeyFromAuth(auth) {
+  if (!auth?.storageKey) return null;
+  return auth.storageKey
+    .replace(/^portfolio:/, 'household:')
+    .replace(/:holdings$/, ':config');
+}
+
+// Reads just the `ignoredSimplefinAccounts` patterns from the user's config
+// blob, for filtering out ignored SimpleFin accounts before the sync/pending
+// paths ever see them. Best-effort: any read/parse failure just means "no
+// ignored accounts" rather than failing the sync.
+async function loadIgnoredPatterns(auth, redis) {
+  const key = configKeyFromAuth(auth);
+  if (!key) return [];
+  try {
+    const raw = await redis.get(key);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    const list = parsed?.config?.ignoredSimplefinAccounts;
+    return Array.isArray(list) ? list : [];
+  } catch {
+    return [];
+  }
+}
+
 async function handlePending(req, res, auth) {
   const pendingKey = pendingKeyFromAuth(auth);
   if (!pendingKey) {
@@ -93,7 +121,15 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  const result = await fetchSimplefinTransactions();
+  let redis;
+  try {
+    redis = getRedis();
+  } catch (err) {
+    return res.status(503).json({ error: `Storage unavailable: ${err.message}` });
+  }
+
+  const ignoredPatterns = await loadIgnoredPatterns(auth, redis);
+  const result = await fetchSimplefinTransactions(ignoredPatterns);
   if (!result.ok) {
     return res.status(result.status).json({ error: result.error });
   }
@@ -107,5 +143,8 @@ export default async function handler(req, res) {
     // transaction-only (it's an append-only cron queue, holdings is a
     // point-in-time snapshot so it wouldn't make sense to stack there).
     holdings: result.holdings,
+    // Per-account balance snapshot (lib/simplefin.js), same live-fetch-only
+    // scope as holdings — feeds the Home tab's Account Balances card.
+    accountBalances: result.accountBalances,
   });
 }

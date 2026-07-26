@@ -31,6 +31,35 @@ function pendingKeyFromAppPassword() {
   return `${householdKey}:simplefin-pending`;
 }
 
+// Same single-tenant derivation, but for the config blob (household:*:config)
+// instead of the transactions blob — mirrors api/config.js's
+// configKeyFromAuth / api/simplefin-sync.js's configKeyFromAuth.
+function configKeyFromAppPassword() {
+  const pwd = process.env.APP_PASSWORD;
+  if (!pwd) return null;
+  const storageKey = passwordStorageKey(pwd);
+  return storageKey
+    .replace(/^portfolio:/, 'household:')
+    .replace(/:holdings$/, ':config');
+}
+
+// Best-effort read of `ignoredSimplefinAccounts` so the cron never queues
+// pending rows for an account the user has chosen to ignore. Any read/parse
+// failure just means "no ignored accounts" rather than failing the cron run.
+async function loadIgnoredPatterns(redis) {
+  const key = configKeyFromAppPassword();
+  if (!key) return [];
+  try {
+    const raw = await redis.get(key);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    const list = parsed?.config?.ignoredSimplefinAccounts;
+    return Array.isArray(list) ? list : [];
+  } catch {
+    return [];
+  }
+}
+
 export default async function handler(req, res) {
   const authHeader = req.headers['authorization'] || req.headers['Authorization'];
   const expected = process.env.CRON_SECRET;
@@ -47,16 +76,17 @@ export default async function handler(req, res) {
     return res.status(500).json({ error: 'APP_PASSWORD not configured' });
   }
 
-  const result = await fetchSimplefinTransactions();
-  if (!result.ok) {
-    return res.status(result.status).json({ error: result.error });
-  }
-
   let redis;
   try {
     redis = getRedis();
   } catch (err) {
     return res.status(503).json({ error: `Storage unavailable: ${err.message}` });
+  }
+
+  const ignoredPatterns = await loadIgnoredPatterns(redis);
+  const result = await fetchSimplefinTransactions(ignoredPatterns);
+  if (!result.ok) {
+    return res.status(result.status).json({ error: result.error });
   }
 
   let existingPending = [];
