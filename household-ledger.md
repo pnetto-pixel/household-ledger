@@ -1,4 +1,4 @@
-# Household Ledger · v1.64.1
+# Household Ledger · v1.64.4
 
 Aplicativo mobile-first de controle financeiro doméstico. Registra
 transações da casa (despesas e receitas) por categoria e conta, com
@@ -31,7 +31,23 @@ O `feature-auditor` deve conferir, como parte da checklist de auditoria, que
 o diff inclui o bump nos dois arquivos antes de aprovar — se faltar, isso é
 motivo de reprovação (devolver ao coder), não um detalhe opcional.
 
-Versão atual: **v1.64.1** — Home's `AccountBalancesCard` (`src/App.jsx`)
+Versão atual: **v1.64.4** — Home's `AccountBalancesCard` (`src/App.jsx`)
+agora agrupa contas SimpleFin com o mesmo label consolidado (mesmo cálculo:
+`accountMap[accountUrn]` ou fallback `orgName — name`) dentro de cada bucket
+de tipo (Credit Cards / Checking & Savings / Other), somando o saldo quando
+duas `accountUrn` distintas resolvem para o mesmo nome (ex: dois cartões
+físicos renomeados para o mesmo nome em Settings). A lista dentro de cada
+grupo é ordenada alfabeticamente pelo label já consolidado (não pelo `name`
+raw de cada conta, que pode divergir do label exibido). Cada grupo passa a
+exibir uma linha "Total" ao final, somando os saldos (já agrupados) daquele
+grupo — usa `money()` (respeita `hideValues`) e a mesma regra de cor
+condicional verde/vermelho das linhas individuais, com borda superior e peso
+maior pra se destacar visualmente da lista. Antes, cada `accountUrn` virava
+uma linha própria, duplicando visualmente contas que o usuário havia
+intencionalmente unificado pelo nome. `SimplefinAccountRow` (Settings) não
+foi alterado — lá cada urn continua individual.
+
+Versão anterior: **v1.64.1** — Home's `AccountBalancesCard` (`src/App.jsx`)
 agora exibe o nome de conta mapeado no app (`accountMap[accountUrn]`, o
 mesmo usado em Settings → "SimpleFin accounts") em vez do nome raw do
 SimpleFin (`orgName — name`); contas sem mapeamento continuam usando o
