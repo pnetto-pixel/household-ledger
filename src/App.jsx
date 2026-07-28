@@ -697,7 +697,7 @@ function idleExpired() {
 // path, so the pending copy is discarded with a notice instead).
 
 // Single source for the version shown in the header and in diagnostics.
-const APP_VERSION = "v1.64.1";
+const APP_VERSION = "v1.64.4";
 
 const PENDING_SAVE_KEY = "household_pending_save";
 
@@ -3201,36 +3201,87 @@ function AccountBalancesCard({ money, hideValues, accountTypeOverrides, accountM
     return { credit, checking, other };
   }, [state.accountBalances, accountTypeOverrides]);
 
-  const renderGroup = (title, accounts) => (
-    <div key={title}>
-      <h3 style={S.sectionTitle}>{title}</h3>
-      <div style={{ ...S.card, padding: "8px 0" }}>
-        {accounts.map((acc, idx) => {
-          const label = accountMap?.[acc.accountUrn] || (acc.orgName ? `${acc.orgName} — ${acc.name}` : acc.name);
-          return (
+  // Two different SimpleFin accounts (distinct accountUrn) can be mapped to
+  // the same app-facing label in Settings (e.g. two physical cards on one
+  // account both renamed "Chase Reserve"). Collapse those into a single
+  // summed row here rather than showing duplicate lines with the same name.
+  const groupByLabel = (accounts) => {
+    const order = [];
+    const byLabel = new Map();
+    for (const acc of accounts) {
+      const label = accountMap?.[acc.accountUrn] || (acc.orgName ? `${acc.orgName} — ${acc.name}` : acc.name);
+      const existing = byLabel.get(label);
+      if (existing) {
+        existing.balance = existing.balance == null && acc.balance == null
+          ? null
+          : (existing.balance || 0) + (acc.balance || 0);
+      } else {
+        const entry = { key: acc.accountUrn, label, balance: acc.balance };
+        byLabel.set(label, entry);
+        order.push(entry);
+      }
+    }
+    // Sort by the consolidated label (post-grouping), not by the original
+    // account name/order — accountMap overrides or orgName concatenation can
+    // make the label differ from the name used for the earlier bucket sort.
+    order.sort((a, b) => (a.label || "").localeCompare(b.label || ""));
+    return order;
+  };
+
+  const renderGroup = (title, accounts) => {
+    const rows = groupByLabel(accounts);
+    // Section total: sum of every row shown in this group (post label
+    // grouping, so a merged "Chase Reserve" row is counted once, not twice).
+    // Rows with a null balance (fetch failure for that account) are treated
+    // as 0 for the total rather than making the whole total null, since most
+    // rows in a group are typically resolvable.
+    const total = rows.reduce((sum, row) => sum + (row.balance || 0), 0);
+    return (
+      <div key={title}>
+        <h3 style={S.sectionTitle}>{title}</h3>
+        <div style={{ ...S.card, padding: "8px 0" }}>
+          {rows.map((row, idx) => (
             <div
-              key={acc.accountUrn}
+              key={row.key}
               style={{
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "space-between",
                 gap: 12,
                 padding: "10px 16px",
-                borderBottom: idx < accounts.length - 1 ? "1px solid #1a1f26" : "none",
+                borderBottom: idx < rows.length - 1 ? "1px solid #1a1f26" : "none",
               }}
             >
               <div style={{ fontSize: 14, color: "#e5e7eb", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                {label}
+                {row.label}
               </div>
-              <div style={{ fontWeight: 700, fontSize: 14, color: acc.balance == null ? "#8b94a3" : (acc.balance < 0 ? "#f87171" : "#34d399"), whiteSpace: "nowrap" }}>
-                {acc.balance == null ? "—" : money(acc.balance)}
+              <div style={{ fontWeight: 700, fontSize: 14, color: row.balance == null ? "#8b94a3" : (row.balance < 0 ? "#f87171" : "#34d399"), whiteSpace: "nowrap" }}>
+                {row.balance == null ? "—" : money(row.balance)}
               </div>
             </div>
-          );
-        })}
+          ))}
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              gap: 12,
+              padding: "10px 16px",
+              marginTop: 2,
+              borderTop: "1px solid #2a313c",
+            }}
+          >
+            <div style={{ fontSize: 13, color: "#8b94a3", fontWeight: 700, textTransform: "uppercase", letterSpacing: 0.4 }}>
+              Total
+            </div>
+            <div style={{ fontWeight: 800, fontSize: 15, color: total < 0 ? "#f87171" : "#34d399", whiteSpace: "nowrap" }}>
+              {money(total)}
+            </div>
+          </div>
+        </div>
       </div>
-    </div>
-  );
+    );
+  };
 
   return (
     <div style={S.col}>
