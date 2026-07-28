@@ -697,7 +697,7 @@ function idleExpired() {
 // path, so the pending copy is discarded with a notice instead).
 
 // Single source for the version shown in the header and in diagnostics.
-const APP_VERSION = "v1.64.0";
+const APP_VERSION = "v1.64.1";
 
 const PENDING_SAVE_KEY = "household_pending_save";
 
@@ -2099,7 +2099,7 @@ export default function App() {
         {loading ? (
           <div style={S.center}>Loading…</div>
         ) : tab === "home" ? (
-          <Dashboard transactions={transactions} money={money} hideValues={hideValues} isWide={isWide} budgets={budgets} config={config} />
+          <Dashboard transactions={transactions} money={money} hideValues={hideValues} isWide={isWide} budgets={budgets} config={config} accountMap={accountMap} />
         ) : tab === "transactions" ? (
           <Transactions
             transactions={transactions}
@@ -2725,7 +2725,7 @@ function SingleCategoryFilter({ value, options, setValue, isWide }) {
 // Dashboard
 // ===========================================================================
 
-function Dashboard({ transactions, money, hideValues, isWide, budgets, config }) {
+function Dashboard({ transactions, money, hideValues, isWide, budgets, config, accountMap }) {
   // Default the period to the current month.
   const [year, setYear] = useState(() => todayISO().slice(0, 4));
   const [month, setMonth] = useState(() => todayISO().slice(5, 7));
@@ -3129,7 +3129,7 @@ function Dashboard({ transactions, money, hideValues, isWide, budgets, config })
         </>
       )}
 
-      <AccountBalancesCard money={money} hideValues={hideValues} accountTypeOverrides={config?.accountTypeOverrides} />
+      <AccountBalancesCard money={money} hideValues={hideValues} accountTypeOverrides={config?.accountTypeOverrides} accountMap={accountMap} />
 
       {/* Budgets — bullet bars for the selected month (set in Settings) */}
       {year !== "All" && month !== "All" && (
@@ -3161,7 +3161,7 @@ function Dashboard({ transactions, money, hideValues, isWide, budgets, config })
 // GET /api/simplefin-sync (cached — see loadSfBalances/readSfBalancesCache
 // above) rather than the ledger's own transactions, since a balance isn't
 // derivable from the transaction history the app stores.
-function AccountBalancesCard({ money, hideValues, accountTypeOverrides }) {
+function AccountBalancesCard({ money, hideValues, accountTypeOverrides, accountMap }) {
   const [state, setState] = useState({ status: "loading", accountBalances: [], error: null });
 
   useEffect(() => {
@@ -3206,7 +3206,7 @@ function AccountBalancesCard({ money, hideValues, accountTypeOverrides }) {
       <h3 style={S.sectionTitle}>{title}</h3>
       <div style={{ ...S.card, padding: "8px 0" }}>
         {accounts.map((acc, idx) => {
-          const label = acc.orgName ? `${acc.orgName} — ${acc.name}` : acc.name;
+          const label = accountMap?.[acc.accountUrn] || (acc.orgName ? `${acc.orgName} — ${acc.name}` : acc.name);
           return (
             <div
               key={acc.accountUrn}

@@ -1,4 +1,4 @@
-# Household Ledger · v1.64.0
+# Household Ledger · v1.64.1
 
 Aplicativo mobile-first de controle financeiro doméstico. Registra
 transações da casa (despesas e receitas) por categoria e conta, com
@@ -31,7 +31,15 @@ O `feature-auditor` deve conferir, como parte da checklist de auditoria, que
 o diff inclui o bump nos dois arquivos antes de aprovar — se faltar, isso é
 motivo de reprovação (devolver ao coder), não um detalhe opcional.
 
-Versão atual: **v1.64.0** — adiciona coluna "Source" na tabela "SimpleFin
+Versão atual: **v1.64.1** — Home's `AccountBalancesCard` (`src/App.jsx`)
+agora exibe o nome de conta mapeado no app (`accountMap[accountUrn]`, o
+mesmo usado em Settings → "SimpleFin accounts") em vez do nome raw do
+SimpleFin (`orgName — name`); contas sem mapeamento continuam usando o
+fallback raw. `accountMap` foi propagado como prop de `App()` → `Dashboard`
+→ `AccountBalancesCard`. `SimplefinAccountRow` (Settings) não foi alterado —
+lá o raw label é intencional.
+
+Versão anterior: **v1.64.0** — adiciona coluna "Source" na tabela "SimpleFin
 accounts" (`SimplefinAccountsSection`/`SimplefinAccountRow`, `src/App.jsx`):
 não existe campo `source` persistido por conta, só por transação
 (`t.source`: `"sf"` | `"ck"` | `"csv"`), então o badge é derivado em runtime
