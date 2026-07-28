@@ -1,4 +1,4 @@
-# Household Ledger · v1.64.5
+# Household Ledger · v1.64.6
 
 Aplicativo mobile-first de controle financeiro doméstico. Registra
 transações da casa (despesas e receitas) por categoria e conta, com
@@ -31,7 +31,14 @@ O `feature-auditor` deve conferir, como parte da checklist de auditoria, que
 o diff inclui o bump nos dois arquivos antes de aprovar — se faltar, isso é
 motivo de reprovação (devolver ao coder), não um detalhe opcional.
 
-Versão atual: **v1.64.5** — Home's `AccountBalancesCard` (`src/App.jsx`)
+Versão atual: **v1.64.6** — Home's `AccountBalancesCard` (`src/App.jsx`)
+removed the per-group subtitle (e.g. "Credit Cards" / "Checking & Savings" /
+"Other") that used to render above each group's row list (`renderGroup`'s
+`<h3 style={S.sectionTitle}>`), keeping only the card's overall "Account
+Balances" title and the Credit Cards/Accounts toggle, to reduce vertical
+space. Row list, Total row, grouping/sum/filter/sort logic unchanged.
+
+Previous: **v1.64.5** — Home's `AccountBalancesCard` (`src/App.jsx`)
 adds a segmented-control toggle (same `S.segmented`/`S.segmentedBtn(active)`
 visual pattern already used by the Trends year-range presets and the Import
 duplicate-filter picker) to switch between two views: "Credit Cards" (default)

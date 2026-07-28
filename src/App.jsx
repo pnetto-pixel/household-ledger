@@ -697,7 +697,7 @@ function idleExpired() {
 // path, so the pending copy is discarded with a notice instead).
 
 // Single source for the version shown in the header and in diagnostics.
-const APP_VERSION = "v1.64.5";
+const APP_VERSION = "v1.64.6";
 
 const PENDING_SAVE_KEY = "household_pending_save";
 
@@ -3245,7 +3245,6 @@ function AccountBalancesCard({ money, hideValues, accountTypeOverrides, accountM
     const rows = hideZero ? allRows.filter((row) => row.balance !== 0) : allRows;
     return (
       <div key={title}>
-        <h3 style={S.sectionTitle}>{title}</h3>
         <div style={{ ...S.card, padding: "8px 0" }}>
           {rows.map((row, idx) => (
             <div
