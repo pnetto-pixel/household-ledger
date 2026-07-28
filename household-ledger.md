@@ -1,4 +1,4 @@
-# Household Ledger · v1.64.4
+# Household Ledger · v1.64.5
 
 Aplicativo mobile-first de controle financeiro doméstico. Registra
 transações da casa (despesas e receitas) por categoria e conta, com
@@ -31,7 +31,18 @@ O `feature-auditor` deve conferir, como parte da checklist de auditoria, que
 o diff inclui o bump nos dois arquivos antes de aprovar — se faltar, isso é
 motivo de reprovação (devolver ao coder), não um detalhe opcional.
 
-Versão atual: **v1.64.4** — Home's `AccountBalancesCard` (`src/App.jsx`)
+Versão atual: **v1.64.5** — Home's `AccountBalancesCard` (`src/App.jsx`)
+adds a segmented-control toggle (same `S.segmented`/`S.segmentedBtn(active)`
+visual pattern already used by the Trends year-range presets and the Import
+duplicate-filter picker) to switch between two views: "Credit Cards" (default)
+and "Accounts" (Checking & Savings + Other, when present). In the Credit
+Cards view, individual card rows whose consolidated (post label-grouping)
+balance is exactly `0` are hidden from the list — accounts with an unknown
+balance (`null`, fetch failed) are still shown as "—". The group's "Total"
+row is always computed from the full consolidated row list (not the
+zero-filtered display list), so hiding $0 rows never changes the total.
+
+Versão anterior: **v1.64.4** — Home's `AccountBalancesCard` (`src/App.jsx`)
 agora agrupa contas SimpleFin com o mesmo label consolidado (mesmo cálculo:
 `accountMap[accountUrn]` ou fallback `orgName — name`) dentro de cada bucket
 de tipo (Credit Cards / Checking & Savings / Other), somando o saldo quando
