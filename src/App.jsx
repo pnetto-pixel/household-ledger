@@ -697,7 +697,7 @@ function idleExpired() {
 // path, so the pending copy is discarded with a notice instead).
 
 // Single source for the version shown in the header and in diagnostics.
-const APP_VERSION = "v1.64.4";
+const APP_VERSION = "v1.64.5";
 
 const PENDING_SAVE_KEY = "household_pending_save";
 
@@ -3163,6 +3163,7 @@ function Dashboard({ transactions, money, hideValues, isWide, budgets, config, a
 // derivable from the transaction history the app stores.
 function AccountBalancesCard({ money, hideValues, accountTypeOverrides, accountMap }) {
   const [state, setState] = useState({ status: "loading", accountBalances: [], error: null });
+  const [view, setView] = useState("credit"); // "credit" | "accounts"
 
   useEffect(() => {
     let cancelled = false;
@@ -3228,14 +3229,20 @@ function AccountBalancesCard({ money, hideValues, accountTypeOverrides, accountM
     return order;
   };
 
-  const renderGroup = (title, accounts) => {
-    const rows = groupByLabel(accounts);
-    // Section total: sum of every row shown in this group (post label
+  const renderGroup = (title, accounts, { hideZero } = {}) => {
+    const allRows = groupByLabel(accounts);
+    // Section total: sum of every consolidated row in this group (post label
     // grouping, so a merged "Chase Reserve" row is counted once, not twice).
     // Rows with a null balance (fetch failure for that account) are treated
     // as 0 for the total rather than making the whole total null, since most
-    // rows in a group are typically resolvable.
-    const total = rows.reduce((sum, row) => sum + (row.balance || 0), 0);
+    // rows in a group are typically resolvable. Computed from allRows (not
+    // the display-filtered list) so hiding $0 credit cards can never change
+    // the total — though a $0 row wouldn't affect it anyway.
+    const total = allRows.reduce((sum, row) => sum + (row.balance || 0), 0);
+    // $0-balance credit cards are hidden from the row list (still counted in
+    // the total above, where they're a no-op). Accounts with an unknown
+    // balance (null — fetch failed) are never hidden, only a known $0.
+    const rows = hideZero ? allRows.filter((row) => row.balance !== 0) : allRows;
     return (
       <div key={title}>
         <h3 style={S.sectionTitle}>{title}</h3>
@@ -3285,7 +3292,17 @@ function AccountBalancesCard({ money, hideValues, accountTypeOverrides, accountM
 
   return (
     <div style={S.col}>
-      <h3 style={S.sectionTitle}>Account Balances</h3>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+        <h3 style={{ ...S.sectionTitle, marginBottom: 0 }}>Account Balances</h3>
+        <div style={S.segmented}>
+          <button onClick={() => setView("credit")} style={S.segmentedBtn(view === "credit")}>
+            Credit Cards
+          </button>
+          <button onClick={() => setView("accounts")} style={S.segmentedBtn(view === "accounts")}>
+            Accounts
+          </button>
+        </div>
+      </div>
       {state.status === "loading" ? (
         <div style={{ ...S.card, textAlign: "center", color: "#8b94a3", fontSize: 14, padding: 24 }}>
           Loading account balances…
@@ -3298,11 +3315,24 @@ function AccountBalancesCard({ money, hideValues, accountTypeOverrides, accountM
             ? "No SimpleFin accounts synced yet."
             : "Every synced SimpleFin account is ignored (Settings → SimpleFin accounts)."}
         </Empty>
+      ) : view === "credit" ? (
+        <div style={S.col}>
+          {credit.length > 0 ? (
+            renderGroup("Credit Cards", credit, { hideZero: true })
+          ) : (
+            <Empty>No credit cards.</Empty>
+          )}
+        </div>
       ) : (
         <div style={S.col}>
-          {credit.length > 0 && renderGroup("Credit Cards", credit)}
-          {checking.length > 0 && renderGroup("Checking & Savings", checking)}
-          {other.length > 0 && renderGroup("Other", other)}
+          {checking.length + other.length === 0 ? (
+            <Empty>No bank accounts.</Empty>
+          ) : (
+            <>
+              {checking.length > 0 && renderGroup("Checking & Savings", checking)}
+              {other.length > 0 && renderGroup("Other", other)}
+            </>
+          )}
         </div>
       )}
     </div>
