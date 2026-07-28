@@ -2769,7 +2769,11 @@ shell de altura cheia (`#root` em `100lvh` + shell `height:100%`): só o
    — e filtra `!acc.ignored` explicitamente (necessário porque
    `accountBalances` passou a incluir contas ignoradas — ver Modelo de
    dados); conta sem classificação manual cai em "Checking & Savings" por
-   padrão. Os saldos vêm do `accountBalances` já retornado por
+   padrão. **Desde a v1.64.1** (PR #252), cada linha exibe o nome de conta
+   mapeado no app (`accountMap[accountUrn]`, o mesmo de Settings →
+   "SimpleFin accounts") em vez do label raw do SimpleFin (`orgName —
+   name`); contas sem mapeamento caem no fallback raw. Os saldos vêm do
+   `accountBalances` já retornado por
    `api/simplefin-sync.js`, cacheados em `sessionStorage` com TTL de 5 min
    (evita refetch a cada troca de tab); respeita `hideValues`/`money`.
    Ao final da página, seção **"All Time"** com 3 StatCards (Income /
