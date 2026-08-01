@@ -3044,8 +3044,17 @@ shell de altura cheia (`#root` em `100lvh` + shell `height:100%`): só o
    "SimpleFin accounts") em vez do label raw do SimpleFin (`orgName —
    name`); contas sem mapeamento caem no fallback raw. Os saldos vêm do
    `accountBalances` já retornado por
-   `api/simplefin-sync.js`, cacheados em `sessionStorage` com TTL de 5 min
-   (evita refetch a cada troca de tab); respeita `hideValues`/`money`.
+   `api/simplefin-sync.js`, cacheados em `sessionStorage` com TTL de 5 min;
+   respeita `hideValues`/`money`. **Desde a v1.69.0** (PR #259),
+   `AccountBalancesCard` não faz fetch próprio: recebe `sfBalances`/
+   `refreshSfBalances` como props de `App()` (mesmo estado de
+   `useSfBalances(authed)` já usado por Settings/badge da TabBar desde a
+   v1.59.0), cuja única fonte de fetch automático é o sign-in — antes, o
+   `useEffect` local do card refazia a chamada ao SimpleFin a cada
+   remount/troca para a aba Home, mesmo dentro do TTL de 5 min. Botão de
+   refresh manual (ícone `RefreshCw`) no header do card chama
+   `refreshSfBalances({ force: true })`, ignorando o cache quando o usuário
+   pede explicitamente.
    Ao final da página, seção **"All Time"** com 3 StatCards (Income /
    Expenses / Net) totais históricos (`usd0`, sem centavos, para caberem na
    linha em telas estreitas).
@@ -3325,6 +3334,18 @@ shell de altura cheia (`#root` em `100lvh` + shell `height:100%`): só o
    métodos — não é um pipeline paralelo. Mensagens de erro específicas: env
    var ausente ("SimpleFin não configurado", 501) vs. falha de rede/resposta
    não-OK do SimpleFin (502).
+
+   **Persistência do preview entre trocas de tab (v1.69.0, PR #259)** — o
+   estado da prévia de sync (`method`, `sfRows`, `sfFromPending`,
+   `selected`, `fileName`, `error`, `done`) subiu de `useState` local de
+   `ImportTransactions` para `App()`, e é passado como props. Antes, trocar
+   de aba durante uma revisão em andamento (checkboxes marcados, correções
+   de categoria antes de confirmar) descartava tudo, já que o componente
+   desmonta ao sair da aba Import. Clicar em "Sync now" de novo ou concluir
+   o import ainda limpa/substitui o preview normalmente — só a sobrevivência
+   a trocas de aba mudou. O estado do fluxo CSV genérico/Credit Karma
+   (`rawRows`/`headers`/`mapping`) permanece local ao componente, fora de
+   escopo dessa mudança.
 
    **Fila de pendências do cron (v1.49.0, PR #215, Fase 2)** — além do
    "Sync now" manual, um Vercel Cron Job roda 1x/dia (`vercel.json`, 9h UTC)
