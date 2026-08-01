@@ -468,7 +468,7 @@ describe("scoreDuplicateCandidate", () => {
     // no shared tokens
     const none = scoreDuplicateCandidate(at({ description: "Gasoline Pump" }), base);
     expect(none.score).toBe(65);
-    expect(none.reasons).toContain("descrição sem tokens em comum");
+    expect(none.reasons).toContain("no common tokens in description");
   });
 
   it("normalizes gateway noise before comparing descriptions", () => {
@@ -493,7 +493,7 @@ describe("scoreDuplicateCandidate", () => {
     const withFix = { ...withoutFix, providerDescription: "AMAZON.COM*RT4XY1ABC" };
     const result = scoreDuplicateCandidate(withFix, existing);
     expect(result.score).toBe(80); // shared "amazon" token now counted: 100 − 0 − 0 − 20
-    expect(result.reasons).toContain("poucas palavras em comum na descrição");
+    expect(result.reasons).toContain("few common words in description");
 
     // A realistic 2-day posting-date gap on top no longer falls through to
     // "new" (score < 60) the way it would have pre-fix (65 − 10 = 55).
@@ -878,7 +878,7 @@ describe("resolveImportCategory", () => {
     expect(out.category).toBe("Restaurant");
     expect(out.categorySource).toBe("learned");
     expect(out.categoryConfidence).toBeGreaterThan(0);
-    expect(out.categoryReason).toContain("Aprendido");
+    expect(out.categoryReason).toContain("Learned");
   });
 
   it("a description rule still wins over a memory guess for the same row", () => {

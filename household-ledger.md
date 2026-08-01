@@ -1,4 +1,4 @@
-# Household Ledger · v1.69.1
+# Household Ledger · v1.69.2
 
 Aplicativo mobile-first de controle financeiro doméstico. Registra
 transações da casa (despesas e receitas) por categoria e conta, com
@@ -31,7 +31,16 @@ O `feature-auditor` deve conferir, como parte da checklist de auditoria, que
 o diff inclui o bump nos dois arquivos antes de aprovar — se faltar, isso é
 motivo de reprovação (devolver ao coder), não um detalhe opcional.
 
-Versão atual: **v1.69.1** — Bugfix na tab Transactions (Account filter):
+Versão atual: **v1.69.2** — Tradução de strings de UI visíveis (PT→EN) em
+`src/App.jsx` e `src/ledger.js`: badges de categoria (`regra`→`rule`,
+`confirmado`→`confirmed`, `aprendido N%`→`learned N%`), tooltips, botões do
+fluxo de import (SimpleFin, duplicatas, near-miss), mensagens de erro
+(`SimpleFin não configurado...`, `Falha ao...`) e os `reasons`/`categoryReason`
+gerados por `scoreDuplicateCandidate`/`resolveImportCategory` em `ledger.js`
+(consumidos como badges/tooltips no App). Fora do escopo: comentários de
+código em PT (ficam para uma sessão futura) e nomes de categoria (já em EN).
+
+Versão anterior: **v1.69.1** — Bugfix na tab Transactions (Account filter):
 de-dupe defensivo por `id` no `filtered` (useMemo) da `TransactionsTab`, antes
 de qualquer filtro. Se dois objetos de transação na `transactions` em memória
 compartilhassem o mesmo `id` (dado legado/corrompido de algum import/merge
