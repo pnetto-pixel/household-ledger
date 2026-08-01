@@ -31,14 +31,32 @@ O `feature-auditor` deve conferir, como parte da checklist de auditoria, que
 o diff inclui o bump nos dois arquivos antes de aprovar — se faltar, isso é
 motivo de reprovação (devolver ao coder), não um detalhe opcional.
 
-Versão atual: **v1.69.2** — Tradução de strings de UI visíveis (PT→EN) em
-`src/App.jsx` e `src/ledger.js`: badges de categoria (`regra`→`rule`,
-`confirmado`→`confirmed`, `aprendido N%`→`learned N%`), tooltips, botões do
-fluxo de import (SimpleFin, duplicatas, near-miss), mensagens de erro
-(`SimpleFin não configurado...`, `Falha ao...`) e os `reasons`/`categoryReason`
-gerados por `scoreDuplicateCandidate`/`resolveImportCategory` em `ledger.js`
-(consumidos como badges/tooltips no App). Fora do escopo: comentários de
-código em PT (ficam para uma sessão futura) e nomes de categoria (já em EN).
+Versão atual: **v1.69.2** (PR #262, squash-merge SHA
+`bf5703151a026fc31e1317d51cb3cecc2e85134e`) — Tradução de strings de UI
+visíveis (PT→EN) em `src/App.jsx` e `src/ledger.js`: badges de categoria
+(`regra`→`rule`, `confirmado`→`confirmed`, `aprendido N%`→`learned N%`,
+"Nada classificou esta linha ainda"→"Nothing classified this row yet"),
+tooltip do `ConfirmCategoryButton`, painel de duplicatas do import
+(`ImportDupReviewPanel`), `ImportNearMissHint`, mensagens de erro do
+SimpleFin, labels do fluxo de import ("Carregando…"→"Loading…", "Revisar N
+pendente(s)"→"Review N pending", "N aprendido(s)"→"N learned", "Confirmar
+todos os aprendidos visíveis"→"Confirm all visible learned", "Mais
+recentes"→"Most recent", "Revisar primeiro"→"Review first"), hint do modal
+de edição para categoria sugerida pela memória, e os `reasons`/
+`_dupReasons`/`categoryReason` gerados por
+`scoreDuplicateCandidate`/`markDuplicates`/`resolveImportCategory` em
+`ledger.js` (ex.: "mesmo valor"→"same amount", "mesmo dia"→"same day", "N
+dia(s) de diferença"→"N day(s) apart", "mesmo id de origem"→"same source
+id", "conteúdo idêntico..."→"identical content..."; consumidos como
+badges/tooltips no App). 3 asserts de `src/ledger.test.js` atualizados para
+os novos textos em inglês. **Fora do escopo por decisão explícita do
+usuário (não é pendência)**: comentários de código em PT (ex.: `// Alimentação`,
+`// Finanças/Saúde` em `src/ledger.js`/`src/App.jsx`) permanecem
+intencionalmente não traduzidos. Nomes de categoria
+(`DEFAULT_EXPENSE_CATEGORIES`/`DEFAULT_INCOME_CATEGORIES`) já estavam em EN
+e não foram alterados. Sem mudança de chave interna/persistida
+(`categorySource`, `CATEGORY_BADGE_TIERS`, contrato de API/Redis, modelo de
+transação, regra de `Transfer`).
 
 Versão anterior: **v1.69.1** — Bugfix na tab Transactions (Account filter):
 de-dupe defensivo por `id` no `filtered` (useMemo) da `TransactionsTab`, antes
@@ -3335,7 +3353,14 @@ shell de altura cheia (`#root` em `100lvh` + shell `height:100%`): só o
    "ATT Reward"). OFX/QFX e os profiles Chase foram removidos (o mapa de
    contas por URN cobre o caso Chase). O placeholder do dropzone de upload
    também foi traduzido PT→EN (PR #104, v1.7.0) — o restante do componente
-   `ImportTransactions` já estava em inglês.
+   `ImportTransactions` já estava em inglês. **Desde a v1.69.2 (PR #262)**,
+   as demais strings de UI ainda em PT no fluxo de import (badges de
+   categoria, tooltips, painel de duplicatas, near-miss hint, labels de
+   loading/review/confirm) e os `reasons`/`categoryReason` de dedupe/
+   classificação em `src/ledger.js` também foram traduzidos — ver
+   changelog acima. Comentários de código em PT permanecem intencionalmente
+   não traduzidos (decisão explícita do usuário, fora do escopo de i18n de
+   UI).
 
    **Filtros de coluna no header da tabela (desktop, v1.62.0, PR #247)** —
    no preview de import em `<table>` (desktop, `isWide`, ver v1.61.0 acima),
