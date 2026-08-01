@@ -705,7 +705,7 @@ function idleExpired() {
 // path, so the pending copy is discarded with a notice instead).
 
 // Single source for the version shown in the header and in diagnostics.
-const APP_VERSION = "v1.68.0";
+const APP_VERSION = "v1.69.0";
 
 const PENDING_SAVE_KEY = "household_pending_save";
 
@@ -887,6 +887,21 @@ export default function App() {
     writeSfBalancesCache(accountBalances);
     refreshSfBalances();
   }, [refreshSfBalances]);
+
+  // Import tab's SimpleFin sync preview — lifted to App level (v1.60.0) so
+  // it survives switching tabs. `ImportTransactions` only mounts while the
+  // Import tab is active, so its own useState was wiping the "Sync now"
+  // preview (and the checkbox selection) the moment the user glanced at
+  // another tab and came back. The CSV/Credit Karma raw-parse state
+  // (rawRows/headers/mapping) deliberately stays local to that component —
+  // out of scope here, not worth persisting.
+  const [importMethod, setImportMethod] = useState("sf");
+  const [importSfRows, setImportSfRows] = useState([]);
+  const [importSfFromPending, setImportSfFromPending] = useState(false);
+  const [importSelected, setImportSelected] = useState(() => new Set());
+  const [importFileName, setImportFileName] = useState("");
+  const [importError, setImportError] = useState("");
+  const [importDone, setImportDone] = useState("");
 
   // Format a money value, respecting the global eye toggle.
   const money = useCallback(
@@ -2107,7 +2122,7 @@ export default function App() {
         {loading ? (
           <div style={S.center}>Loading…</div>
         ) : tab === "home" ? (
-          <Dashboard transactions={transactions} money={money} hideValues={hideValues} isWide={isWide} budgets={budgets} config={config} accountMap={accountMap} />
+          <Dashboard transactions={transactions} money={money} hideValues={hideValues} isWide={isWide} budgets={budgets} config={config} accountMap={accountMap} sfBalances={sfBalances} refreshSfBalances={refreshSfBalances} />
         ) : tab === "transactions" ? (
           <Transactions
             transactions={transactions}
@@ -2131,6 +2146,20 @@ export default function App() {
             hideValues={hideValues}
             onConfirmDuplicateMatch={confirmDuplicateMatch}
             onSfSynced={handleSfSynced}
+            method={importMethod}
+            setMethod={setImportMethod}
+            sfRows={importSfRows}
+            setSfRows={setImportSfRows}
+            sfFromPending={importSfFromPending}
+            setSfFromPending={setImportSfFromPending}
+            selected={importSelected}
+            setSelected={setImportSelected}
+            fileName={importFileName}
+            setFileName={setImportFileName}
+            error={importError}
+            setError={setImportError}
+            done={importDone}
+            setDone={setImportDone}
           />
         ) : tab === "settings" ? (
           <SettingsTab
@@ -2733,7 +2762,7 @@ function SingleCategoryFilter({ value, options, setValue, isWide }) {
 // Dashboard
 // ===========================================================================
 
-function Dashboard({ transactions, money, hideValues, isWide, budgets, config, accountMap }) {
+function Dashboard({ transactions, money, hideValues, isWide, budgets, config, accountMap, sfBalances, refreshSfBalances }) {
   // Default the period to the current month.
   const [year, setYear] = useState(() => todayISO().slice(0, 4));
   const [month, setMonth] = useState(() => todayISO().slice(5, 7));
@@ -3137,7 +3166,7 @@ function Dashboard({ transactions, money, hideValues, isWide, budgets, config, a
         </>
       )}
 
-      <AccountBalancesCard money={money} hideValues={hideValues} accountTypeOverrides={config?.accountTypeOverrides} accountMap={accountMap} />
+      <AccountBalancesCard money={money} hideValues={hideValues} accountTypeOverrides={config?.accountTypeOverrides} accountMap={accountMap} sfBalances={sfBalances} refreshSfBalances={refreshSfBalances} />
 
       {/* Budgets — bullet bars for the selected month (set in Settings) */}
       {year !== "All" && month !== "All" && (
@@ -3165,27 +3194,26 @@ function Dashboard({ transactions, money, hideValues, isWide, budgets, config, a
 
 // Home tab: current balance per SimpleFin-linked account, grouped into
 // "Credit Cards" / "Checking & Savings" / "Other" using `accountTypeOverrides`
-// (from /api/config, set in Settings → "SimpleFin accounts"). Fetches
-// GET /api/simplefin-sync (cached — see loadSfBalances/readSfBalancesCache
-// above) rather than the ledger's own transactions, since a balance isn't
-// derivable from the transaction history the app stores.
-function AccountBalancesCard({ money, hideValues, accountTypeOverrides, accountMap }) {
-  const [state, setState] = useState({ status: "loading", accountBalances: [], error: null });
+// (from /api/config, set in Settings → "SimpleFin accounts"). Reads the
+// shared `sfBalances`/`refreshSfBalances` from `useSfBalances` (App level,
+// v1.59.0) instead of fetching on its own mount (v1.69.0) — this component
+// unmounts/remounts on every tab switch, and its old standalone fetch was
+// re-hitting GET /api/simplefin-sync every time the user came back to Home.
+// The manual refresh button bypasses the 5-min sessionStorage cache
+// (loadSfBalances/readSfBalancesCache above) with `{ force: true }`.
+function AccountBalancesCard({ money, hideValues, accountTypeOverrides, accountMap, sfBalances, refreshSfBalances }) {
+  const state = sfBalances;
   const [view, setView] = useState("credit"); // "credit" | "accounts"
+  const [refreshing, setRefreshing] = useState(false);
 
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      const result = await loadSfBalances();
-      if (cancelled) return;
-      if (!result.ok) {
-        setState({ status: "error", accountBalances: [], error: result.error, notConfigured: result.status === 501 });
-      } else {
-        setState({ status: "ready", accountBalances: result.accountBalances, error: null });
-      }
-    })();
-    return () => { cancelled = true; };
-  }, []);
+  const handleRefresh = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      await refreshSfBalances({ force: true });
+    } finally {
+      setRefreshing(false);
+    }
+  }, [refreshSfBalances]);
 
   const { credit, checking, other } = useMemo(() => {
     const overrides = accountTypeOverrides || {};
@@ -3301,16 +3329,27 @@ function AccountBalancesCard({ money, hideValues, accountTypeOverrides, accountM
     <div style={S.col}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
         <h3 style={{ ...S.sectionTitle, marginBottom: 0 }}>Account Balances</h3>
-        <div style={S.segmented}>
-          <button onClick={() => setView("credit")} style={S.segmentedBtn(view === "credit")}>
-            Credit Cards
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <button
+            onClick={handleRefresh}
+            disabled={refreshing}
+            title="Refresh account balances"
+            aria-label="Refresh account balances"
+            style={{ ...S.iconBtnSmall, cursor: refreshing ? "not-allowed" : "pointer", opacity: refreshing ? 0.5 : 1 }}
+          >
+            <RefreshCw size={15} />
           </button>
-          <button onClick={() => setView("accounts")} style={S.segmentedBtn(view === "accounts")}>
-            Accounts
-          </button>
+          <div style={S.segmented}>
+            <button onClick={() => setView("credit")} style={S.segmentedBtn(view === "credit")}>
+              Credit Cards
+            </button>
+            <button onClick={() => setView("accounts")} style={S.segmentedBtn(view === "accounts")}>
+              Accounts
+            </button>
+          </div>
         </div>
       </div>
-      {state.status === "loading" ? (
+      {state.status === "loading" || state.status === "idle" ? (
         <div style={{ ...S.card, textAlign: "center", color: "#8b94a3", fontSize: 14, padding: 24 }}>
           Loading account balances…
         </div>
@@ -8596,12 +8635,18 @@ function ConfirmCategoryButton({ row, onConfirm }) {
   );
 }
 
-function ImportTransactions({ onImport, accountMap, config, transactions, ckCategoryMap, categoryDescriptionRules, money, hideValues, onConfirmDuplicateMatch, onSfSynced }) {
+function ImportTransactions({
+  onImport, accountMap, config, transactions, ckCategoryMap, categoryDescriptionRules, money, hideValues, onConfirmDuplicateMatch, onSfSynced,
+  // SimpleFin sync preview state — lifted to App level (v1.60.0) so it
+  // survives switching tabs instead of resetting every time this component
+  // unmounts (Import only renders while its tab is active). See the App()
+  // declaration site for the full rationale.
+  method, setMethod, sfRows, setSfRows, sfFromPending, setSfFromPending, selected, setSelected, fileName, setFileName, error, setError, done, setDone,
+}) {
   // Three methods, in the order they're actually used now: SimpleFin
   // (on-demand/cron pull via api/simplefin-sync.js — the day-to-day path
   // since v1.56.0, so it leads and is the default), Credit Karma (CSV
   // export, auto-mapped) and CSV (manual mapping, one-time history backfill).
-  const [method, setMethod] = useState("sf");
   const profile = BANK_PROFILES.find((p) => p.id === (method === "ck" ? "credit-karma" : "generic"));
   // Every amount rendered by the preview goes through the app's privacy-eye
   // helper (the preview used to print raw usd.format, ignoring the toggle).
@@ -8613,15 +8658,12 @@ function ImportTransactions({ onImport, accountMap, config, transactions, ckCate
   const [rawRows, setRawRows] = useState([]);
   const [headers, setHeaders] = useState([]);
   const [mapping, setMapping] = useState({});
-  const [fileName, setFileName] = useState("");
   const [dragOver, setDragOver] = useState(false);
-  const [error, setError] = useState("");
-  const [done, setDone] = useState("");
 
   // SimpleFin-only state: rows come back from the endpoint already shaped
   // like a ledger row (see mapSimpleFinRows below), so they feed the same
   // preview/dedup pipeline as csvRows further down instead of a parallel one.
-  const [sfRows, setSfRows] = useState([]);
+  // (sfRows/sfFromPending themselves are now props — see above.)
   const [sfLoading, setSfLoading] = useState(false);
   // Phase 2 (daily cron, v1.49.0): the cron fetches on its own and only
   // queues transactions server-side (household:*:simplefin-pending) — it
@@ -8629,10 +8671,6 @@ function ImportTransactions({ onImport, accountMap, config, transactions, ckCate
   // surface "N pending" and let the user pull them into this same preview
   // pipeline instead of (or in addition to) a manual "Sync now".
   const [sfPendingCount, setSfPendingCount] = useState(0);
-  // True when the rows currently in the preview came from the pending queue
-  // rather than a fresh "Sync now" pull — decides whether confirm() needs to
-  // clear the server-side queue afterwards.
-  const [sfFromPending, setSfFromPending] = useState(false);
 
   const refreshSfPendingCount = async () => {
     try {
@@ -8756,7 +8794,7 @@ function ImportTransactions({ onImport, accountMap, config, transactions, ckCate
   // checked: an unchecked false positive vanishes silently from the ledger,
   // while a duplicate that slips through is visible (and bulk-deletable) in the
   // Transactions tab. Resets whenever the parsed/mapped batch changes.
-  const [selected, setSelected] = useState(() => new Set());
+  // (`selected`/`setSelected` are now props — lifted to App level, see above.)
   // Duplicate-visibility filter for the preview list only ("all" | "new" |
   // "review" | "dup"). Independent from `selected` (what actually gets imported).
   const [dupFilter, setDupFilter] = useState("all");

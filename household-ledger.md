@@ -1,4 +1,4 @@
-# Household Ledger · v1.68.0
+# Household Ledger · v1.69.0
 
 Aplicativo mobile-first de controle financeiro doméstico. Registra
 transações da casa (despesas e receitas) por categoria e conta, com
@@ -31,7 +31,31 @@ O `feature-auditor` deve conferir, como parte da checklist de auditoria, que
 o diff inclui o bump nos dois arquivos antes de aprovar — se faltar, isso é
 motivo de reprovação (devolver ao coder), não um detalhe opcional.
 
-Versão atual: **v1.68.0** — fecha a lacuna encontrada na auditoria
+Versão atual: **v1.69.0** — Home e Import agora persistem estado entre
+trocas de tab, reduzindo chamadas desnecessárias ao SimpleFin (client-side
+apenas, sem mudança de contrato de API/Redis):
+1. **`AccountBalancesCard` (Home)** — parou de ter seu próprio
+   `useState`/`useEffect` de fetch (que rodava a cada remount, ou seja, a
+   cada troca pra aba Home). Passa a receber `sfBalances`/`refreshSfBalances`
+   como props (já existiam a nível de `App()` desde a v1.59.0, alimentando
+   Settings/badge da TabBar) — agora a Home também lê desse mesmo estado
+   compartilhado, e `useSfBalances(authed)` continua sendo a única fonte de
+   fetch automático (no sign-in). Botão de refresh manual novo no header do
+   card (ícone `RefreshCw`, `S.iconBtnSmall`) chama
+   `refreshSfBalances({ force: true })`, ignorando o cache de 5 min do
+   `sessionStorage` quando o usuário pede explicitamente.
+2. **`ImportTransactions` (Import)** — o preview do fluxo SimpleFin
+   (`method`, `sfRows`, `sfFromPending`, `selected`, `fileName`, `error`,
+   `done`) subiu de `useState` local para `App()`, seguindo o mesmo padrão
+   do item 1, e é passado como props. Antes, trocar de aba durante uma
+   revisão de sync (checkboxes, correções de categoria antes de importar)
+   descartava tudo, porque o componente desmonta ao sair da aba Import. O
+   estado do CSV genérico/Credit Karma (`rawRows`/`headers`/`mapping`)
+   continua local — fora de escopo, não é o fluxo do dia a dia. `resetAll()`
+   e o clique em "Sync now" continuam substituindo/limpando o preview
+   normalmente; só a sobrevivência a trocas de aba mudou.
+
+Versão anterior: **v1.68.0** — fecha a lacuna encontrada na auditoria
 `/feature-workflow` da PR #256: linhas `categorySource === 'learned'` nunca
 revisadas na tela de Import ficavam congeladas indefinidamente — sem badge,
 sem confirmação, excluídas do treino futuro (`isMemoryTrainableRow`) para
