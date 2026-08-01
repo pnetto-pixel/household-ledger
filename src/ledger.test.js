@@ -22,6 +22,10 @@ import {
   markDuplicates,
   scoreDuplicateCandidate,
   normalizeMerchant,
+  merchantKey,
+  isMemoryTrainableRow,
+  buildMerchantMemory,
+  classifyMerchantMemory,
   resolveImportCategory,
   matchOption,
   DUP_SCORE_CERTAIN,
@@ -132,10 +136,187 @@ describe("ckCategoryToken / mapCkCategory", () => {
     expect(mapCkCategory("Anything", "TRANSFER", map)).toBe(TRANSFER_CATEGORY);
     expect(mapCkCategory("Anything", "PAYMENT", map)).toBe(TRANSFER_CATEGORY);
   });
-  it("income type maps to Other Income; unknown tokens fall back to Other", () => {
+  it("income type maps to Other Income; unknown tokens fall back to Uncategorized", () => {
     expect(mapCkCategory("Paycheck", "INCOME", {})).toBe("Other Income");
-    expect(mapCkCategory("Mystery Thing", "expense", {})).toBe("Other");
+    expect(mapCkCategory("Mystery Thing", "expense", {})).toBe("Uncategorized");
     expect(mapCkCategory("Groceries", "expense", { GROCERIES: "Groceries" })).toBe("Groceries");
+  });
+});
+
+describe("merchantKey", () => {
+  it("strips a full inlined street address (Apple Card shape)", () => {
+    expect(merchantKey("ULTA #1499 1019 W UNIVERSITY AVE GEORG").key).toBe("ULTA");
+    expect(merchantKey("CIRCLE K # 41554 3100 N AW GRIMES BLVD").key).toBe("CIRCLE K");
+  });
+
+  it("strips an aggregator prefix and reports it separately", () => {
+    const r = merchantKey("DD *DOORDASH THEGREATG");
+    expect(r.key).toBe("DOORDASH THEGREATG");
+    expect(r.prefix).toBe("DD");
+
+    const r2 = merchantKey("TST* SONGBIRD  MEANWHILE");
+    expect(r2.key).toBe("SONGBIRD MEANWHILE");
+    expect(r2.prefix).toBe("TST");
+  });
+
+  it("distinguishes a sub-merchant that a coarser key would merge", () => {
+    // Both start "H-E-B", but the FULL key must stay distinct — only a
+    // caller deliberately truncating to a coarse token count should merge
+    // them (see the merchant-memory tiered backoff this feeds).
+    const heb = merchantKey("H-E-B ONLINE #108");
+    const hebGas = merchantKey("H-E-B GAS/CAR WASH#591");
+    expect(heb.key).not.toBe(hebGas.key);
+    expect(heb.tokens.slice(0, 2).join(" ")).toBe(hebGas.tokens.slice(0, 2).join(" "));
+  });
+
+  it("strips store numbers, phone numbers, and a trailing state code", () => {
+    expect(merchantKey("STARBUCKS #4821").key).toBe("STARBUCKS");
+    expect(merchantKey("STARBUCKS 8007827282").key).toBe("STARBUCKS");
+    // Only the trailing 2-letter code is state-code-stripped — "SEATTLE" is
+    // a real word, not a code, so it survives in the full key. A caller
+    // truncating to the first 2 tokens (the merchant-memory tiered backoff)
+    // still gets the comparable "AMAZON MARKETPLACE" bucket.
+    const r = merchantKey("AMAZON MARKETPLACE SEATTLE WA");
+    expect(r.key).toBe("AMAZON MARKETPLACE SEATTLE");
+    expect(r.tokens.slice(0, 2).join(" ")).toBe("AMAZON MARKETPLACE");
+  });
+
+  it("keeps a merchant name that itself starts with a number/directional", () => {
+    expect(merchantKey("0009P - PARKINGCOM").key).toBe("0009P PARKINGCOM");
+  });
+
+  it("handles empty/missing input", () => {
+    expect(merchantKey("")).toEqual({ key: "", tokens: [], prefix: "" });
+    expect(merchantKey(null)).toEqual({ key: "", tokens: [], prefix: "" });
+  });
+});
+
+describe("isMemoryTrainableRow", () => {
+  it("accepts a row with a real, non-Transfer category", () => {
+    expect(isMemoryTrainableRow({ category: "Groceries" })).toBe(true);
+  });
+
+  it("rejects Uncategorized (no signal) and Transfer (structural, not merchant-driven)", () => {
+    expect(isMemoryTrainableRow({ category: "Uncategorized" })).toBe(false);
+    expect(isMemoryTrainableRow({ category: TRANSFER_CATEGORY })).toBe(false);
+    expect(isMemoryTrainableRow({ category: "" })).toBe(false);
+  });
+
+  it("rejects the memory's own past guesses, to avoid a feedback loop", () => {
+    expect(isMemoryTrainableRow({ category: "Groceries", categorySource: "learned" })).toBe(false);
+    // A rule-classified or manually-corrected row IS trainable — only
+    // 'learned' itself is excluded.
+    expect(isMemoryTrainableRow({ category: "Groceries", categorySource: "rule" })).toBe(true);
+    expect(isMemoryTrainableRow({ category: "Groceries", categoryManual: true })).toBe(true);
+  });
+
+  it("rejects a missing/null row", () => {
+    expect(isMemoryTrainableRow(null)).toBe(false);
+    expect(isMemoryTrainableRow(undefined)).toBe(false);
+  });
+});
+
+describe("buildMerchantMemory / classifyMerchantMemory", () => {
+  it("returns null for a merchant with no history (genuine cold start)", () => {
+    // A DIFFERENT account than the trained data, and no account at all —
+    // otherwise the coarsest "account" prior layer (tier 6) legitimately
+    // fires on shared account history, which is by-design, not a cold start.
+    const memory = buildMerchantMemory([{ description: "STARBUCKS #1", account: "Apple", category: "Restaurant" }]);
+    expect(classifyMerchantMemory({ description: "TOTALLY NEW MERCHANT", account: "Venture X" }, memory)).toBe(null);
+    expect(classifyMerchantMemory({ description: "TOTALLY NEW MERCHANT", account: "" }, memory)).toBe(null);
+  });
+
+  it("the coarse 'account' layer IS allowed to fire as a last resort when nothing more specific matches", () => {
+    // Same account, unrelated merchant: no full/m2/m1 history for "TOTALLY
+    // NEW MERCHANT", but the account itself has a lean — that's the tier-6
+    // prior working as designed (e.g. "Chase Preferred is 94% Restaurant"),
+    // not noise.
+    const memory = buildMerchantMemory([
+      { description: "STARBUCKS #1", account: "Apple", category: "Restaurant" },
+    ]);
+    const guess = classifyMerchantMemory({ description: "TOTALLY NEW MERCHANT", account: "Apple" }, memory);
+    expect(guess.category).toBe("Restaurant");
+    expect(guess.layer).toBe("account");
+    expect(guess.confidence).toBeLessThan(0.3); // weight 0.30 ceiling, discounted further by thin support
+  });
+
+  it("classifies a repeated merchant with full confidence when the history is unanimous", () => {
+    const rows = [
+      { description: "STARBUCKS #4821", account: "Apple", category: "Restaurant" },
+      { description: "STARBUCKS #9012", account: "Apple", category: "Restaurant" },
+      { description: "STARBUCKS #1234", account: "Apple", category: "Restaurant" },
+    ];
+    const memory = buildMerchantMemory(rows);
+    const guess = classifyMerchantMemory({ description: "STARBUCKS #7777", account: "Apple" }, memory);
+    expect(guess.category).toBe("Restaurant");
+    expect(guess.confidence).toBeGreaterThan(0.9); // account+full layer, 3/3 unanimous, weight 1.00
+  });
+
+  it("prefers the most specific layer that has history (account+full over coarser m2)", () => {
+    const rows = [
+      // "H-E-B" full/account+full history says Groceries...
+      { description: "H-E-B #591", account: "Chase Reserve", category: "Groceries" },
+      { description: "H-E-B #591", account: "Chase Reserve", category: "Groceries" },
+      { description: "H-E-B #591", account: "Chase Reserve", category: "Groceries" },
+      // ...but the 2-token merchant key "H E" (shared with the gas pump SKU)
+      // is dominated by Fuel — a naive coarse-only classifier would guess
+      // Fuel here; the tiered lookup must not let that outvote the exact
+      // "H-E-B #591" account+full match.
+      { description: "H-E-B GAS/CAR WASH#1", account: "Chase Reserve", category: "Fuel" },
+      { description: "H-E-B GAS/CAR WASH#2", account: "Chase Reserve", category: "Fuel" },
+      { description: "H-E-B GAS/CAR WASH#3", account: "Chase Reserve", category: "Fuel" },
+      { description: "H-E-B GAS/CAR WASH#4", account: "Chase Reserve", category: "Fuel" },
+    ];
+    const memory = buildMerchantMemory(rows);
+    const guess = classifyMerchantMemory({ description: "H-E-B #591", account: "Chase Reserve" }, memory);
+    expect(guess.category).toBe("Groceries");
+    expect(guess.layer).toBe("account+full");
+  });
+
+  it("discounts confidence for thin evidence (a single sighting) vs. a repeated one", () => {
+    const oneOff = buildMerchantMemory([{ description: "RARE SHOP", account: "Apple", category: "Shopping" }]);
+    const repeated = buildMerchantMemory([
+      { description: "COMMON SHOP", account: "Apple", category: "Shopping" },
+      { description: "COMMON SHOP", account: "Apple", category: "Shopping" },
+      { description: "COMMON SHOP", account: "Apple", category: "Shopping" },
+    ]);
+    const g1 = classifyMerchantMemory({ description: "RARE SHOP", account: "Apple" }, oneOff);
+    const g2 = classifyMerchantMemory({ description: "COMMON SHOP", account: "Apple" }, repeated);
+    expect(g1.confidence).toBeLessThan(g2.confidence);
+  });
+
+  it("discounts confidence when a layer's history is mixed (impure)", () => {
+    const memory = buildMerchantMemory([
+      { description: "ZELLE PAYMENT to Jane", account: "Chase", category: "Groceries" },
+      { description: "ZELLE PAYMENT to Bob", account: "Chase", category: "Home" },
+      { description: "ZELLE PAYMENT to Sam", account: "Chase", category: "Entertainment" },
+    ]);
+    // "ZELLE" (1-token key) is the only layer with any history here (each
+    // full description is unique) — three-way split, so purity is low.
+    const guess = classifyMerchantMemory({ description: "ZELLE PAYMENT to New Person", account: "Chase" }, memory);
+    expect(guess.confidence).toBeLessThan(0.5);
+  });
+
+  it("never trains on Transfer — a merchant that's always Transfer has no memory entry", () => {
+    const memory = buildMerchantMemory([
+      { description: "JPMORGAN CHASE AUTO", account: "SoFi", category: TRANSFER_CATEGORY },
+      { description: "JPMORGAN CHASE AUTO", account: "SoFi", category: TRANSFER_CATEGORY },
+    ]);
+    expect(classifyMerchantMemory({ description: "JPMORGAN CHASE AUTO", account: "SoFi" }, memory)).toBe(null);
+  });
+
+  it("never trains on Uncategorized or on the memory's own past 'learned' guesses", () => {
+    const memory = buildMerchantMemory([
+      { description: "MYSTERY MERCHANT", account: "Apple", category: "Uncategorized" },
+      { description: "OTHER MERCHANT", account: "Apple", category: "Shopping", categorySource: "learned" },
+    ]);
+    expect(classifyMerchantMemory({ description: "MYSTERY MERCHANT", account: "Apple" }, memory)).toBe(null);
+    expect(classifyMerchantMemory({ description: "OTHER MERCHANT", account: "Apple" }, memory)).toBe(null);
+  });
+
+  it("classifyMerchantMemory returns null when memory is missing", () => {
+    expect(classifyMerchantMemory({ description: "ANYTHING", account: "Apple" }, null)).toBe(null);
+    expect(classifyMerchantMemory({ description: "ANYTHING", account: "Apple" }, undefined)).toBe(null);
   });
 });
 
@@ -601,11 +782,12 @@ describe("markDuplicates — _dupNearMiss (diagnostics for rows that stay \"new\
 });
 
 describe("resolveImportCategory", () => {
-  const CATS = ["Groceries", "Restaurant", "Other", "Shopping", TRANSFER_CATEGORY, "Other Income"];
-  const ctx = (rules, map) => ({
+  const CATS = ["Groceries", "Restaurant", "Other", "Shopping", TRANSFER_CATEGORY, "Other Income", "Uncategorized"];
+  const ctx = (rules, map, merchantMemory) => ({
     categories: CATS,
     ckCategoryMap: map || { GROCERIES: "Groceries" },
     descriptionRules: rules || [],
+    merchantMemory,
   });
 
   it("matchOption resolves case-insensitively and falls back", () => {
@@ -658,10 +840,91 @@ describe("resolveImportCategory", () => {
       ctx(rules)
     );
     expect(out.category).toBe("Restaurant");
+    expect(out.categorySource).toBe("rule");
+    expect(out.categoryConfidence).toBe(1);
+    expect(out.categoryReason).toContain("starbucks");
   });
 
-  it("falls back to Other when nothing classifies the row", () => {
-    expect(resolveImportCategory({ description: "Mystery", category: "" }, ctx()).category).toBe("Other");
+  it("falls back to Uncategorized when nothing classifies the row", () => {
+    const out = resolveImportCategory({ description: "Mystery", category: "" }, ctx());
+    expect(out.category).toBe("Uncategorized");
+    expect(out.categorySource).toBe("none");
+    expect(out.categoryConfidence).toBe(0);
+    expect(out.categoryReason).toBe("");
+  });
+
+  it("categorySource stays 'none' when a rule matches but the Transfer safety net vetoes it", () => {
+    // (b) above already proves the category itself stays Transfer; this
+    // proves the provenance fields don't misreport the rule as the winner.
+    const rules = [{ matchField: "description", pattern: "zelle", destinationCategory: "Shopping" }];
+    const out = resolveImportCategory(
+      { description: "ZELLE PAYMENT", category: TRANSFER_CATEGORY, srcAccount: "Chase" },
+      ctx(rules)
+    );
+    expect(out.categorySource).toBe("none");
+    expect(out.categoryConfidence).toBe(0);
+  });
+
+  it("(e) a SimpleFin-shaped row with no matching rule is classified by merchant memory", () => {
+    const memory = buildMerchantMemory([
+      { description: "SQ *INSTILL COFFEE CO", account: "Chase Reserve", category: "Restaurant" },
+      { description: "SQ *INSTILL COFFEE CO", account: "Chase Reserve", category: "Restaurant" },
+      { description: "SQ *INSTILL COFFEE CO", account: "Chase Reserve", category: "Restaurant" },
+    ]);
+    const out = resolveImportCategory(
+      { description: "SQ *INSTILL COFFEE CO", category: "Uncategorized", account: "Chase Reserve" },
+      ctx([], null, memory)
+    );
+    expect(out.category).toBe("Restaurant");
+    expect(out.categorySource).toBe("learned");
+    expect(out.categoryConfidence).toBeGreaterThan(0);
+    expect(out.categoryReason).toContain("Aprendido");
+  });
+
+  it("a description rule still wins over a memory guess for the same row", () => {
+    const memory = buildMerchantMemory([
+      { description: "SQ *INSTILL COFFEE CO", account: "Chase Reserve", category: "Restaurant" },
+      { description: "SQ *INSTILL COFFEE CO", account: "Chase Reserve", category: "Restaurant" },
+    ]);
+    const rules = [{ matchField: "description", pattern: "instill", destinationCategory: "Groceries" }];
+    const out = resolveImportCategory(
+      { description: "SQ *INSTILL COFFEE CO", category: "Uncategorized", account: "Chase Reserve" },
+      ctx(rules, null, memory)
+    );
+    expect(out.category).toBe("Groceries");
+    expect(out.categorySource).toBe("rule");
+  });
+
+  it("a real source category is never second-guessed by memory (memory only fills a real gap)", () => {
+    // Memory would confidently say "Restaurant" here, but the row already
+    // carries a real (non-Uncategorized) source category — that must win.
+    const memory = buildMerchantMemory([
+      { description: "STARBUCKS #1", account: "Apple", category: "Restaurant" },
+      { description: "STARBUCKS #2", account: "Apple", category: "Restaurant" },
+    ]);
+    const out = resolveImportCategory(
+      { description: "STARBUCKS #3", category: "Shopping", account: "Apple" },
+      ctx([], null, memory)
+    );
+    expect(out.category).toBe("Shopping");
+    expect(out.categorySource).toBe("none");
+  });
+
+  it("memory can never de-transfer a row — the Transfer safety net applies to it exactly like a rule", () => {
+    // Memory is never even trained on Transfer rows (see buildMerchantMemory
+    // tests), but this locks in the OTHER half: even if a memory guess for a
+    // DIFFERENT category existed for this key, a row whose own source
+    // category is already Transfer must stay Transfer.
+    const memory = buildMerchantMemory([
+      { description: "JPMORGAN CHASE AUTO", account: "SoFi", category: "Car" },
+      { description: "JPMORGAN CHASE AUTO", account: "SoFi", category: "Car" },
+    ]);
+    const out = resolveImportCategory(
+      { description: "JPMORGAN CHASE AUTO", category: TRANSFER_CATEGORY, account: "SoFi" },
+      ctx([], null, memory)
+    );
+    expect(out.category).toBe(TRANSFER_CATEGORY);
+    expect(out.categorySource).toBe("none");
   });
 });
 

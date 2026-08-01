@@ -1,4 +1,4 @@
-# Household Ledger · v1.64.6
+# Household Ledger · v1.68.0
 
 Aplicativo mobile-first de controle financeiro doméstico. Registra
 transações da casa (despesas e receitas) por categoria e conta, com
@@ -31,7 +31,181 @@ O `feature-auditor` deve conferir, como parte da checklist de auditoria, que
 o diff inclui o bump nos dois arquivos antes de aprovar — se faltar, isso é
 motivo de reprovação (devolver ao coder), não um detalhe opcional.
 
-Versão atual: **v1.64.6** — Home's `AccountBalancesCard` (`src/App.jsx`)
+Versão atual: **v1.68.0** — fecha a lacuna encontrada na auditoria
+`/feature-workflow` da PR #256: linhas `categorySource === 'learned'` nunca
+revisadas na tela de Import ficavam congeladas indefinidamente — sem badge,
+sem confirmação, excluídas do treino futuro (`isMemoryTrainableRow`) para
+sempre, sem nenhuma outra forma de promovê-las. Reaproveita `CategoryBadge`/
+`ConfirmCategoryButton` (Fase 2) fora do Import:
+1. **`TxnTable`/`TxnAuditCard`** (`src/App.jsx`, aba Transactions) — badge
+   por linha e botão "✓" ao lado do seletor de categoria, idêntico ao do
+   Import. Novo prop `onConfirmLearned` encadeado de `Transactions` até os
+   dois componentes de linha (desktop e mobile).
+2. **`confirmLearned(id)`** (novo, em `Transactions`) — promove uma linha
+   `categorySource === 'learned'` para `'confirmed'` via `onUpdate`, sem
+   alterar a categoria. **`learnedCount`/`confirmAllVisibleLearned`**
+   (novos) — contador "N aprendidos" + confirmação em massa respeitando os
+   filtros atuais (`filtered`, não só a janela lazy-loaded `visible`) —
+   mesmo padrão dos outros botões de ação em massa já existentes na aba.
+   Posicionados na barra de filtros, ao lado de "Clear filters"/"Clear
+   selection".
+3. **`handleInlineChange`** (novo, substitui a arrow function inline que
+   existia em `onInlineChange`) — corrige o mesmo bug latente já corrigido
+   na Fase 2 do Import (`setCategoryOverride`): trocar a categoria pelo
+   dropdown inline da tabela/card agora limpa `categorySource`/
+   `categoryConfidence`/`categoryReason` obsoletos, para que
+   `isMemoryTrainableRow` não continue excluindo do treino uma correção
+   humana genuína achando que ainda é um palpite não revisado.
+4. **`EditModal.submit`** — mesma correção de limpeza de proveniência ao
+   trocar a categoria pelo formulário de edição. Além disso, um aviso
+   informativo (somente leitura, sem botão de confirmar dentro do modal de
+   propósito — o "✓" já existe na linha da lista, sem precisar abrir o
+   modal) mostra o badge + "categoria sugerida pela memória — confirme ou
+   corrija na lista de transações" quando `txn.categorySource === "learned"`.
+5. Validado com Playwright contra um dev server real (mesma metodologia da
+   Fase 2): badge/confirmação individual/confirmação em massa/edição manual
+   limpando o badge/hint no EditModal — todos conferidos com persistência
+   real via PUT `/api/transactions` mockado (`categorySource: "confirmed"`
+   de fato chega no payload salvo), em desktop e mobile.
+
+Versão anterior: **v1.67.0** — Fase 2 da classificação automática de categorias:
+finalmente visível na tela de Import (`ImportTransactions`, `src/App.jsx`) —
+a memória da Fase 1 passa a aparecer, ser revisável e ensinável.
+1. **Etiqueta por linha** (`CategoryBadge`, nova) ao lado do seletor de
+   categoria: `regra` (azul) quando uma Description Rule decidiu, `aprendido
+   XX%` (verde ≥70%, amarelo ≥40%, vermelho abaixo disso) quando a memória
+   decidiu, `confirmado` (verde) depois que o usuário valida um palpite, e um
+   `?` (cinza) quando nada classificou a linha. Sem etiqueta quando a
+   categoria já veio pronta da própria fonte (CSV/CK) — não é um palpite,
+   não precisa de marcação. Tooltip mostra `categoryReason`.
+2. **Botão "✓" por linha** (`ConfirmCategoryButton`, nova), visível só em
+   linhas `categorySource === 'learned'` — confirma que o palpite está
+   certo, promovendo `categorySource` para `'confirmed'` (sem alterar a
+   categoria em si). Isso é o que fecha o ciclo de aprendizado: uma linha
+   `'learned'` é excluída do treino futuro por design (evita loop de
+   reforço — ver Fase 1), mas `'confirmed'` já não é `'learned'`, então
+   passa a ensinar a memória no próximo import. Some sozinho quando a linha
+   deixa de ser `'learned'` (confirmada, ou recategorizada manualmente).
+3. **Ordenação "Revisar primeiro"** — toggle ao lado do filtro de duplicatas
+   existente, alternando entre a ordem por data (padrão, inalterado) e por
+   `categoryReviewConfidence` crescente (nova): linhas menos confiáveis
+   sobem ao topo. Regra/confirmado/categoria real da fonte contam como
+   confiança máxima; só um palpite da memória (pela própria confiança) ou
+   uma linha genuinamente sem classificação (`Uncategorized`) rendem
+   embaixo — só aparece quando há pelo menos uma linha `'learned'` visível
+   (mesmo padrão de "só mostrar quando relevante" do filtro de duplicatas).
+4. **"Confirmar todos os aprendidos visíveis"** — botão de ação em massa que
+   confirma toda linha `'learned'` atualmente visível no preview filtrado
+   (respeitando os filtros de conta/categoria/data já aplicados).
+5. **Correção de um bug latente da Fase 0**: `setCategoryOverride` (a troca
+   manual de categoria no preview, existente desde antes deste projeto) não
+   limpava `categorySource`/`categoryConfidence`/`categoryReason` da linha —
+   uma correção manual sobre um palpite `'learned'` deixava esses campos
+   obsoletos, e `isMemoryTrainableRow` (Fase 1) excluiria essa linha do
+   treino por engano (achando que ainda era um palpite não revisado, quando
+   na verdade é uma correção humana genuína — o tipo de dado mais valioso
+   pra treinar). Corrigido para limpar os três campos em toda troca manual.
+6. Validado com Playwright contra um servidor de desenvolvimento real
+   (dados mockados: histórico de treino + sync SimpleFin simulado) — badge,
+   ordenação, confirmação individual, confirmação em massa, limpeza de
+   badge ao editar manualmente, e o layout mobile (quebra de linha do
+   badge/botão) todos conferidos rodando de verdade no navegador, não só em
+   teste unitário.
+
+Versão anterior: **v1.66.0** — Fase 1 da classificação automática de categorias:
+a memória de comerciante, construída em cima da fundação da Fase 0.
+1. `buildMerchantMemory(transactions)` (`src/ledger.js`, nova) — varre o
+   ledger inteiro e monta 6 mapas em camadas (`conta+descrição completa`,
+   `descrição completa`, `conta+2 tokens`, `2 tokens`, `1 token`, `conta`
+   sozinha como prior), cada um `chave → contagem por categoria`. Só treina
+   com linhas "confiáveis" (`isMemoryTrainableRow`, nova): exclui
+   `Uncategorized` (sem sinal), `Transfer` (estrutural — conta de origem/
+   destino, não tipo de comerciante; mesma razão pela qual uma regra de
+   descrição nunca pode ter `destinationCategory: Transfer`) e qualquer linha
+   cujo `categorySource === 'learned'` (nunca treina com os próprios palpites
+   — evita um loop de reforço onde um erro se perpetua a cada import sem
+   correção humana). Como o `categoryManual` desta household cobre só ~0.8%
+   do ledger, o bootstrap é o histórico inteiro sem essa flag — decisão
+   discutida e aceita com o usuário.
+2. `classifyMerchantMemory(row, memory)` (`src/ledger.js`, nova) — testa as 6
+   camadas da mais específica pra mais genérica; a PRIMEIRA com histórico
+   pra sua chave vence (sem votação entre camadas, pra uma correspondência
+   específica nunca ser diluída por ruído de uma camada mais grosseira).
+   `confidence = peso_da_camada × pureza × (0,5 + 0,5 × min(1, suporte/3))`.
+   Sempre retorna o melhor palpite disponível, por menor que seja a
+   confiança — Fase 1 aplica tudo automaticamente (decisão do usuário: revisa
+   no import de qualquer forma); o corte de aceitar/rejeitar por confiança
+   fica pra uma fase de UI futura. Retorna `null` só em cold-start genuíno
+   (nenhuma camada tem qualquer histórico).
+3. `resolveImportCategory` (`src/ledger.js`) ganha um novo degrau 2.5 na
+   precedência: quando nem regra nem categoria da própria fonte (CSV/CK)
+   produzem uma resposta real (`recomputed === "Uncategorized"`), a memória
+   tenta antes do fallback final. Nunca sobrepõe uma categoria real que a
+   fonte já forneceu (CSV/CK continuam mais autoritativos que um palpite),
+   nunca vence uma regra, e nunca desfaz a rede de segurança de Transfer
+   (mesma trava que já protegia contra regras). Quando a memória decide,
+   `categorySource` passa a valer `'learned'` com a confiança/motivo do
+   `classifyMerchantMemory`. `ctx.merchantMemory` é o novo campo opcional que
+   carrega essa memória pré-construída.
+4. `ImportTransactions` (`src/App.jsx`) constrói a memória uma vez por
+   `useMemo(() => buildMerchantMemory(transactions), [transactions])` —
+   componente só monta na aba Import, então isso não roda a cada tecla
+   digitada em outro lugar do app — e passa pra `buildRow`/
+   `classifySimpleFinRows`, que por sua vez passam pra `resolveImportCategory`
+   via `ctx.merchantMemory`. Sem essa memoização, o classificador recalcularia
+   a memória do zero pra CADA linha de um lote importado.
+   `merchantKey(description)` (Fase 0) é computado UMA vez por linha dentro
+   de `buildMerchantMemory`/`classifyMerchantMemory` e reaproveitado pelas 4
+   camadas que dependem dele — chamá-lo por camada era um desperdício de
+   4-5x medido (~250ms → ~117ms varrendo um ledger real de ~11,5 mil linhas).
+   Validado contra o histórico real da própria household (split cronológico
+   treino/teste): ~62% das linhas classificadas automaticamente com ~91% de
+   precisão no corte de confiança 0,5; ~42% a ~98% de precisão no corte 0,9 —
+   consistente com as estimativas discutidas com o usuário antes da
+   implementação.
+
+Versão anterior: **v1.65.0** — Fase 0 da classificação automática de categorias
+(fundação — nenhuma mudança visível ainda; o plano completo, debatido com o
+usuário, cobre normalizador de comerciante, memória de aprendizado,
+confiança/etiqueta na UI e confirmação manual como próximas fases):
+1. Nova função pura `merchantKey(description)` (`src/ledger.js`) — reduz uma
+   descrição bruta a uma chave de comerciante comparável: corta endereço
+   completo inline (formato Apple Card: "CIRCLE K # 41554 3100 N AW GRIMES
+   BLVD" → "CIRCLE K"), separa prefixo de agregador de pagamento ("TST*",
+   "DD *") em campo próprio, remove telefone/número de loja/sigla de estado
+   final. Retorna `{ key, tokens, prefix }` — `tokens` existe pra quem chamar
+   truncar em N palavras (base da memória de comerciante da Fase 1, ainda não
+   implementada). Testada em `src/ledger.test.js` com os formatos reais do
+   SimpleFin/Apple Card/agregadores de delivery.
+2. `resolveImportCategory` (`src/ledger.js`) passa a retornar também
+   `categorySource`/`categoryConfidence`/`categoryReason` — hoje só dois
+   valores possíveis: `'rule'` (confiança 1) quando uma regra de descrição
+   efetivamente decidiu a categoria FINAL (checado contra o resultado, não
+   contra "uma regra bateu" — a rede de segurança de Transfer pode vetar uma
+   regra vencedora sem `allowTransferOverride`), ou `'none'` (confiança 0)
+   pro resto. `buildRow` e `classifySimpleFinRows` (`src/App.jsx`) gravam
+   esses três campos na linha só quando `categorySource !== 'none'` —
+   aditivo, não infla toda linha com "nada a dizer ainda". Nunca grava
+   `'manual'` aqui — isso continua exclusivo dos fluxos de edição do usuário
+   (`categoryManual`), que não passam por esta função.
+3. Nova categoria `Uncategorized`, que substitui `Other` como fallback de
+   "nada classificou esta linha" em três pontos: `resolveImportCategory` e
+   `mapCkCategory` (`src/ledger.js`), e `DEFAULT_CATEGORY` (`lib/simplefin.js`
+   — crítico corrigir aqui também, já que esse placeholder alimenta
+   `resolveImportCategory` como se fosse a categoria da própria fonte; deixá-lo
+   em `"Other"` faria `matchOption` casar como categoria legítima e todo
+   lançamento SimpleFin não classificado cairia silenciosamente em "Other" em
+   vez de sinalizar como não-classificado). `Other` continua existindo,
+   inalterado, como categoria normal e selecionável manualmente — linhas
+   antigas nela não mudam; só o alvo do fallback automático mudou.
+   `applyConfig` (`src/App.jsx`) garante `Uncategorized` sempre presente em
+   `EXPENSE_CATEGORIES` mesmo para households com config já salva no Redis
+   (mesmo padrão de guarantee já usado para `"Other Income"`).
+   `detectOtherDescriptionFragments` (painel "Suggested rules", Grupo D)
+   passa a olhar `Other` E `Uncategorized` juntos, pra não perder cobertura
+   silenciosamente com a troca do fallback.
+
+Versão anterior: **v1.64.6** — Home's `AccountBalancesCard` (`src/App.jsx`)
 removed the per-group subtitle (e.g. "Credit Cards" / "Checking & Savings" /
 "Other") that used to render above each group's row list (`renderGroup`'s
 `<h3 style={S.sectionTitle}>`), keeping only the card's overall "Account
@@ -4810,3 +4984,55 @@ riscos reais de perda de dados.
   gráficos. Padrão de "deferred mount via double rAF" documentado na seção
   UI/Home (item 1, `DailyPaceCard`) para reaproveitar caso o mesmo sintoma
   apareça em outro card com `ResponsiveContainer`.
+- [x] **Classificação automática de categorias por memória de comerciante**
+  (PR #256, branch `claude/simplefin-transaction-classification-luezyx`, 3
+  commits/fases na mesma PR, v1.65.0 → v1.66.0 → v1.67.0) — pipeline de
+  aprendizado que reduz a fração de importações caindo em "não
+  classificado", complementar às regras manuais (Description rules, Fase 5)
+  e ao mapa CK→ledger, sem substituir nenhum dos dois. **Fase 0** (SHA
+  `16bfdf6`, v1.65.0): nova função pura `merchantKey(description)`
+  (`src/ledger.js`) normaliza a descrição bruta numa chave de comerciante
+  comparável (corta endereço inline formato Apple Card, separa prefixo de
+  agregador tipo "TST*"/"DD *", remove telefone/número de loja/UF final),
+  retornando `{ key, tokens, prefix }`; `resolveImportCategory` passa a
+  retornar também `categorySource`/`categoryConfidence`/`categoryReason`
+  (campos novos, opcionais e aditivos na transação). Nova categoria
+  `Uncategorized` substitui `"Other"` como fallback de "nada classificou
+  esta linha" em `resolveImportCategory`/`mapCkCategory` (`src/ledger.js`) e
+  `DEFAULT_CATEGORY` (`lib/simplefin.js`); `Other` continua existindo
+  intocada como categoria manual normal, selecionável como sempre. **Fase 1**
+  (SHA `794a494`, v1.66.0): `buildMerchantMemory(transactions)` (nova) varre
+  o ledger inteiro e monta 6 camadas de confiança decrescente (conta+
+  descrição completa → descrição completa → conta+2 tokens → 2 tokens → 1
+  token → conta sozinha como prior), treinando só com linhas confiáveis
+  (`isMemoryTrainableRow`, nova — exclui `Uncategorized`, `Transfer` e
+  linhas já `categorySource === 'learned'`, pra não treinar com os próprios
+  palpites e criar loop de reforço); `classifyMerchantMemory` testa as
+  camadas da mais específica pra mais genérica, `confidence = peso_da_camada
+  × pureza × suporte`. `resolveImportCategory` ganha um novo degrau de
+  precedência entre regra/categoria da própria fonte e o fallback final —
+  nunca sobrepõe nem regra nem categoria real da fonte, nunca desfaz o
+  safety-net de Transfer (PR #111). Validado contra o histórico real da
+  household: ~62% das linhas auto-classificadas a ~91% de precisão no corte
+  de confiança 0,5, ~42% a ~98% no corte 0,9. **Fase 2** (SHA `f4059f5`,
+  v1.67.0): a memória fica visível e revisável na tela de Import —
+  `CategoryBadge` (nova) etiqueta cada linha (`regra`/`aprendido XX%`/
+  `confirmado`/`?`), `ConfirmCategoryButton` (nova) promove uma linha
+  `'learned'` pra `'confirmed'` (fecha o ciclo de treino sem alterar a
+  categoria), toggle de ordenação "Revisar primeiro" (por
+  `categoryReviewConfidence` crescente) e botão de confirmação em massa
+  respeitando os filtros já aplicados no preview; corrigido de brinde um bug
+  latente da Fase 0 em que `setCategoryOverride` não limpava os campos de
+  classificação obsoletos ao corrigir manualmente uma linha, o que excluía
+  correções humanas genuínas do treino por engano. 125 testes unitários
+  novos/passando, build de produção ok, teste manual real via Playwright
+  (badge/ordenação/confirmação individual/confirmação em massa/limpeza de
+  badge ao editar manualmente/layout mobile). Ver "Versão atual"/"Versão
+  anterior" no topo deste documento para o detalhamento completo por fase.
+  - [ ] **Fase 4 futura — classificação por LLM** para o que sobrar sem
+    classificação, só depois de um período real de uso da memória —
+    decisão explícita do usuário de aguardar; ainda não iniciada.
+  - [x] **Linhas `'learned'` nunca revisadas no import ficam congeladas
+    indefinidamente** — resolvido em v1.68.0 (ver "Versão atual" no topo
+    deste documento): `TxnTable`/`TxnAuditCard`/`EditModal` agora leem
+    `categorySource` e oferecem o mesmo badge/confirmação do Import.

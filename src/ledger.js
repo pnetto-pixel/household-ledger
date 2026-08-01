@@ -107,9 +107,10 @@ export function ckCategoryToken(name) {
 
 // Pure re-implementation of the exporters' `mapCat`/`mapCategory`: Transfer/
 // Payment checked first (excluded from all ledger totals), then Income, then
-// the table lookup with an "Other" fallback. `mapObj` is a parameter (not the
-// live CK_CATEGORY_MAP) so the audit UI can preview a draft mapping before
-// saving.
+// the table lookup with an "Uncategorized" fallback — a "we don't know yet"
+// gap, distinct from "Other" (which stays a normal, user-pickable category;
+// see resolveImportCategory below). `mapObj` is a parameter (not the live
+// CK_CATEGORY_MAP) so the audit UI can preview a draft mapping before saving.
 export function mapCkCategory(ckCategoryRaw, ckType, mapObj) {
   const token = ckCategoryToken(ckCategoryRaw);
   const ty = String(ckType || "").toUpperCase();
@@ -121,7 +122,7 @@ export function mapCkCategory(ckCategoryRaw, ckType, mapObj) {
     return TRANSFER_CATEGORY;
   }
   if (ty === "INCOME") return "Other Income";
-  return (mapObj && mapObj[token]) || "Other";
+  return (mapObj && mapObj[token]) || "Uncategorized";
 }
 
 // ---------------------------------------------------------------------------
@@ -198,6 +199,259 @@ export function matchOption(value, options, fallback) {
 }
 
 // ---------------------------------------------------------------------------
+// Merchant key normalization
+// ---------------------------------------------------------------------------
+
+// US state postal codes and street-suffix words — used only to spot where a
+// street address starts in a raw description, so it can be cut off. NOT an
+// exhaustive geography/address parser; good enough to recognize the pattern
+// every source that inlines a full merchant address into `description`
+// actually uses ("<number> <street-suffix>...", e.g. Apple Card's "3100 N AW
+// GRIMES BLVD").
+const US_STATE_CODES = new Set([
+  "AL", "AK", "AZ", "AR", "CA", "CO", "CT", "DE", "FL", "GA", "HI", "ID",
+  "IL", "IN", "IA", "KS", "KY", "LA", "ME", "MD", "MA", "MI", "MN", "MS",
+  "MO", "MT", "NE", "NV", "NH", "NJ", "NM", "NY", "NC", "ND", "OH", "OK",
+  "OR", "PA", "RI", "SC", "SD", "TN", "TX", "UT", "VT", "VA", "WA", "WV",
+  "WI", "WY", "DC",
+]);
+const STREET_SUFFIXES = new Set([
+  "AVE", "AVENUE", "ST", "STREET", "RD", "ROAD", "BLVD", "DR", "DRIVE",
+  "LN", "LANE", "PKWY", "PARKWAY", "HWY", "HIGHWAY", "SUITE", "STE", "CIR",
+  "CT", "TRL", "WAY", "N", "S", "E", "W", "NE", "NW", "SE", "SW",
+]);
+
+// Payment-aggregator prefix a source tacks in front of the real merchant name
+// ("TST* SONGBIRD", "DD *DOORDASH THEGREATG", "IFD*FAMILIA SALATINO"). Generic
+// on purpose (any 2-8 letter code followed by asterisk(s)) rather than an
+// enumerated list — a fixed list of known aggregators (the narrower
+// `MERCHANT_PREFIXES` above, tuned for the duplicate-scorer's fuzzier Jaccard
+// match) silently misses new ones and merges nothing, which is a much
+// smaller problem for that consumer than it is here: every uncaught prefix
+// keeps its own restaurant/service from ever accumulating enough history to
+// be recognized as one merchant.
+const AGGREGATOR_PREFIX_RE = /^([A-Z]{2,8})\s*\*+\s*/;
+
+// Reduce a raw, UPPERCASE-source description to a merchant-matching key: an
+// address-stripped, punctuation-stripped, aggregator-prefix-stripped string,
+// plus its word tokens so a caller can build a coarser key by truncating to
+// the first N tokens (used by the merchant-memory classifier's confidence
+// tiers — the future `buildMerchantMemory`, not yet implemented). Deliberately
+// a SEPARATE function from `normalizeMerchant` above, not a shared/extended
+// one: that function serves the duplicate scorer, where an uncaught prefix
+// or an un-stripped address just nudges a Jaccard score — tolerable noise.
+// Here, an un-stripped address turns every visit to the same gas station
+// into an unrecognized one-off (each has a different pump-side street
+// address string), which silently prevents that merchant from ever building
+// enough history to be classified automatically — a correctness bug for
+// this consumer, not just noise.
+//
+// Returns `{ key, tokens, prefix }`:
+//   `key`    — the normalized string, ALL surviving tokens joined by a
+//              single space ("" when nothing survives normalization).
+//   `tokens` — `key` split on whitespace (empty array for "").
+//   `prefix` — the aggregator code stripped from the front ("TST", "DD"),
+//              or "" when none matched.
+export function merchantKey(description) {
+  let s = String(description || "").toUpperCase().trim();
+  if (!s) return { key: "", tokens: [], prefix: "" };
+
+  let prefix = "";
+  const prefixMatch = s.match(AGGREGATOR_PREFIX_RE);
+  if (prefixMatch) {
+    prefix = prefixMatch[1];
+    s = s.slice(prefixMatch[0].length);
+  }
+
+  // Cut everything from the first "<2-6-digit number> <street-suffix word>"
+  // pair onward — this is where a full street address starts. Scanning from
+  // index 1 (never cut the very first word) so a merchant name that happens
+  // to start with a number/directional survives.
+  const words = s.split(/\s+/);
+  let cut = words.length;
+  for (let i = 1; i < words.length; i++) {
+    const isAddressNumber = /^\d{2,6}$/.test(words[i]);
+    const nextIsStreetWord = i + 1 < words.length
+      && STREET_SUFFIXES.has(words[i + 1].replace(/[^A-Z]/g, ""));
+    if (isAddressNumber && nextIsStreetWord) {
+      cut = i;
+      break;
+    }
+  }
+  s = words.slice(0, cut).join(" ");
+
+  s = s
+    .replace(/\b\d{3}[- ]?\d{3}[- ]?\d{4}\b/g, " ") // phone numbers
+    .replace(/#\s*[A-Z]?-?\d+/g, " ")               // store/order numbers ("#1499")
+    .replace(/\b\d{3,}\b/g, " ")                    // any other 3+ digit run
+    .replace(/[^A-Z0-9&' ]+/g, " ")                 // remaining punctuation
+    .replace(/\s+/g, " ")
+    .trim();
+
+  const tokens = s ? s.split(" ") : [];
+  // Trailing state code, stripped once (same non-idempotence rationale as
+  // normalizeMerchant's trailing-code strip): a merchant whose real name
+  // ends in a two-letter word keeps it.
+  while (tokens.length > 1 && US_STATE_CODES.has(tokens[tokens.length - 1])) {
+    tokens.pop();
+  }
+
+  return { key: tokens.join(" "), tokens, prefix };
+}
+
+// ---------------------------------------------------------------------------
+// Merchant memory (Fase 1 of the categorization-memory work)
+// ---------------------------------------------------------------------------
+
+// A row is trainable when its category is an actual answer, not a "we don't
+// know" placeholder or a structural bucket a merchant can't teach:
+// - "Uncategorized" carries no signal (nothing classified it — see
+//   resolveImportCategory).
+// - Transfer is excluded on purpose: it is driven by which ACCOUNTS a flow
+//   moves between, not by what kind of merchant it is, and a description
+//   rule can never target it either (api/category-description-rules.js's
+//   sanitize() rejects a Transfer destinationCategory) — the memory follows
+//   the same rule so it can never accidentally hide a real expense/income
+//   from the totals.
+// - `categorySource === 'learned'` rows are the memory's OWN past guesses.
+//   Training on them would let a wrong guess reinforce itself on every later
+//   import instead of requiring a human correction (or explicit
+//   confirmation) to break the loop. Historical rows from before this field
+//   existed have no `categorySource` at all and pass through as trusted
+//   bootstrap data — see household-ledger.md for why that bootstrap is
+//   necessary (this household's `categoryManual` flag rate was ~0.8% of the
+//   ledger at the time this was built, nowhere near enough to learn from
+//   manual corrections alone).
+export function isMemoryTrainableRow(t) {
+  if (!t) return false;
+  const cat = t.category || "";
+  if (!cat || cat === "Uncategorized" || cat === TRANSFER_CATEGORY) return false;
+  if (t.categorySource === "learned") return false;
+  return true;
+}
+
+// Six confidence tiers, most specific first. Each layer keys on a
+// `{ account, description }` shape PLUS that description's already-computed
+// `merchantKey(...)` result (`mk` — computed ONCE per row by the caller and
+// handed to every layer, not recomputed per layer: `merchantKey` does
+// non-trivial regex work, and 4 of these 6 layers derive from it, so calling
+// it fresh per layer was a straight 4x-5x redundant cost measured at ~250ms
+// over this household's ~11.5K-row ledger before this fix — noticeable jank
+// on a phone). `weight` is that layer's confidence CEILING (see
+// classifyMerchantMemory) — coarser layers (fewer tokens, no account) get a
+// lower ceiling because they're more likely to lump together merchants that
+// are actually different (e.g. "H-E-B" the grocery store vs "H-E-B GAS" the
+// pump at the same chain — see merchantKey's own tests). Account-scoped
+// layers return "" (skip) when the row has no resolved account, rather than
+// keying every unmapped-account row together.
+const MEMORY_LAYERS = [
+  {
+    name: "account+full",
+    weight: 1.00,
+    keyOf: (r, mk) => (r.account && mk.key ? `${r.account}|${mk.key}` : ""),
+  },
+  {
+    name: "full",
+    weight: 0.95,
+    keyOf: (r, mk) => mk.key,
+  },
+  {
+    name: "account+m2",
+    weight: 0.85,
+    keyOf: (r, mk) => {
+      const m2 = mk.tokens.slice(0, 2).join(" ");
+      return r.account && m2 ? `${r.account}|${m2}` : "";
+    },
+  },
+  {
+    name: "m2",
+    weight: 0.80,
+    keyOf: (r, mk) => mk.tokens.slice(0, 2).join(" "),
+  },
+  {
+    name: "m1",
+    weight: 0.65,
+    keyOf: (r, mk) => mk.tokens.slice(0, 1).join(" "),
+  },
+  {
+    name: "account",
+    weight: 0.30,
+    keyOf: (r) => (r.account ? `ACCOUNT:${r.account}` : ""),
+  },
+];
+
+// Builds the merchant-memory lookup from the WHOLE ledger: one `Map` per
+// layer in `MEMORY_LAYERS`, each mapping a layer key to `{ [category]: n }`.
+// Pure — same transactions in, same memory out. Callers (App.jsx) memoize
+// this on `transactions` (e.g. React `useMemo`) since it's an O(rows) pass
+// meant to run once per import action, not once per row imported.
+export function buildMerchantMemory(transactions) {
+  const layers = MEMORY_LAYERS.map(() => new Map());
+  for (const t of transactions || []) {
+    if (!isMemoryTrainableRow(t)) continue;
+    const row = { account: t.account || "", description: t.description || "" };
+    const mk = merchantKey(row.description);
+    for (let i = 0; i < MEMORY_LAYERS.length; i++) {
+      const key = MEMORY_LAYERS[i].keyOf(row, mk);
+      if (!key) continue;
+      const counts = layers[i].get(key) || {};
+      counts[t.category] = (counts[t.category] || 0) + 1;
+      layers[i].set(key, counts);
+    }
+  }
+  return layers;
+}
+
+// Below this many prior occurrences at a layer, confidence is discounted for
+// thin evidence (a single sighting could be a fluke); at and above it, the
+// layer's weight×purity ceiling applies in full. Chosen against this
+// household's own history (see household-ledger.md) — not a universal
+// constant, just where discounting stops being useful here.
+const MEMORY_SUPPORT_FLOOR = 3;
+
+// Classifies one `{ account, description }` row against a memory built by
+// `buildMerchantMemory`. Tries each layer most-specific first; the FIRST
+// layer with ANY history for its key wins outright (no cross-layer voting) —
+// a specific match must never be diluted by a coarser layer's noise. Returns
+// `null` when no layer has any history at all (a genuine cold start; the
+// pipeline's "Uncategorized" fallback and Transfer safety net take over from
+// there — see resolveImportCategory).
+//
+// confidence = layer.weight × purity × (0.5 + 0.5 × min(1, support / FLOOR))
+// `purity` = how consistently that key's history agrees on one category;
+// `support` = how many times that key has been seen at all. Always returns
+// SOMETHING once a layer has any history, no matter how low the resulting
+// confidence — Fase 1 applies every classifier guess unconditionally (the
+// user reviews at import time either way); a later phase's UI is what
+// surfaces confidence for that review, not a hard accept/reject threshold
+// here.
+export function classifyMerchantMemory(row, memory) {
+  if (!memory) return null;
+  const r = { account: row?.account || "", description: row?.description || "" };
+  const mk = merchantKey(r.description);
+  for (let i = 0; i < MEMORY_LAYERS.length; i++) {
+    const layer = MEMORY_LAYERS[i];
+    const key = layer.keyOf(r, mk);
+    if (!key) continue;
+    const counts = memory[i] && memory[i].get(key);
+    if (!counts) continue;
+    const entries = Object.entries(counts);
+    const total = entries.reduce((sum, [, n]) => sum + n, 0);
+    const [category, n] = entries.sort((a, b) => b[1] - a[1])[0];
+    const purity = n / total;
+    const support = Math.min(1, total / MEMORY_SUPPORT_FLOOR);
+    const confidence = layer.weight * purity * (0.5 + 0.5 * support);
+    return {
+      category,
+      confidence,
+      layer: layer.name,
+      reason: `Aprendido: ${n}/${total} lançamento(s) parecido(s) → ${category}`,
+    };
+  }
+  return null;
+}
+
+// ---------------------------------------------------------------------------
 // Import-time category resolution
 // ---------------------------------------------------------------------------
 
@@ -207,26 +461,62 @@ export function matchOption(value, options, fallback) {
 // `matchOption(t.category, CATEGORIES, "Other")`, so they never saw the CK
 // category map nor the Description rules and always landed in "Other".
 //
-// Precedence (PR #135 — must stay byte-for-byte equivalent):
+// Precedence (PR #135 — must stay byte-for-byte equivalent, EXCEPT step 2.5
+// which is new — see below):
 //   1. `csvCategory`   = the source's own category column, matched against the
-//                        current category list ("Other" when unknown).
+//                        current category list ("Uncategorized" when unknown).
 //   2. `recomputed`    = when a raw CK category traveled with the row, the
 //                        editable CK map wins over the source's column;
 //                        otherwise `csvCategory`.
-//   3. the FIRST matching description rule overrides that.
-//   4. Transfer safety net: a description rule can NEVER de-transfer a row.
-//      The ONLY escape is a winning rule with `allowTransferOverride: true`
-//      (which itself requires a non-empty `providerPattern`).
+//   2.5 `memory`       = ONLY when nothing above produced a real answer
+//                        (`recomputed === "Uncategorized"`) AND no description
+//                        rule matches either: the merchant-memory classifier
+//                        (`classifyMerchantMemory`) gets a turn. This is
+//                        deliberately a gap-filler, never an override — a
+//                        source that already supplies a real category (any
+//                        normal CSV/Credit Karma row) is more authoritative
+//                        than a probabilistic guess and is never second-
+//                        guessed by it. The gap it fills is real: SimpleFin
+//                        always sends the "Uncategorized" placeholder (see
+//                        lib/simplefin.js), so this is the only step that can
+//                        ever classify a synced row beyond a hand-written rule.
+//   3.  the FIRST matching description rule overrides everything above
+//       (including a memory guess).
+//   4.  Transfer safety net: neither a description rule NOR a memory guess
+//       can ever de-transfer a row. The ONLY escape is a winning rule with
+//       `allowTransferOverride: true` (which itself requires a non-empty
+//       `providerPattern`) — memory has no equivalent escape hatch by design;
+//       see buildMerchantMemory's isMemoryTrainableRow for why Transfer is
+//       excluded from what memory can even learn to suggest.
+//
+// The fallback for "nothing classified this row" (rule, memory, and source
+// category all came up empty) is "Uncategorized", NOT "Other" — "Other"
+// stays a normal category a user can pick deliberately (old rows keep it,
+// unchanged); "Uncategorized" means the pipeline itself doesn't know.
 //
 // `row` carries { description, srcAccount, account, category, ckCategory,
 // ckType }; `ctx` carries the runtime-configurable lists
-// { categories, ckCategoryMap, descriptionRules } (App.jsx owns those).
+// { categories, ckCategoryMap, descriptionRules } PLUS the optional
+// `merchantMemory` (App.jsx owns all of these — `merchantMemory` from
+// `buildMerchantMemory(transactions)`, memoized on the ledger, not rebuilt
+// per row).
+//
+// Also returns `categorySource`/`categoryConfidence`/`categoryReason` — the
+// provenance of the resolved category. Three values now: 'rule' (a
+// description rule's destination is what actually won — checked against the
+// FINAL category, not just "a rule matched", since the Transfer safety net
+// can still veto a matched rule) at confidence 1; 'learned' (the memory's
+// guess is what won) at the classifier's own computed confidence; or 'none'
+// (everything else) at confidence 0. Never set to 'manual' here — that flag
+// is only ever set by the user-facing edit paths (categoryManual), which
+// don't go through this function.
 export function resolveImportCategory(row, ctx) {
   const categories = (ctx && ctx.categories) || [];
   const ckCategoryMap = (ctx && ctx.ckCategoryMap) || {};
   const descriptionRules = (ctx && ctx.descriptionRules) || [];
+  const merchantMemory = ctx && ctx.merchantMemory;
 
-  const csvCategory = matchOption(row.category, categories, "Other");
+  const csvCategory = matchOption(row.category, categories, "Uncategorized");
   const recomputedCategory = row.ckCategory
     ? mapCkCategory(row.ckCategory, row.ckType, ckCategoryMap)
     : csvCategory;
@@ -235,15 +525,35 @@ export function resolveImportCategory(row, ctx) {
     { description: row.description, srcAccount: row.srcAccount, account: row.account },
     descriptionRules
   );
-  const overridden = matchedRule ? matchedRule.destinationCategory : recomputedCategory;
+
+  const memoryGuess = (!matchedRule && recomputedCategory === "Uncategorized")
+    ? classifyMerchantMemory({ account: row.account, description: row.description }, merchantMemory)
+    : null;
+
+  const overridden = matchedRule
+    ? matchedRule.destinationCategory
+    : (memoryGuess ? memoryGuess.category : recomputedCategory);
 
   const category = (matchedRule && matchedRule.allowTransferOverride)
     ? matchedRule.destinationCategory
     : ((overridden === TRANSFER_CATEGORY || csvCategory === TRANSFER_CATEGORY)
         ? TRANSFER_CATEGORY
-        : matchOption(overridden, categories, "Other"));
+        : matchOption(overridden, categories, "Uncategorized"));
 
-  return { category, csvCategory, matchedRule };
+  let categorySource = "none";
+  let categoryConfidence = 0;
+  let categoryReason = "";
+  if (matchedRule && category === matchedRule.destinationCategory) {
+    categorySource = "rule";
+    categoryConfidence = 1;
+    categoryReason = `Regra de descrição: "${matchedRule.pattern}" → ${matchedRule.destinationCategory}`;
+  } else if (memoryGuess && category === memoryGuess.category) {
+    categorySource = "learned";
+    categoryConfidence = memoryGuess.confidence;
+    categoryReason = memoryGuess.reason;
+  }
+
+  return { category, csvCategory, matchedRule, categorySource, categoryConfidence, categoryReason };
 }
 
 // ---------------------------------------------------------------------------

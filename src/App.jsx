@@ -74,6 +74,7 @@ import {
   normAccount,
   matchAccountWithAliases,
   resolveImportCategory,
+  buildMerchantMemory,
   txnFingerprint,
   markDuplicates,
   descWords,
@@ -104,6 +105,7 @@ const DEFAULT_EXPENSE_CATEGORIES = [
   "Shopping",
   "Transport",
   "Travel",
+  "Uncategorized",
   "Utilities",
 ];
 const DEFAULT_INCOME_CATEGORIES = ["Salary", "Bonus", "Bela Income", "Other Income"];
@@ -169,6 +171,12 @@ function applyConfig(cfg) {
   // is never silently downgraded to the expense "Other" — which would invert
   // its displayed sign in the cash-flow view.
   if (!INCOME_CATEGORIES.includes("Other Income")) INCOME_CATEGORIES = [...INCOME_CATEGORIES, "Other Income"];
+  // Same guarantee for "Uncategorized" — the import pipeline's fallback for
+  // "nothing classified this row" (resolveImportCategory/mapCkCategory in
+  // src/ledger.js, DEFAULT_CATEGORY in lib/simplefin.js). A household whose
+  // saved `expenseCategories` predates this category would otherwise never
+  // see it as a selectable option even though the pipeline can produce it.
+  if (!EXPENSE_CATEGORIES.includes("Uncategorized")) EXPENSE_CATEGORIES = [...EXPENSE_CATEGORIES, "Uncategorized"];
   CATEGORIES = [...EXPENSE_CATEGORIES, ...INCOME_CATEGORIES, TRANSFER_CATEGORY];
   // No `.length` guard: clearing the last entry must actually clear the list.
   if (Array.isArray(cfg?.ignoredSimplefinAccounts)) IGNORED_SIMPLEFIN_ACCOUNTS = [...cfg.ignoredSimplefinAccounts];
@@ -697,7 +705,7 @@ function idleExpired() {
 // path, so the pending copy is discarded with a notice instead).
 
 // Single source for the version shown in the header and in diagnostics.
-const APP_VERSION = "v1.64.6";
+const APP_VERSION = "v1.68.0";
 
 const PENDING_SAVE_KEY = "household_pending_save";
 
@@ -5256,6 +5264,33 @@ function Transactions({ transactions, money, hideValues, isWide, onDelete, onUpd
     setSelectedIds(new Set());
   };
 
+  // Inline category/account edit from the table row / mobile card dropdown
+  // (as opposed to the full EditModal). Same fix as the Import preview's
+  // setCategoryOverride and EditModal's submit below: a manual category pick
+  // invalidates whatever classifier (rule/memory) produced the OLD category
+  // — otherwise isMemoryTrainableRow (src/ledger.js) would keep excluding a
+  // genuine correction from training because the row still says 'learned'.
+  const handleInlineChange = (t, patch) => {
+    const next = { ...t, ...patch };
+    if (patch.category !== undefined && patch.category !== t.category) {
+      next.categorySource = undefined;
+      next.categoryConfidence = undefined;
+      next.categoryReason = undefined;
+    }
+    onUpdate(next);
+  };
+
+  // Closes the loop for a row that was never touched during import review
+  // (the intended review point — see ImportTransactions): 'learned' rows
+  // otherwise stay 'learned' — and excluded from future training, see
+  // isMemoryTrainableRow — indefinitely, with no other way to promote them.
+  // Confirming doesn't change the category, only its provenance.
+  const confirmLearned = (id) => {
+    const t = transactions.find((x) => x.id === id);
+    if (!t || t.categorySource !== "learned") return;
+    onUpdate({ ...t, categorySource: "confirmed" });
+  };
+
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     return [...transactions]
@@ -5288,6 +5323,19 @@ function Transactions({ transactions, money, hideValues, isWide, onDelete, onUpd
       .sort((a, b) => (a.t.date < b.t.date ? 1 : a.t.date > b.t.date ? -1 : a.i - b.i))
       .map(({ t }) => t);
   }, [transactions, catFilter, acctFilter, typeFilter, query, year, month, from, to, dateYears, dateMonths, isWide]);
+
+  // Bulk version — respects the CURRENT filters (`filtered`, not just the
+  // lazy-loaded `visible` window), same "acts on everything matching, not
+  // just what's rendered" semantics as the other bulk actions on this tab.
+  const learnedCount = useMemo(
+    () => filtered.filter((t) => t.categorySource === "learned").length,
+    [filtered]
+  );
+  const confirmAllVisibleLearned = () => {
+    const ids = filtered.filter((t) => t.categorySource === "learned").map((t) => t.id);
+    if (ids.length === 0) return;
+    onUpdateMany(ids, { categorySource: "confirmed" });
+  };
 
   // Reset visible window whenever filters change.
   useEffect(() => {
@@ -5448,6 +5496,12 @@ function Transactions({ transactions, money, hideValues, isWide, onDelete, onUpd
               Clear selection ({selectedIds.size})
             </button>
           ) : null}
+          {learnedCount > 0 ? (
+            <>
+              <span style={{ fontSize: 12, color: "#fbbf24" }}>{learnedCount} aprendido{learnedCount === 1 ? "" : "s"}</span>
+              <button onClick={confirmAllVisibleLearned} style={S.linkBtn}>Confirmar todos os aprendidos visíveis</button>
+            </>
+          ) : null}
         </div>
       </div>
 
@@ -5533,7 +5587,8 @@ function Transactions({ transactions, money, hideValues, isWide, onDelete, onUpd
           allSelected={allSelected}
           onToggleSelect={toggleRowSelect}
           onSelectAll={(checked) => handleSelectAll(filtered, checked)}
-          onInlineChange={(t, patch) => onUpdate({ ...t, ...patch })}
+          onInlineChange={handleInlineChange}
+          onConfirmLearned={confirmLearned}
           onEdit={setEditing}
           onDelete={onDelete}
           typeFilter={typeFilter}
@@ -5571,7 +5626,8 @@ function Transactions({ transactions, money, hideValues, isWide, onDelete, onUpd
                   money={money}
                   selected={selectedIds.has(t.id)}
                   onToggleSelect={toggleRowSelect}
-                  onInlineChange={(txn, patch) => onUpdate({ ...txn, ...patch })}
+                  onInlineChange={handleInlineChange}
+                  onConfirmLearned={confirmLearned}
                   onEdit={setEditing}
                   onDelete={onDelete}
                 />
@@ -5821,7 +5877,7 @@ function DateHeaderFilter({ years, dateYears, setDateYears, dateMonths, setDateM
 // row selection for bulk actions.
 // ---------------------------------------------------------------------------
 
-function TxnTable({ rows, money, selectedIds, allSelected, onToggleSelect, onSelectAll, onInlineChange, onEdit, onDelete, typeFilter, setTypeFilter, acctFilter, setAcctFilter, catFilter, setCatFilter, acctOptions, catOptions, years, dateYears, setDateYears, dateMonths, setDateMonths, from, setFrom, to, setTo }) {
+function TxnTable({ rows, money, selectedIds, allSelected, onToggleSelect, onSelectAll, onInlineChange, onConfirmLearned, onEdit, onDelete, typeFilter, setTypeFilter, acctFilter, setAcctFilter, catFilter, setCatFilter, acctOptions, catOptions, years, dateYears, setDateYears, dateMonths, setDateMonths, from, setFrom, to, setTo }) {
   return (
     <div style={{ ...S.card, padding: 0, overflow: "visible" }}>
       <table style={S.table}>
@@ -5888,6 +5944,8 @@ function TxnTable({ rows, money, selectedIds, allSelected, onToggleSelect, onSel
                       <option key={c}>{c}</option>
                     ))}
                   </select>
+                  <CategoryBadge row={t} />
+                  <ConfirmCategoryButton row={t} onConfirm={onConfirmLearned} />
                 </td>
                 <td style={{ ...S.td, textAlign: "right", color: amt.color, fontWeight: 600, whiteSpace: "nowrap" }}>
                   {amt.sign}{money(amt.value)}
@@ -5995,7 +6053,7 @@ function TxnRow({ t, money, onDelete, onEdit, selectMode = false, selected = fal
 // Width of the action rail revealed by swiping the card left (two chips).
 const SWIPE_ACTION_WIDTH = 132;
 
-function TxnAuditCard({ t, money, selected, onToggleSelect, onInlineChange, onEdit, onDelete }) {
+function TxnAuditCard({ t, money, selected, onToggleSelect, onInlineChange, onConfirmLearned, onEdit, onDelete }) {
   const type = txnType(t.category);
   const amt = amountDisplay(t);
 
@@ -6115,6 +6173,8 @@ function TxnAuditCard({ t, money, selected, onToggleSelect, onInlineChange, onEd
               <option key={c}>{c}</option>
             ))}
           </select>
+          <CategoryBadge row={t} />
+          <ConfirmCategoryButton row={t} onConfirm={onConfirmLearned} />
         </div>
       </div>
     </div>
@@ -6169,6 +6229,15 @@ function EditModal({ txn, onClose, onSave }) {
     // preserves whatever flag the row already had.
     if (category !== txn.category) {
       next.categoryManual = category !== TRANSFER_CATEGORY;
+      // Same fix as the Import preview's setCategoryOverride and the
+      // Transactions tab's inline dropdown (handleInlineChange): a manual
+      // pick invalidates whatever classifier (rule/memory) produced the OLD
+      // category — otherwise isMemoryTrainableRow (src/ledger.js) would keep
+      // excluding a genuine human correction from training because the row
+      // still says 'learned'.
+      next.categorySource = undefined;
+      next.categoryConfidence = undefined;
+      next.categoryReason = undefined;
     }
     onSave(next);
   };
@@ -6226,6 +6295,18 @@ function EditModal({ txn, onClose, onSave }) {
           {txn.ckCategory ? (
             <div style={{ fontSize: 12, color: "#8b94a3", marginTop: -6 }}>
               Source category (audit): <span style={{ color: "#cbd5e1" }}>{txn.ckCategory}</span>
+            </div>
+          ) : null}
+          {/* Informational only — no confirm affordance here on purpose. The
+              row-level ✓ in the Transactions list (ConfirmCategoryButton)
+              already covers confirming without needing to open this modal;
+              adding a second confirm path here would need its own pending
+              state distinct from the form's own draft. Changing the select
+              above still fixes it: submit() clears categorySource when the
+              category actually changes. */}
+          {txn.categorySource === "learned" ? (
+            <div style={{ fontSize: 12, color: "#8b94a3", marginTop: -6 }}>
+              <CategoryBadge row={txn} /> categoria sugerida pela memória — confirme ou corrija na lista de transações.
             </div>
           ) : null}
           <Field label="Account">
@@ -7785,7 +7866,7 @@ function CkCategoryMapSection({ transactions, map, onSave, config, highlightToke
               {token}
             </div>
             <select
-              value={draft[token] || DEFAULT_CK_CATEGORY_MAP[token] || "Other"}
+              value={draft[token] || DEFAULT_CK_CATEGORY_MAP[token] || "Uncategorized"}
               onChange={(e) => setDestination(token, e.target.value)}
               style={{ ...S.select, flex: "0 0 auto", maxWidth: 160 }}
             >
@@ -8259,7 +8340,7 @@ function guessMapping(headers) {
 
 // Build a canonical transaction from a raw CSV record using the column mapping.
 // profile is optional; when provided, its normalizeAmount and defaultAccount are used.
-function buildRow(raw, mapping, profile, accountMap) {
+function buildRow(raw, mapping, profile, accountMap, merchantMemory) {
   const val = (key) => {
     const col = mapping[key];
     return col ? String(raw[col] ?? "").trim() : "";
@@ -8327,9 +8408,9 @@ function buildRow(raw, mapping, profile, accountMap) {
   // can run the EXACT same pipeline instead of defaulting every synced row to
   // "Other". See that function for the precedence and why a description rule
   // may never de-transfer a row unless it opted into `allowTransferOverride`.
-  const { category } = resolveImportCategory(
+  const { category, categorySource, categoryConfidence, categoryReason } = resolveImportCategory(
     { description, srcAccount: rawAccount, account, category: val("category"), ckCategory, ckType },
-    { categories: CATEGORIES, ckCategoryMap: CK_CATEGORY_MAP, descriptionRules: CATEGORY_DESCRIPTION_RULES }
+    { categories: CATEGORIES, ckCategoryMap: CK_CATEGORY_MAP, descriptionRules: CATEGORY_DESCRIPTION_RULES, merchantMemory }
   );
 
   const row = {
@@ -8346,6 +8427,16 @@ function buildRow(raw, mapping, profile, accountMap) {
   // you: Y" once the user manually corrects the category. The manual-correction
   // detection itself does NOT depend on this field.
   row.autoCategory = category;
+  // Provenance of the resolved category (Fase 0 of the categorization-memory
+  // work — see household-ledger.md): 'rule' | 'none' today, more values
+  // (e.g. 'learned') land as the classifier grows. Additive and only written
+  // when there's something to say — 'none'/0/"" carries no information yet,
+  // so it's omitted rather than bloating every row.
+  if (categorySource && categorySource !== "none") {
+    row.categorySource = categorySource;
+    row.categoryConfidence = categoryConfidence;
+    row.categoryReason = categoryReason;
+  }
   // Keep the raw source account string for auditing the classification: lets
   // you see what each row was classified from (or why it stayed unmapped).
   if (rawAccount) row.srcAccount = rawAccount;
@@ -8421,6 +8512,90 @@ function ImportNearMissHint({ nearMiss, fmtMoney, hideValues }) {
   );
 }
 
+// Fase 2 of the categorization-memory work: turns a row's categorySource/
+// categoryConfidence into a small pill's label + color, so the import
+// preview shows WHERE each category came from instead of presenting every
+// row as equally certain. `bg`/`border` follow the same rgba(base,0.12) /
+// rgba(base,0.3) convention already used for institution badges elsewhere
+// in this file. Returns null for a row whose category came straight from
+// the import source's own column — that's not a guess, so it needs no
+// provenance marker.
+const CATEGORY_BADGE_TIERS = {
+  rule: { color: "#60a5fa", bg: "rgba(96,165,250,0.12)", border: "rgba(96,165,250,0.3)" },
+  confirmed: { color: "#34d399", bg: "rgba(52,211,153,0.12)", border: "rgba(52,211,153,0.3)" },
+  high: { color: "#34d399", bg: "rgba(52,211,153,0.12)", border: "rgba(52,211,153,0.3)" },
+  medium: { color: "#fbbf24", bg: "rgba(251,191,36,0.12)", border: "rgba(251,191,36,0.3)" },
+  low: { color: "#f87171", bg: "rgba(248,113,113,0.12)", border: "rgba(248,113,113,0.3)" },
+  none: { color: "#8b94a3", bg: "rgba(139,148,163,0.12)", border: "rgba(139,148,163,0.3)" },
+};
+function categoryBadge(row) {
+  if (row.categorySource === "rule") {
+    return { label: "regra", ...CATEGORY_BADGE_TIERS.rule, title: row.categoryReason };
+  }
+  if (row.categorySource === "confirmed") {
+    return { label: "confirmado", ...CATEGORY_BADGE_TIERS.confirmed, title: row.categoryReason };
+  }
+  if (row.categorySource === "learned") {
+    const pct = Math.round((row.categoryConfidence || 0) * 100);
+    const tier = row.categoryConfidence >= 0.7 ? "high" : row.categoryConfidence >= 0.4 ? "medium" : "low";
+    return { label: `aprendido ${pct}%`, ...CATEGORY_BADGE_TIERS[tier], title: row.categoryReason };
+  }
+  if (row.category === "Uncategorized") {
+    return { label: "?", ...CATEGORY_BADGE_TIERS.none, title: "Nada classificou esta linha ainda" };
+  }
+  return null;
+}
+
+// Sort key for "Revisar primeiro" (Fase 2): lower = needs review sooner. A
+// rule, a user confirmation, or a real category straight from the import
+// source are all equally trusted (1) — only a memory guess (by its own
+// confidence) or a genuine "nothing classified this" (0) rank as worth a
+// second look.
+function categoryReviewConfidence(row) {
+  if (row.categorySource === "learned") return row.categoryConfidence || 0;
+  if (row.category === "Uncategorized") return 0;
+  return 1;
+}
+
+function CategoryBadge({ row }) {
+  const badge = categoryBadge(row);
+  if (!badge) return null;
+  return (
+    <span
+      title={badge.title || undefined}
+      style={{
+        marginLeft: 6, fontSize: 10, fontWeight: 700, color: badge.color,
+        background: badge.bg, border: `1px solid ${badge.border}`,
+        borderRadius: 6, padding: "1px 5px", verticalAlign: "1px", whiteSpace: "nowrap",
+      }}
+    >
+      {badge.label}
+    </span>
+  );
+}
+
+// Only rendered for a row still carrying the memory's OWN unreviewed guess
+// ('learned') — once confirmed, `row.categorySource` becomes 'confirmed' and
+// the badge above already reflects that, so there's nothing left for this
+// button to do (it naturally disappears rather than needing a second state).
+function ConfirmCategoryButton({ row, onConfirm }) {
+  if (row.categorySource !== "learned") return null;
+  return (
+    <button
+      type="button"
+      title="Confirmar esta categoria — ajuda a memória a aprender com mais confiança"
+      onClick={(e) => { e.stopPropagation(); onConfirm(row.id); }}
+      style={{
+        marginLeft: 4, fontSize: 10, fontWeight: 700, color: "#34d399",
+        background: "transparent", border: "1px solid rgba(52,211,153,0.3)",
+        borderRadius: 6, padding: "1px 5px", cursor: "pointer", verticalAlign: "1px",
+      }}
+    >
+      ✓
+    </button>
+  );
+}
+
 function ImportTransactions({ onImport, accountMap, config, transactions, ckCategoryMap, categoryDescriptionRules, money, hideValues, onConfirmDuplicateMatch, onSfSynced }) {
   // Three methods, in the order they're actually used now: SimpleFin
   // (on-demand/cron pull via api/simplefin-sync.js — the day-to-day path
@@ -8484,6 +8659,15 @@ function ImportTransactions({ onImport, accountMap, config, transactions, ckCate
     setSfFromPending(false);
   };
 
+  // Merchant-memory classifier (Fase 1 of the categorization-memory work),
+  // trained on the WHOLE existing ledger. Built once per `transactions`
+  // reference change (this component only mounts while the Import tab is
+  // active — see the `tab === "import"` render branch — so this doesn't run
+  // on every keystroke elsewhere in the app), then handed to every
+  // `buildRow`/`classifySimpleFinRows` call for the current batch instead of
+  // being rebuilt per row.
+  const merchantMemory = useMemo(() => buildMerchantMemory(transactions), [transactions]);
+
   const selectMethod = (m) => {
     if (m === method) return;
     setMethod(m);
@@ -8546,7 +8730,7 @@ function ImportTransactions({ onImport, accountMap, config, transactions, ckCate
   const { csvRows, skippedCount } = useMemo(() => {
     if (method === "sf") return { csvRows: sfRows, skippedCount: 0 };
     if (rawRows.length === 0) return { csvRows: [], skippedCount: 0 };
-    const built = rawRows.map((r) => buildRow(r, mapping, profile, accountMap));
+    const built = rawRows.map((r) => buildRow(r, mapping, profile, accountMap, merchantMemory));
     let skipped = 0;
     const valid = [];
     for (const row of built) {
@@ -8559,7 +8743,7 @@ function ImportTransactions({ onImport, accountMap, config, transactions, ckCate
     // buildRow reads their module-level mirrors — but they must invalidate
     // this memo so editing a rule in Settings recomputes an already-parsed
     // preview instead of showing stale categories.
-  }, [method, sfRows, rawRows, mapping, profile, accountMap, config, ckCategoryMap, categoryDescriptionRules]);
+  }, [method, sfRows, rawRows, mapping, profile, accountMap, config, ckCategoryMap, categoryDescriptionRules, merchantMemory]);
 
   // Flag duplicates against existing data + within the batch. Three states now
   // (see markDuplicates): "certain" | "uncertain" | "new".
@@ -8576,6 +8760,12 @@ function ImportTransactions({ onImport, accountMap, config, transactions, ckCate
   // Duplicate-visibility filter for the preview list only ("all" | "new" |
   // "review" | "dup"). Independent from `selected` (what actually gets imported).
   const [dupFilter, setDupFilter] = useState("all");
+  // Preview sort order (Fase 2 of the categorization-memory work): "date"
+  // (default, unchanged newest-first behavior) or "confidence" (least
+  // confident first — see categoryReviewConfidence) so the rows most worth a
+  // second look surface at the top instead of being buried under hundreds of
+  // confident ones. Independent from `selected`/`dupFilter`, same as those.
+  const [previewSort, setPreviewSort] = useState("date");
   // Header-column filters for the desktop preview table, same shape/behavior
   // as the Transactions tab's HeaderFilter/DateHeaderFilter (multi-select for
   // account/category, year/month tree + from/to range for date). Filtering
@@ -8598,10 +8788,21 @@ function ImportTransactions({ onImport, accountMap, config, transactions, ckCate
   // just like edits made after import. Reset whenever the parsed/mapped
   // batch changes (same trigger as `selected`/`dupFilter`).
   const [categoryOverrides, setCategoryOverrides] = useState(() => new Map());
+  // Rows the user explicitly confirmed the CURRENT (auto-classified) category
+  // for — id -> true (Fase 2 of the categorization-memory work). Confirming
+  // doesn't change the category value, only its provenance: from 'learned'
+  // (excluded from future training — see isMemoryTrainableRow, src/ledger.js)
+  // to 'confirmed' (included). This is what lets a review pass make the
+  // memory strictly better on every import instead of only ever staying the
+  // same size. Reset whenever the parsed/mapped batch changes, same as the
+  // other preview-only state above.
+  const [confirmedRows, setConfirmedRows] = useState(() => new Set());
   useEffect(() => {
     setSelected(new Set(dedupedRows.filter((r) => r._dupState !== "certain").map((r) => r.id)));
     setDupFilter("all");
+    setPreviewSort("date");
     setCategoryOverrides(new Map());
+    setConfirmedRows(new Set());
     setConfirmedDups(new Map());
     setImportAcctFilter([]);
     setImportCatFilter([]);
@@ -8634,21 +8835,53 @@ function ImportTransactions({ onImport, accountMap, config, transactions, ckCate
       if (newCategory === autoCategory) {
         next.delete(id);
       } else {
-        next.set(id, { category: newCategory, categoryManual: newCategory !== TRANSFER_CATEGORY });
+        next.set(id, {
+          category: newCategory,
+          categoryManual: newCategory !== TRANSFER_CATEGORY,
+          // A manual pick invalidates whatever classifier produced the OLD
+          // guess — 'rule'/'learned' no longer describe this row's ACTUAL
+          // category. Without clearing these, isMemoryTrainableRow would
+          // wrongly keep excluding a genuine human correction from training
+          // (it only excludes 'learned', which a stale value would still say).
+          categorySource: undefined,
+          categoryConfidence: undefined,
+          categoryReason: undefined,
+        });
       }
       return next;
     });
   };
 
+  // A row explicitly confirmed (see confirmedRows above) only matters while
+  // its category is still the memory's own unreviewed guess — confirming a
+  // row the user has since manually recategorized (categoryOverrides) would
+  // otherwise misreport a value the user never actually looked at as vouched
+  // for. `id` is confirmed relative to the SAME batch it was confirmed in.
+  const confirmCategory = (id) => {
+    setConfirmedRows((prev) => {
+      const next = new Set(prev);
+      next.add(id);
+      return next;
+    });
+  };
+
   // Rows as they should be shown/imported, with any preview-time category
-  // corrections applied on top of the deduped/auto-classified rows.
+  // corrections and confirmations applied on top of the deduped/auto-
+  // classified rows. Overrides are checked first: a manual pick already
+  // clears categorySource (see setCategoryOverride), so a stale confirmation
+  // on a since-overridden row is a no-op here (its categorySource is no
+  // longer 'learned').
   const displayRows = useMemo(() => {
-    if (categoryOverrides.size === 0) return dedupedRows;
+    if (categoryOverrides.size === 0 && confirmedRows.size === 0) return dedupedRows;
     return dedupedRows.map((r) => {
       const ov = categoryOverrides.get(r.id);
-      return ov ? { ...r, ...ov } : r;
+      const row = ov ? { ...r, ...ov } : r;
+      if (confirmedRows.has(r.id) && row.categorySource === "learned") {
+        return { ...row, categorySource: "confirmed" };
+      }
+      return row;
     });
-  }, [dedupedRows, categoryOverrides]);
+  }, [dedupedRows, categoryOverrides, confirmedRows]);
 
   // Options for the header-filter dropdowns, derived from the current preview
   // batch (not the whole ledger) — matches what's actually on screen.
@@ -8672,6 +8905,53 @@ function ImportTransactions({ onImport, accountMap, config, transactions, ckCate
     const ym = (t.date || "").slice(0, 7);
     if (importDateMonths.length && !importDateMonths.includes(ym)) return false;
     return true;
+  };
+
+  // Filtered + sorted preview list (Fase 2 of the categorization-memory
+  // work: hoisted out of the render IIFE it used to live in, so both the
+  // render AND the header's "learned" count / bulk-confirm button can share
+  // one computation instead of the button acting on a different row set than
+  // what's actually on screen).
+  const previewRows = useMemo(() => {
+    const rows = displayRows
+      .filter((t) =>
+        dupFilter === "dup" ? t._dupState === "certain"
+          : dupFilter === "review" ? t._dupState === "uncertain"
+          : dupFilter === "new" ? t._dupState === "new"
+          : true
+      )
+      .filter((t) => matchesImportHeaderFilters(t))
+      .map((t, i) => ({ t, i }));
+    if (previewSort === "confidence") {
+      // Ascending — least confident (most worth a second look) first.
+      rows.sort((a, b) => {
+        const diff = categoryReviewConfidence(a.t) - categoryReviewConfidence(b.t);
+        return diff !== 0 ? diff : a.i - b.i;
+      });
+    } else {
+      // Same newest-first order as the Transactions tab, with a stable
+      // tie-break by original index (see filtered's comment there).
+      rows.sort((a, b) => (a.t.date < b.t.date ? 1 : a.t.date > b.t.date ? -1 : a.i - b.i));
+    }
+    return rows.map(({ t }) => t);
+  }, [displayRows, dupFilter, importAcctFilter, importCatFilter, importFrom, importTo, importDateMonths, previewSort]);
+
+  // How many rows currently on screen are still the memory's OWN unreviewed
+  // guess — gates whether the sort toggle / bulk-confirm button are worth
+  // showing at all (same "only show it when it's relevant" pattern as
+  // `dupCount || reviewCount` gating the duplicate-filter segmented control).
+  const learnedVisibleCount = useMemo(
+    () => previewRows.filter((t) => t.categorySource === "learned").length,
+    [previewRows]
+  );
+  const confirmAllVisibleLearned = () => {
+    const ids = previewRows.filter((t) => t.categorySource === "learned").map((t) => t.id);
+    if (ids.length === 0) return;
+    setConfirmedRows((prev) => {
+      const next = new Set(prev);
+      for (const id of ids) next.add(id);
+      return next;
+    });
   };
 
   const toggleRow = (id) => setSelected((prev) => {
@@ -8747,7 +9027,7 @@ function ImportTransactions({ onImport, accountMap, config, transactions, ckCate
         setSfRows([]);
         return;
       }
-      const mapped = classifySimpleFinRows(data.transactions, accountMap);
+      const mapped = classifySimpleFinRows(data.transactions, accountMap, merchantMemory);
       setSfRows(mapped);
       setFileName(`SimpleFin sync — ${mapped.length} transaction${mapped.length === 1 ? "" : "s"}`);
       if (data.errors && data.errors.length) {
@@ -8781,7 +9061,7 @@ function ImportTransactions({ onImport, accountMap, config, transactions, ckCate
         setError(data.error || "Falha ao carregar pendências do SimpleFin.");
         return;
       }
-      const mapped = classifySimpleFinRows(data.transactions, accountMap);
+      const mapped = classifySimpleFinRows(data.transactions, accountMap, merchantMemory);
       setSfRows(mapped);
       setSfFromPending(true);
       setFileName(`SimpleFin pendentes — ${mapped.length} transaction${mapped.length === 1 ? "" : "s"}`);
@@ -8947,21 +9227,18 @@ function ImportTransactions({ onImport, accountMap, config, transactions, ckCate
                 ))}
               </div>
             ) : null}
+            {learnedVisibleCount > 0 ? (
+              <>
+                <span style={{ color: "#fbbf24" }}>· {learnedVisibleCount} aprendido{learnedVisibleCount === 1 ? "" : "s"}</span>
+                <div style={S.segmented}>
+                  <button onClick={() => setPreviewSort("date")} style={S.segmentedBtn(previewSort === "date")}>Mais recentes</button>
+                  <button onClick={() => setPreviewSort("confidence")} style={S.segmentedBtn(previewSort === "confidence")}>Revisar primeiro</button>
+                </div>
+                <button onClick={confirmAllVisibleLearned} style={S.linkBtn}>Confirmar todos os aprendidos visíveis</button>
+              </>
+            ) : null}
           </div>
           {(() => {
-            const previewRows = displayRows
-              .filter((t) =>
-                dupFilter === "dup" ? t._dupState === "certain"
-                  : dupFilter === "review" ? t._dupState === "uncertain"
-                  : dupFilter === "new" ? t._dupState === "new"
-                  : true
-              )
-              .filter((t) => matchesImportHeaderFilters(t))
-              .map((t, i) => ({ t, i }))
-              // Same newest-first order as the Transactions tab, with a stable
-              // tie-break by original index (see filtered's comment there).
-              .sort((a, b) => (a.t.date < b.t.date ? 1 : a.t.date > b.t.date ? -1 : a.i - b.i))
-              .map(({ t }) => t);
             const shown = previewRows.slice(0, 400);
             const overflowNotice = previewRows.length > 400 ? (
               <div style={{ fontSize: 11, color: "#fbbf24", padding: "8px 12px", textAlign: "center" }}>
@@ -9043,6 +9320,8 @@ function ImportTransactions({ onImport, accountMap, config, transactions, ckCate
                                     <option key={c} value={c}>{c}</option>
                                   ))}
                                 </select>
+                                <CategoryBadge row={t} />
+                                <ConfirmCategoryButton row={t} onConfirm={confirmCategory} />
                               </td>
                               <td style={{ ...S.td, textAlign: "right", color: "#cbd5e1", whiteSpace: "nowrap" }}>{fmtMoney(t.amount)}</td>
                             </tr>
@@ -9096,7 +9375,7 @@ function ImportTransactions({ onImport, accountMap, config, transactions, ckCate
                             {review ? <span title={reasons} style={S.dupBadge(true)}>DUP?</span> : null}
                             {edited ? <span title={`Auto-detected as ${autoCategory}`} style={{ marginLeft: 6, fontSize: 10, fontWeight: 700, color: "#60a5fa", border: "1px solid #1d3a5f", borderRadius: 6, padding: "1px 5px", verticalAlign: "1px" }}>EDITED</span> : null}
                           </div>
-                          <div style={{ fontSize: 11, color: "#8b94a3", display: "flex", alignItems: "center", gap: 6, marginTop: 3 }}>
+                          <div style={{ fontSize: 11, color: "#8b94a3", display: "flex", alignItems: "center", gap: 6, marginTop: 3, flexWrap: "wrap" }}>
                             <span style={{ whiteSpace: "nowrap" }}>{t.date}{t.account ? ` · ${t.account}` : ""}</span>
                             <select
                               value={t.category}
@@ -9108,6 +9387,8 @@ function ImportTransactions({ onImport, accountMap, config, transactions, ckCate
                                 <option key={c} value={c}>{c}</option>
                               ))}
                             </select>
+                            <CategoryBadge row={t} />
+                            <ConfirmCategoryButton row={t} onConfirm={confirmCategory} />
                           </div>
                         </div>
                         <span style={{ fontSize: 14, color: "#cbd5e1", whiteSpace: "nowrap" }}>{fmtMoney(t.amount)}</span>
@@ -9190,17 +9471,20 @@ function classifyAccount(rawAccount, accountUrn, accountMap) {
 //   "CREDIT CARD" — collapsed onto the same alias guess.
 // - run the full category pipeline (`resolveImportCategory`) instead of a bare
 //   matchOption of SimpleFin's placeholder category, which SimpleFin always
-//   sends as "Other": before this, no synced row could ever be classified by a
-//   Description rule.
+//   sends as "Uncategorized": before this, no synced row could ever be
+//   classified by a Description rule — and since Fase 1 (merchant memory,
+//   `merchantMemory` param below), a SimpleFin row with no matching rule can
+//   now also be classified by what similar merchants were categorized as
+//   historically. See resolveImportCategory (src/ledger.js) for precedence.
 // Used by ImportTransactions (both "Sync now" and "Revisar pendentes").
-function classifySimpleFinRows(transactions, accountMap) {
+function classifySimpleFinRows(transactions, accountMap, merchantMemory) {
   return (transactions || [])
     // Drop accounts the user marked as already covered by another feed, before
     // they ever reach the preview (Settings → "Ignored SimpleFin accounts").
     .filter((t) => !isIgnoredSimplefinAccount(t, IGNORED_SIMPLEFIN_ACCOUNTS))
     .map((t) => {
     const account = classifyAccount(t.srcAccount, t.accountUrn || "", accountMap) || "";
-    const { category } = resolveImportCategory(
+    const { category, categorySource, categoryConfidence, categoryReason } = resolveImportCategory(
       {
         description: t.description,
         srcAccount: t.srcAccount,
@@ -9209,12 +9493,20 @@ function classifySimpleFinRows(transactions, accountMap) {
         ckCategory: t.ckCategory,
         ckType: t.ckType,
       },
-      { categories: CATEGORIES, ckCategoryMap: CK_CATEGORY_MAP, descriptionRules: CATEGORY_DESCRIPTION_RULES }
+      { categories: CATEGORIES, ckCategoryMap: CK_CATEGORY_MAP, descriptionRules: CATEGORY_DESCRIPTION_RULES, merchantMemory }
     );
     // `source` also set here (not only in lib/simplefin.js) so rows already
     // sitting in the server-side pending queue from before this version still
     // get tagged for the cross-source duplicate check.
-    return { ...t, account, category, autoCategory: category, source: "sf" };
+    const row = { ...t, account, category, autoCategory: category, source: "sf" };
+    // Same additive provenance fields as buildRow — see that function's
+    // comment for why 'none'/0/"" is omitted rather than written.
+    if (categorySource && categorySource !== "none") {
+      row.categorySource = categorySource;
+      row.categoryConfidence = categoryConfidence;
+      row.categoryReason = categoryReason;
+    }
+    return row;
   });
 }
 
@@ -9358,25 +9650,30 @@ export function detectManualCategoryCorrections(transactions, descriptionRules) 
     .sort((a, b) => b.count - a.count);
 }
 
-// Group D (uncategorized merchants): rows that landed in the catch-all "Other"
-// grouped by their description fragment (`descFragment`, the same merchant key
-// Group C and the created rule use). This is the SimpleFin-shaped gap: those
-// rows arrive with no source category at all, so nothing but a description rule
-// can ever classify them — and until one exists they pile up invisibly in
-// "Other".
+// Group D (uncategorized merchants): rows that landed in the catch-all
+// "Other" OR "Uncategorized" grouped by their description fragment
+// (`descFragment`, the same merchant key Group C and the created rule use).
+// This is the SimpleFin-shaped gap: those rows arrive with no source category
+// at all, so nothing but a description rule can ever classify them — and
+// until one exists they pile up invisibly. Both categories are checked
+// because the import pipeline's fallback changed from "Other" to
+// "Uncategorized" (see resolveImportCategory, src/ledger.js) — pre-existing
+// rows stayed "Other" (never rewritten), new ones land in "Uncategorized";
+// this panel treats both as the same kind of gap.
 // Skips, from the start (not as a follow-up):
 // - rows already matched by ANY existing description rule. First-match-wins
 //   means a new rule for the same fragment could never fire anyway, and without
 //   this the panel would flood with the entire pre-fix SimpleFin history the
 //   moment the user creates the very rule it asked for.
-// - rows the user manually set to "Other" (categoryManual) — that's a decision,
-//   not a gap.
+// - rows the user manually set to "Other"/"Uncategorized" (categoryManual) —
+//   that's a decision, not a gap.
 // Threshold >= 2 like the other groups; capped at the top 20 fragments so the
 // panel stays a suggestion list instead of a report.
 export function detectOtherDescriptionFragments(transactions, descriptionRules) {
   const groups = new Map();
   for (const t of transactions || []) {
-    if ((t.category || "") !== "Other") continue;
+    const cat = t.category || "";
+    if (cat !== "Other" && cat !== "Uncategorized") continue;
     if (t.categoryManual === true) continue;
     if (findMatchingDescriptionRule(t, descriptionRules)) continue; // already covered
     const key = descFragment(t.description);
