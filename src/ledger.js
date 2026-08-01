@@ -445,7 +445,7 @@ export function classifyMerchantMemory(row, memory) {
       category,
       confidence,
       layer: layer.name,
-      reason: `Aprendido: ${n}/${total} lançamento(s) parecido(s) → ${category}`,
+      reason: `Learned: ${n}/${total} similar transaction(s) → ${category}`,
     };
   }
   return null;
@@ -546,7 +546,7 @@ export function resolveImportCategory(row, ctx) {
   if (matchedRule && category === matchedRule.destinationCategory) {
     categorySource = "rule";
     categoryConfidence = 1;
-    categoryReason = `Regra de descrição: "${matchedRule.pattern}" → ${matchedRule.destinationCategory}`;
+    categoryReason = `Description rule: "${matchedRule.pattern}" → ${matchedRule.destinationCategory}`;
   } else if (memoryGuess && category === memoryGuess.category) {
     categorySource = "learned";
     categoryConfidence = memoryGuess.confidence;
@@ -812,23 +812,23 @@ export function scoreDuplicateCandidate(a, b) {
   const centsA = Math.round((Number(a.amount) || 0) * 100);
   const centsB = Math.round((Number(b.amount) || 0) * 100);
   if (centsA !== centsB) return null; // hard gate: same signed cents or nothing
-  const reasons = ["mesmo valor"];
+  const reasons = ["same amount"];
 
   const dayDiff = Math.abs(dateToDayInt(a.date) - dateToDayInt(b.date));
   let datePenalty;
-  if (dayDiff === 0) { datePenalty = 0; reasons.push("mesmo dia"); }
-  else if (dayDiff === 1) { datePenalty = 5; reasons.push("1 dia de diferença"); }
-  else if (dayDiff === 2) { datePenalty = 10; reasons.push("2 dias de diferença"); }
-  else if (dayDiff === 3) { datePenalty = 18; reasons.push("3 dias de diferença"); }
-  else if (dayDiff <= 5) { datePenalty = 28; reasons.push(`${dayDiff} dias de diferença`); }
+  if (dayDiff === 0) { datePenalty = 0; reasons.push("same day"); }
+  else if (dayDiff === 1) { datePenalty = 5; reasons.push("1 day apart"); }
+  else if (dayDiff === 2) { datePenalty = 10; reasons.push("2 days apart"); }
+  else if (dayDiff === 3) { datePenalty = 18; reasons.push("3 days apart"); }
+  else if (dayDiff <= 5) { datePenalty = 28; reasons.push(`${dayDiff} days apart`); }
   else return null;
 
   const accA = String(a.account || "");
   const accB = String(b.account || "");
   let accountPenalty;
-  if (accA && accB && accA === accB) { accountPenalty = 0; reasons.push("mesma conta"); }
-  else if (!accA || !accB) { accountPenalty = 10; reasons.push("conta ainda não classificada de um dos lados"); }
-  else { accountPenalty = 40; reasons.push("contas diferentes"); }
+  if (accA && accB && accA === accB) { accountPenalty = 0; reasons.push("same account"); }
+  else if (!accA || !accB) { accountPenalty = 10; reasons.push("account not yet classified on one side"); }
+  else { accountPenalty = 40; reasons.push("different accounts"); }
 
   const tokensA = descTokenSet(a);
   const tokensB = descTokenSet(b);
@@ -837,10 +837,10 @@ export function scoreDuplicateCandidate(a, b) {
   const union = new Set([...tokensA, ...tokensB]).size;
   const jaccard = union === 0 ? 0 : shared / union;
   let descPenalty;
-  if (jaccard >= 0.6) { descPenalty = 0; reasons.push("descrição praticamente igual"); }
-  else if (jaccard >= 0.3) { descPenalty = 10; reasons.push("descrição parecida"); }
-  else if (shared >= 1) { descPenalty = 20; reasons.push("poucas palavras em comum na descrição"); }
-  else { descPenalty = 35; reasons.push("descrição sem tokens em comum"); }
+  if (jaccard >= 0.6) { descPenalty = 0; reasons.push("description nearly identical"); }
+  else if (jaccard >= 0.3) { descPenalty = 10; reasons.push("similar description"); }
+  else if (shared >= 1) { descPenalty = 20; reasons.push("few common words in description"); }
+  else { descPenalty = 35; reasons.push("no common tokens in description"); }
 
   return { score: 100 - datePenalty - accountPenalty - descPenalty, dayDiff, reasons };
 }
@@ -928,7 +928,7 @@ export function markDuplicates(rows, existing) {
       idHit.consumed = true;
       state = "certain";
       score = 100;
-      reasons = ["mesmo id de origem"];
+      reasons = ["same source id"];
       match = summarize(idHit);
     } else {
       const cents = Math.round((Number(r.amount) || 0) * 100);
@@ -964,7 +964,7 @@ export function markDuplicates(rows, existing) {
         exact.consumed = true;
         state = "certain";
         score = 100;
-        reasons = ["conteúdo idêntico (data, valor, descrição e conta)"];
+        reasons = ["identical content (date, amount, description, and account)"];
         match = summarize(exact);
       } else {
         let best = null;

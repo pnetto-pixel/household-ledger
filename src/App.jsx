@@ -625,8 +625,8 @@ async function loadSfBalances({ force = false } = {}) {
         ok: false,
         status: res.status,
         error: res.status === 501
-          ? "SimpleFin não configurado (SIMPLEFIN_ACCESS_URL ausente no servidor)."
-          : (data.error || "Falha ao buscar saldos das contas."),
+          ? "SimpleFin not configured (SIMPLEFIN_ACCESS_URL missing on server)."
+          : (data.error || "Failed to fetch account balances."),
       };
     }
     const accountBalances = Array.isArray(data.accountBalances) ? data.accountBalances : [];
@@ -705,7 +705,7 @@ function idleExpired() {
 // path, so the pending copy is discarded with a notice instead).
 
 // Single source for the version shown in the header and in diagnostics.
-const APP_VERSION = "v1.69.1";
+const APP_VERSION = "v1.69.2";
 
 const PENDING_SAVE_KEY = "household_pending_save";
 
@@ -5548,8 +5548,8 @@ function Transactions({ transactions, money, hideValues, isWide, onDelete, onUpd
           ) : null}
           {learnedCount > 0 ? (
             <>
-              <span style={{ fontSize: 12, color: "#fbbf24" }}>{learnedCount} aprendido{learnedCount === 1 ? "" : "s"}</span>
-              <button onClick={confirmAllVisibleLearned} style={S.linkBtn}>Confirmar todos os aprendidos visíveis</button>
+              <span style={{ fontSize: 12, color: "#fbbf24" }}>{learnedCount} learned</span>
+              <button onClick={confirmAllVisibleLearned} style={S.linkBtn}>Confirm all visible learned</button>
             </>
           ) : null}
         </div>
@@ -6356,7 +6356,7 @@ function EditModal({ txn, onClose, onSave }) {
               category actually changes. */}
           {txn.categorySource === "learned" ? (
             <div style={{ fontSize: 12, color: "#8b94a3", marginTop: -6 }}>
-              <CategoryBadge row={txn} /> categoria sugerida pela memória — confirme ou corrija na lista de transações.
+              <CategoryBadge row={txn} /> category suggested by memory — confirm or correct it in the transactions list.
             </div>
           ) : null}
           <Field label="Account">
@@ -8515,13 +8515,13 @@ function ImportDupReviewPanel({ t, match, fmtMoney, hideValues, confirmed, onCon
     <div onClick={(e) => e.stopPropagation()}>
       <div style={S.importDupCompare}>
         <div style={S.importDupCol}>
-          <div style={S.importDupColHead}>Já no ledger</div>
+          <div style={S.importDupColHead}>Already in ledger</div>
           <div style={S.importDupColLine}>{match.date || "—"}</div>
           <div style={S.importDupColLine}>{match.description || "—"}</div>
           <div style={S.importDupColLine}>{match.account || "Unassigned"}</div>
         </div>
         <div style={S.importDupCol}>
-          <div style={{ ...S.importDupColHead, color: "#60a5fa" }}>Esta linha</div>
+          <div style={{ ...S.importDupColHead, color: "#60a5fa" }}>This row</div>
           <div style={S.importDupColLine}>{t.date || "—"}</div>
           <div style={S.importDupColLine}>{t.description || "—"}</div>
           <div style={S.importDupColLine}>{t.account || "Unassigned"}</div>
@@ -8532,13 +8532,13 @@ function ImportDupReviewPanel({ t, match, fmtMoney, hideValues, confirmed, onCon
             requires the same signed cents), so one masked-aware line says
             it once instead of twice. */}
         <span style={{ color: "#8b94a3" }}>
-          {hideValues ? "Mesmo valor nos dois lados" : `Mesmo valor: ${fmtMoney(t.amount)}`}
+          {hideValues ? "Same amount on both sides" : `Same amount: ${fmtMoney(t.amount)}`}
         </span>
         {confirmed ? (
-          <span style={{ color: "#34d399" }}>Marcada como duplicata — não será importada.</span>
+          <span style={{ color: "#34d399" }}>Marked as duplicate — will not be imported.</span>
         ) : match.existing && t.sourceId ? (
           <button type="button" onClick={onConfirm} style={S.importDupBtn}>
-            Marcar como duplicata da existente
+            Mark as duplicate of existing
           </button>
         ) : null}
       </div>
@@ -8552,11 +8552,11 @@ function ImportDupReviewPanel({ t, match, fmtMoney, hideValues, confirmed, onCon
 // instead of a guessing game between the user and whoever reads the report.
 function ImportNearMissHint({ nearMiss, fmtMoney, hideValues }) {
   if (!nearMiss) return null;
-  const dayLabel = nearMiss.dayDiff === 0 ? "mesmo dia" : `${nearMiss.dayDiff} dia${nearMiss.dayDiff === 1 ? "" : "s"} de diferença`;
-  const scoreLabel = nearMiss.score == null ? "mais de 5 dias de diferença (fora da janela)" : `pontuação ${nearMiss.score}/100 (mínimo 60 para "review")`;
+  const dayLabel = nearMiss.dayDiff === 0 ? "same day" : `${nearMiss.dayDiff} day${nearMiss.dayDiff === 1 ? "" : "s"} apart`;
+  const scoreLabel = nearMiss.score == null ? "more than 5 days apart (outside window)" : `score ${nearMiss.score}/100 (minimum 60 for "review")`;
   return (
     <div style={{ fontSize: 11, color: "#6b7280", marginTop: 2, fontStyle: "italic" }}>
-      Candidata mais próxima não bateu: {nearMiss.date || "—"} · {nearMiss.account || "Unassigned"}
+      Closest candidate didn't match: {nearMiss.date || "—"} · {nearMiss.account || "Unassigned"}
       {hideValues ? "" : ` · ${fmtMoney(nearMiss.amount)}`} · {dayLabel} · {scoreLabel}
     </div>
   );
@@ -8580,18 +8580,18 @@ const CATEGORY_BADGE_TIERS = {
 };
 function categoryBadge(row) {
   if (row.categorySource === "rule") {
-    return { label: "regra", ...CATEGORY_BADGE_TIERS.rule, title: row.categoryReason };
+    return { label: "rule", ...CATEGORY_BADGE_TIERS.rule, title: row.categoryReason };
   }
   if (row.categorySource === "confirmed") {
-    return { label: "confirmado", ...CATEGORY_BADGE_TIERS.confirmed, title: row.categoryReason };
+    return { label: "confirmed", ...CATEGORY_BADGE_TIERS.confirmed, title: row.categoryReason };
   }
   if (row.categorySource === "learned") {
     const pct = Math.round((row.categoryConfidence || 0) * 100);
     const tier = row.categoryConfidence >= 0.7 ? "high" : row.categoryConfidence >= 0.4 ? "medium" : "low";
-    return { label: `aprendido ${pct}%`, ...CATEGORY_BADGE_TIERS[tier], title: row.categoryReason };
+    return { label: `learned ${pct}%`, ...CATEGORY_BADGE_TIERS[tier], title: row.categoryReason };
   }
   if (row.category === "Uncategorized") {
-    return { label: "?", ...CATEGORY_BADGE_TIERS.none, title: "Nada classificou esta linha ainda" };
+    return { label: "?", ...CATEGORY_BADGE_TIERS.none, title: "Nothing classified this row yet" };
   }
   return null;
 }
@@ -8633,7 +8633,7 @@ function ConfirmCategoryButton({ row, onConfirm }) {
   return (
     <button
       type="button"
-      title="Confirmar esta categoria — ajuda a memória a aprender com mais confiança"
+      title="Confirm this category — helps the memory learn with more confidence"
       onClick={(e) => { e.stopPropagation(); onConfirm(row.id); }}
       style={{
         marginLeft: 4, fontSize: 10, fontWeight: 700, color: "#34d399",
@@ -9070,8 +9070,8 @@ function ImportTransactions({
       if (!res.ok) {
         setError(
           res.status === 501
-            ? "SimpleFin não configurado (SIMPLEFIN_ACCESS_URL ausente no servidor)."
-            : (data.error || "Falha ao sincronizar com o SimpleFin.")
+            ? "SimpleFin not configured (SIMPLEFIN_ACCESS_URL missing on server)."
+            : (data.error || "Failed to sync with SimpleFin.")
         );
         setSfRows([]);
         return;
@@ -9107,13 +9107,13 @@ function ImportTransactions({
       const res = await fetch("/api/simplefin-sync?pending=1", { headers: buildAuthHeaders() });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        setError(data.error || "Falha ao carregar pendências do SimpleFin.");
+        setError(data.error || "Failed to load SimpleFin pending items.");
         return;
       }
       const mapped = classifySimpleFinRows(data.transactions, accountMap, merchantMemory);
       setSfRows(mapped);
       setSfFromPending(true);
-      setFileName(`SimpleFin pendentes — ${mapped.length} transaction${mapped.length === 1 ? "" : "s"}`);
+      setFileName(`SimpleFin pending — ${mapped.length} transaction${mapped.length === 1 ? "" : "s"}`);
     } catch (err) {
       setError(`Could not reach the pending queue: ${err.message}`);
     } finally {
@@ -9165,7 +9165,7 @@ function ImportTransactions({
                   disabled={sfLoading}
                   style={{ ...S.primaryBtn, opacity: sfLoading ? 0.6 : 1, cursor: sfLoading ? "not-allowed" : "pointer", padding: "7px 16px", minHeight: 32, fontSize: 13 }}
                 >
-                  {sfLoading ? "Carregando…" : `Revisar ${sfPendingCount} pendente${sfPendingCount === 1 ? "" : "s"}`}
+                  {sfLoading ? "Loading…" : `Review ${sfPendingCount} pending`}
                 </button>
               ) : null}
               <button
@@ -9186,7 +9186,7 @@ function ImportTransactions({
           </div>
           {sfPendingCount > 0 ? (
             <div style={{ fontSize: 12, color: "#fbbf24", background: "#241d0f", border: "1px solid #4a3a12", borderRadius: 10, padding: "6px 10px", lineHeight: 1.4 }}>
-              {sfPendingCount} transaç{sfPendingCount === 1 ? "ão" : "ões"} do SimpleFin (sync automático diário) pendente{sfPendingCount === 1 ? "" : "s"} de revisão.
+              {sfPendingCount} transaction{sfPendingCount === 1 ? "" : "s"} from SimpleFin (daily auto-sync) pending review.
             </div>
           ) : null}
         </div>
@@ -9278,12 +9278,12 @@ function ImportTransactions({
             ) : null}
             {learnedVisibleCount > 0 ? (
               <>
-                <span style={{ color: "#fbbf24" }}>· {learnedVisibleCount} aprendido{learnedVisibleCount === 1 ? "" : "s"}</span>
+                <span style={{ color: "#fbbf24" }}>· {learnedVisibleCount} learned</span>
                 <div style={S.segmented}>
-                  <button onClick={() => setPreviewSort("date")} style={S.segmentedBtn(previewSort === "date")}>Mais recentes</button>
-                  <button onClick={() => setPreviewSort("confidence")} style={S.segmentedBtn(previewSort === "confidence")}>Revisar primeiro</button>
+                  <button onClick={() => setPreviewSort("date")} style={S.segmentedBtn(previewSort === "date")}>Most recent</button>
+                  <button onClick={() => setPreviewSort("confidence")} style={S.segmentedBtn(previewSort === "confidence")}>Review first</button>
                 </div>
-                <button onClick={confirmAllVisibleLearned} style={S.linkBtn}>Confirmar todos os aprendidos visíveis</button>
+                <button onClick={confirmAllVisibleLearned} style={S.linkBtn}>Confirm all visible learned</button>
               </>
             ) : null}
           </div>
