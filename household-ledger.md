@@ -4947,3 +4947,56 @@ riscos reais de perda de dados.
   gráficos. Padrão de "deferred mount via double rAF" documentado na seção
   UI/Home (item 1, `DailyPaceCard`) para reaproveitar caso o mesmo sintoma
   apareça em outro card com `ResponsiveContainer`.
+- [x] **Classificação automática de categorias por memória de comerciante**
+  (PR #256, branch `claude/simplefin-transaction-classification-luezyx`, 3
+  commits/fases na mesma PR, v1.65.0 → v1.66.0 → v1.67.0) — pipeline de
+  aprendizado que reduz a fração de importações caindo em "não
+  classificado", complementar às regras manuais (Description rules, Fase 5)
+  e ao mapa CK→ledger, sem substituir nenhum dos dois. **Fase 0** (SHA
+  `16bfdf6`, v1.65.0): nova função pura `merchantKey(description)`
+  (`src/ledger.js`) normaliza a descrição bruta numa chave de comerciante
+  comparável (corta endereço inline formato Apple Card, separa prefixo de
+  agregador tipo "TST*"/"DD *", remove telefone/número de loja/UF final),
+  retornando `{ key, tokens, prefix }`; `resolveImportCategory` passa a
+  retornar também `categorySource`/`categoryConfidence`/`categoryReason`
+  (campos novos, opcionais e aditivos na transação). Nova categoria
+  `Uncategorized` substitui `"Other"` como fallback de "nada classificou
+  esta linha" em `resolveImportCategory`/`mapCkCategory` (`src/ledger.js`) e
+  `DEFAULT_CATEGORY` (`lib/simplefin.js`); `Other` continua existindo
+  intocada como categoria manual normal, selecionável como sempre. **Fase 1**
+  (SHA `794a494`, v1.66.0): `buildMerchantMemory(transactions)` (nova) varre
+  o ledger inteiro e monta 6 camadas de confiança decrescente (conta+
+  descrição completa → descrição completa → conta+2 tokens → 2 tokens → 1
+  token → conta sozinha como prior), treinando só com linhas confiáveis
+  (`isMemoryTrainableRow`, nova — exclui `Uncategorized`, `Transfer` e
+  linhas já `categorySource === 'learned'`, pra não treinar com os próprios
+  palpites e criar loop de reforço); `classifyMerchantMemory` testa as
+  camadas da mais específica pra mais genérica, `confidence = peso_da_camada
+  × pureza × suporte`. `resolveImportCategory` ganha um novo degrau de
+  precedência entre regra/categoria da própria fonte e o fallback final —
+  nunca sobrepõe nem regra nem categoria real da fonte, nunca desfaz o
+  safety-net de Transfer (PR #111). Validado contra o histórico real da
+  household: ~62% das linhas auto-classificadas a ~91% de precisão no corte
+  de confiança 0,5, ~42% a ~98% no corte 0,9. **Fase 2** (SHA `f4059f5`,
+  v1.67.0): a memória fica visível e revisável na tela de Import —
+  `CategoryBadge` (nova) etiqueta cada linha (`regra`/`aprendido XX%`/
+  `confirmado`/`?`), `ConfirmCategoryButton` (nova) promove uma linha
+  `'learned'` pra `'confirmed'` (fecha o ciclo de treino sem alterar a
+  categoria), toggle de ordenação "Revisar primeiro" (por
+  `categoryReviewConfidence` crescente) e botão de confirmação em massa
+  respeitando os filtros já aplicados no preview; corrigido de brinde um bug
+  latente da Fase 0 em que `setCategoryOverride` não limpava os campos de
+  classificação obsoletos ao corrigir manualmente uma linha, o que excluía
+  correções humanas genuínas do treino por engano. 125 testes unitários
+  novos/passando, build de produção ok, teste manual real via Playwright
+  (badge/ordenação/confirmação individual/confirmação em massa/limpeza de
+  badge ao editar manualmente/layout mobile). Ver "Versão atual"/"Versão
+  anterior" no topo deste documento para o detalhamento completo por fase.
+  - [ ] **Fase 4 futura — classificação por LLM** para o que sobrar sem
+    classificação, só depois de um período real de uso da memória —
+    decisão explícita do usuário de aguardar; ainda não iniciada.
+  - [ ] **Linhas `'learned'` nunca revisadas no import ficam congeladas
+    indefinidamente** — `Transactions`/`EditModal` não leem `categorySource`
+    hoje, então fora da tela de Import não há badge nem confirmação
+    disponível para essas linhas; lacuna identificada em auditoria, ainda
+    sem decisão de produto.
