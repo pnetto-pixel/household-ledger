@@ -8,17 +8,28 @@
 ## Stack
 React 18 + Vite (front) · recharts (gráficos) · papaparse (CSV) ·
 lucide-react (ícones) · funções serverless Vercel (`/api/*`) · Redis via
-`ioredis` · Auth somente por senha de app (`lib/auth.js`; Google JWT
-removido na v1.30.0). Auto-lock de cliente após 30 min de inatividade
-(v1.45.0): a senha sai do `localStorage` e o login volta; timestamp
-`household_last_active` compartilhado entre abas.
+`ioredis` · Auth via Google Identity Services (login único troca o ID token
+do Google por uma sessão opaca de 30 dias no Redis, enviada depois via
+header `x-session-token`; `lib/auth.js`; reinstated na v1.55.0 — havia sido
+removida na v1.30.0, ver `household-ledger.md`). `APP_PASSWORD`/
+`HOUSEHOLD_ID` seguem lidos só para derivar a `storageKey` compartilhada;
+não autenticam mais nada. Auto-lock de cliente após 30 min de inatividade
+(v1.45.0): o token de sessão sai do `localStorage` (`household_session`) e o
+login volta; timestamp `household_last_active` compartilhado entre abas.
 
 ## Estrutura
 - `src/App.jsx` — app inteiro, monolito single-file (5 tabs), organizado em
   seções com comentários `// ===`.
 - `api/transactions.js`, `api/budgets.js`, `api/account-map.js`,
-  `api/account-aliases.js`, `api/config.js` — GET/PUT serverless.
-- `lib/auth.js`, `lib/redis.js` — não tocar sem motivo claro.
+  `api/account-aliases.js`, `api/config.js` (dobra `POST ?googleLogin=1`),
+  `api/ck-category-map.js`, `api/category-description-rules.js`,
+  `api/dismissed-suggestions.js`, `api/apple-daily-cash-rule.js`,
+  `api/snapshots.js`, `api/simplefin-sync.js` (dobra `?pending=1`),
+  `api/cron/simplefin-sync.js` — GET/PUT serverless. Vários endpoints dobram
+  rotas via query param no mesmo arquivo em vez de arquivo próprio, para
+  respeitar o limite de 12 Serverless Functions do plano Vercel Hobby.
+- `lib/auth.js`, `lib/redis.js`, `lib/simplefin.js` — não tocar sem motivo
+  claro.
 
 ## Modelo de transação (fixo)
 ```jsonc
@@ -27,7 +38,13 @@ removido na v1.30.0). Auto-lock de cliente após 30 min de inatividade
   "amount": 142.37,        // fluxo de caixa SINALIZADO (não sempre positivo!)
   "category": "Groceries", "account": "...",
   // opcionais: srcAccount, accountUrn, last4, ckCategory, sourceId,
-  // categoryManual, autoCategory
+  // categoryManual, autoCategory,
+  // source ("sf" = veio do SimpleFin), altSourceIds (array de outros
+  // sourceId que a mesma txn também responde, usado no dedupe
+  // cross-source por sourceIdsOf()), categorySource ('rule' | 'learned'
+  // | 'confirmed'; ausente = categoria real/desconhecida),
+  // categoryConfidence (0-1), categoryReason (texto explicativo da
+  // classificação automática)
 }
 ```
 - **`amount` é sinalizado**: despesa negativa, receita positiva — vem
@@ -52,7 +69,9 @@ removido na v1.30.0). Auto-lock de cliente após 30 min de inatividade
 - Namespace `household:*:transactions` (chave derivada por usuário a partir
   de `auth.storageKey`, reescrita de `portfolio:...:holdings` para
   `household:...:transactions`). Snapshots diários aditivos em
-  `household:*:transactions:snapshot:YYYY-MM-DD` (TTL 30d, nunca lidos pelo
+  `household:*:transactions:snapshot:YYYY-MM-DD` (TTL 7d — reduzido de 30d
+  na v1.56.5 após um incidente de `maxmemory` no Redis; `sweepOldSnapshots`
+  varre explicitamente snapshots gravados sob o TTL antigo; nunca lidos pelo
   app). Meta de concorrência em `household:*:transactions:meta` (v1.47.1,
   string `savedAt|clientId` — o CAS Lua NÃO decodifica o blob JSON; cjson
   rejeita surrogates sem par que o JS aceita, o que já travou um ledger em
@@ -64,8 +83,9 @@ removido na v1.30.0). Auto-lock de cliente após 30 min de inatividade
 - **Sem libs novas** além do que já está no `package.json` (react, react-dom,
   recharts, papaparse, lucide-react). Sem CSS files / sem Tailwind.
 - **Estilos inline via objeto `S`** no fim de `src/App.jsx`. Tokens: fundo
-  `#0b0d10`, cards `#14171c`, texto mudo `#8b94a3`, verde `#34d399`,
-  vermelho `#f87171`, azul `#60a5fa`. Acrescente entradas novas em `S`.
+  `#0b0d10`, cards/surface `#161a20` (border `#1e2530`), texto mudo
+  `#8b94a3`, verde `#34d399`, vermelho `#f87171`, azul `#60a5fa`. Acrescente
+  entradas novas em `S`.
 - **Mobile-first, tema escuro, app inicia vazio (sem SEED).** Respeite o
   toggle do olho (`hideValues` / helper `money`) em qualquer valor
   monetário novo.
@@ -86,6 +106,10 @@ major só se pedido. O feature-auditor reprova PR sem bump. Ver
 `household-ledger.md` seção `## Versionamento` para o histórico.
 
 ## Env vars
-`REDIS_URL`, `APP_PASSWORD`, `SIMPLEFIN_ACCESS_URL` (credencial SimpleFin
-Bridge), `CRON_SECRET` (protege `api/cron/simplefin-sync.js`; sem ela o
-endpoint sempre responde 401). (Vars do login Google removidas na v1.30.0.)
+`REDIS_URL`, `APP_PASSWORD` (legado — só usada para derivar a `storageKey`
+compartilhada, não autentica mais ninguém), `SIMPLEFIN_ACCESS_URL`
+(credencial SimpleFin Bridge), `CRON_SECRET` (protege
+`api/cron/simplefin-sync.js`; sem ela o endpoint sempre responde 401).
+Login Google (reinstated v1.55.0): `GOOGLE_CLIENT_ID` (server, valida `aud`
+do ID token), `VITE_GOOGLE_CLIENT_ID` (client, id do botão), `ALLOWED_EMAILS`
+(opcional, default cobre os 2 emails da casa).

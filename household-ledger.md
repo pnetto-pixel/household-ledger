@@ -2177,7 +2177,7 @@ Com esta entrega, o item "Auditoria de classificação de categorias" da Fase
 | Ícones        | lucide-react                                           |
 | API           | Funções serverless Vercel (`/api/*`)                   |
 | Persistência  | Redis via `ioredis`                                    |
-| Auth          | Google Identity (JWT) com fallback de senha de app     |
+| Auth          | Google Identity Services (OAuth) + sessão opaca no Redis |
 | Deploy        | Vercel                                                 |
 
 ### Estrutura de pastas
@@ -2185,16 +2185,24 @@ Com esta entrega, o item "Auditoria de classificação de categorias" da Fase
 ```
 household-ledger/
 ├── api/
-│   ├── transactions.js     # GET/PUT do ledger (auth obrigatória)
-│   ├── budgets.js          # GET/PUT de orçamentos por categoria
-│   ├── account-map.js      # GET/PUT do mapa accountURN -> conta
-│   ├── account-aliases.js  # GET/PUT dos aliases de conta (fragmentos por marca)
-│   └── config.js           # GET/PUT das listas de contas/categorias
+│   ├── transactions.js             # GET/PUT do ledger (auth obrigatória)
+│   ├── budgets.js                  # GET/PUT de orçamentos por categoria
+│   ├── account-map.js              # GET/PUT do mapa accountURN -> conta
+│   ├── account-aliases.js          # GET/PUT dos aliases de conta (fragmentos por marca)
+│   ├── config.js                   # GET/PUT das listas de contas/categorias; dobra POST ?googleLogin=1
+│   ├── ck-category-map.js          # GET/PUT do mapa categoria CK -> categoria ledger
+│   ├── category-description-rules.js # GET/PUT das Description rules
+│   ├── dismissed-suggestions.js    # GET/PUT dos cards dispensados em "Suggested rules"
+│   ├── apple-daily-cash-rule.js    # GET/PUT da regra Apple Card Daily Cash
+│   ├── snapshots.js                # GET read-only dos snapshots diários
+│   ├── simplefin-sync.js           # GET sync manual; dobra ?pending=1 (GET/DELETE da fila do cron)
+│   └── cron/simplefin-sync.js      # Vercel Cron Job diário, grava a fila do SimpleFin
 ├── tools/
 │   └── credit-karma/       # exportadores CK (bookmarklet Safari + Scriptable)
 ├── lib/
-│   ├── auth.js             # verificação de token Google + senha + allowlist
-│   └── redis.js            # singleton ioredis
+│   ├── auth.js             # login Google (uma vez) + sessão opaca + allowlist
+│   ├── redis.js            # singleton ioredis
+│   └── simplefin.js        # cliente/mapeamento da API SimpleFin
 ├── src/
 │   ├── App.jsx             # app completo (5 tabs)
 │   └── main.jsx            # entrypoint React
@@ -2208,26 +2216,30 @@ household-ledger/
 
 ## Autenticação e armazenamento
 
-Autenticação **somente por senha de app** compartilhada entre os
-dispositivos da casa (`lib/auth.js`): header `x-app-password`, comparado
-com `APP_PASSWORD` em tempo constante (`crypto.timingSafeEqual` sobre
-digests SHA-256). O caminho de **Google JWT foi removido na v1.30.0**
-(client e server) — o household usa uma única senha em vários dispositivos,
-e o ID token do Google (validade ~1h) causava falhas silenciosas de save no
-meio da sessão.
+**Autenticação via Google Identity Services** (reinstated na v1.55.0, depois
+de ter sido removida na v1.30.0 — ver os dois changelogs no topo do
+documento para o histórico completo). O client troca o ID token do Google
+(usado uma única vez, no login) por uma sessão própria do servidor: token
+opaco de 32 bytes, guardado em Redis (`household:session:<token>`, TTL 30
+dias), enviado em todo request seguinte via header `x-session-token`
+(`lib/auth.js`, `authenticate()`). Allowlist fixa de 2 emails
+(`pnetto@gmail.com`, `belasp@hotmail.com`, configurável via env
+`ALLOWED_EMAILS`). `APP_PASSWORD` **não é mais checado como credencial** —
+segue lido, se presente, só para reproduzir a mesma `storageKey` de antes
+(sem ele, cai para `HOUSEHOLD_ID` ou um fallback fixo).
 
-A chave de armazenamento é derivada da senha. A `auth.storageKey` mantém o
-formato legado `portfolio:pwd:<hash>:holdings` (o hash é o mesmo de antes —
-nenhum dado muda de lugar); em `api/transactions.js` ela é reescrita para o
-namespace do household:
+A chave de armazenamento continua fixa e compartilhada entre os dois
+emails, derivada da mesma seed de sempre (`APP_PASSWORD`/`HOUSEHOLD_ID`) via
+`auth.storageKey`, formato legado `portfolio:pwd:<hash>:holdings` (o hash é
+o mesmo de antes — nenhum dado mudou de lugar com a reintrodução do Google
+login); em `api/transactions.js` ela é reescrita para o namespace do
+household:
 
 ```
 portfolio:pwd:<hash>:holdings    ->  household:pwd:<hash>:transactions
 ```
 
-Assim o ledger nunca colide com nenhum blob de portfolio. Dados de
-households que usavam login Google seguem intactos sob
-`household:email:<hash>:*`, apenas sem caminho de acesso via UI.
+Assim o ledger nunca colide com nenhum blob de portfolio.
 
 **Concorrência (v1.30.0)**: o PUT de `/api/transactions` é otimista — o
 client envia `expectedSavedAt` (o `savedAt` que carregou/salvou por último)
@@ -2236,11 +2248,14 @@ dispositivo salvou no meio). O client então recarrega do server e avisa o
 usuário para refazer a última mudança. Clientes sem o campo mantêm o
 last-write-wins antigo (back-compat).
 
-**Snapshots (v1.30.0)**: o primeiro PUT bem-sucedido de cada dia (UTC)
-grava uma cópia imutável em `household:*:transactions:snapshot:YYYY-MM-DD`
-com TTL de 30 dias (`SET NX` — só o primeiro estado do dia). Aditivo, nunca
-lido pelo app; rede de segurança contra um save/restore ruim (restauração
-manual via Redis).
+**Snapshots (v1.30.0; TTL reduzido de 30 → 7 dias na v1.56.5 após um
+incidente de `maxmemory` no Redis — ver changelog v1.56.5)**: o primeiro PUT
+bem-sucedido de cada dia (UTC) grava uma cópia imutável em
+`household:*:transactions:snapshot:YYYY-MM-DD` com TTL de 7 dias
+(`SET NX` — só o primeiro estado do dia; `sweepOldSnapshots` varre
+explicitamente snapshots fora da janela, já que baixar o TTL só afeta
+gravações novas). Aditivo, nunca lido pelo app; rede de segurança contra um
+save/restore ruim (restauração manual via Redis).
 
 **Fila de pendências do SimpleFin cron (v1.49.0)**: chave Redis auxiliar
 `household:<storageKey>:simplefin-pending`, payload `{ transactions: [...],
@@ -2259,13 +2274,17 @@ fila só existe para alimentar a tela de revisão/import na tab Import.
 | Variável                 | Uso                                              |
 | ------------------------ | ------------------------------------------------ |
 | `REDIS_URL`              | conexão Redis                                    |
-| `APP_PASSWORD`           | senha de app (única forma de autenticação)       |
+| `APP_PASSWORD`           | legado — só deriva a `storageKey` compartilhada; não autentica mais nada desde a v1.55.0 |
 | `SIMPLEFIN_ACCESS_URL`   | credencial SimpleFin Bridge (v1.48.0)            |
 | `CRON_SECRET`            | protege `api/cron/simplefin-sync.js` (v1.49.0); precisa ser configurada manualmente na Vercel — sem ela o endpoint sempre responde 401 (fail-safe) |
+| `GOOGLE_CLIENT_ID`       | login Google (v1.55.0, server) — valida o `aud` do ID token contra o tokeninfo do Google |
+| `VITE_GOOGLE_CLIENT_ID`  | login Google (v1.55.0, client) — id do botão/GIS  |
+| `ALLOWED_EMAILS`         | login Google (v1.55.0, opcional) — allowlist; default já cobre os 2 emails da casa |
 
-*(Removidas na v1.30.0 junto com o login Google: `GOOGLE_CLIENT_ID`,
-`ALLOWED_EMAILS`, `ADMIN_EMAILS`, `VITE_GOOGLE_CLIENT_ID`,
-`VITE_ADMIN_EMAILS` — podem ser apagadas do projeto na Vercel.)*
+*(`ADMIN_EMAILS`/`VITE_ADMIN_EMAILS` seguem sem uso desde a v1.30.0 — podem
+ser apagadas do projeto na Vercel. `GOOGLE_CLIENT_ID`/`ALLOWED_EMAILS`/
+`VITE_GOOGLE_CLIENT_ID` tinham sido removidas junto naquela versão, mas
+voltaram a ser usadas com a reintrodução do login Google na v1.55.0.)*
 
 ---
 
@@ -2289,9 +2308,27 @@ Cada transação:
   "categoryManual": true,      // opcional — usuário trocou a categoria manualmente
   "autoCategory": "Groceries", // opcional — categoria computada por buildRow no import (snapshot)
   "source": "ck",              // opcional (v1.56.0) — feed de origem: "ck" | "csv" | "sf"
-  "altSourceIds": ["9"]        // opcional (v1.56.0) — ids de OUTRAS fontes confirmados como a mesma transação
+  "altSourceIds": ["9"],       // opcional (v1.56.0) — ids de OUTRAS fontes confirmados como a mesma transação
+  "categorySource": "learned", // opcional (v1.65.0) — 'rule' | 'learned' | 'confirmed'; ausente = categoria real/desconhecida
+  "categoryConfidence": 0.82,  // opcional (v1.65.0) — 0–1, confiança da classificação automática
+  "categoryReason": "..."      // opcional (v1.65.0) — texto explicativo da classificação (tooltip)
 }
 ```
+
+**`categorySource`/`categoryConfidence`/`categoryReason` (v1.65.0–v1.67.0,
+classificação automática por memória de comerciante — ver "Versão atual"/
+"Versão anterior" no topo e o Roadmap).** Aditivos e opcionais, gravados por
+`resolveImportCategory` (`src/ledger.js`) no import. `categorySource: 'rule'`
+= veio de uma Description rule/mapa CK; `'learned'` = palpite da memória de
+comerciante, ainda não revisado; `'confirmed'` = um `'learned'` que o
+usuário validou (via `ConfirmCategoryButton`/`confirmLearned`, sem alterar a
+categoria). Linhas `'learned'` são excluídas do treino
+(`isMemoryTrainableRow`), evitando que um palpite errado se auto-reforce a
+cada import; confirmar (`'learned'` → `'confirmed'`) devolve a linha ao
+conjunto de treino — é justamente para isso que o ✓ existe. Editar a
+categoria
+manualmente limpa os três campos (junto com `categoryManual`/`autoCategory`
+sendo setados normalmente).
 
 **`source`/`altSourceIds` (v1.56.0).** Ambos aditivos e opcionais; nenhum
 altera o contrato de `/api/transactions` nem o formato Redis, e
@@ -2833,12 +2870,13 @@ Mobile-first, tema escuro iOS. Tab bar inferior fixa com 5 abas. A entrada de tr
 - **Overhaul visual "Liquid Glass" (fases A–F), CONCLUÍDO — todas as 6 fases entregues (PR #144/#145/#146/#147/#148, v1.21.0 → v1.21.5)**: overhaul visual em fases, inspirado no "Liquid Glass" da Apple, decidido com o usuário como evolução do Redesign iOS 26 "Liquid Glass" original (PR #23, acima). Único arquivo alterado em todas as fases: `src/App.jsx`. **Fase A** (header/tab bar): ícone do header trocado de `LayoutDashboard` para **`Wallet`** (mais condizente com o tema financeiro do app); tile do ícone do header com `borderRadius` 9 + gradiente de realce translúcido neutro + `boxShadow` inset (reflexo de vidro); `S.tabBar` deixou de ter fundo opaco e passou a ser translúcido (`rgba(11,13,16,0.85)`) com `backdropFilter: blur(20px) saturate(180%)`, igual ao já existente em `S.header` — header e tab bar compartilham o mesmo efeito glass. **Fase B** (modais/popovers/overlay): `S.modalOverlay` ganhou blur leve; `S.modalCard` e `S.loginCard` deixaram de ter fundo opaco (`rgba(22,26,32,0.82)` + `blur(20px) saturate(180%)` + borda translúcida + `boxShadow` de profundidade); `S.headerPop` (popover de filtro) ganhou o mesmo tratamento. **Fase C** (cards de conteúdo): `S.card` (base de `StatCard` e vários blocos) deixou de ter fundo opaco (`rgba(22,26,32,0.7)` + `blur(16px) saturate(160%)` + borda translúcida, `borderRadius` 16→14); hero card do Home com gradiente translúcido + realce de luz diagonal + `boxShadow` inset; `CollapsibleCard`, `S.summaryBar` e `S.bulkBar` receberam o mesmo tratamento, `borderRadius` uniformizado para 14px (hero card em 20px, igual ao `modalCard`); `StatCard` herdou a translucidez automaticamente via `S.card`. **Fase D** (linhas de transação) foi só uma verificação de consistência, sem código: decisão fixada reafirmada — linhas de transação (`S.txnRow`, `TxnAuditCard`, avatar de categoria) permanecem **opacas**, sem glass, por serem lista potencialmente longa (risco de performance no scroll); app permaneceu em v1.21.3 nesta fase. **Fase E** (inputs, botões e chips/pills): `S.input`, `S.select`, `S.searchWrap`, `S.cellSelect`, `S.importCatSelect` deixaram de ter fundo opaco e passaram a `rgba(15,18,22,0.92)` + borda translúcida + `boxShadow` inset simulando campo "escavado" (sem blur — inputs continuam sem `backdropFilter`, por serem pequenos e precisarem de máxima legibilidade); `S.primaryBtn` ganhou gradiente duplo (sheen branco translúcido + azul `#0A84FF→#0055cc`) + `boxShadow` com realce de luz no topo; `S.secondaryBtn` ganhou borda mais visível, fundo continua transparente; `S.chipBtn`, `S.togglePill`, `S.segmentedBtn`, `S.segmented` tiveram fundos sólidos por estado convertidos para `rgba` translúcido, mantendo bordas de acento como indicador de estado. **Fase F** (gráficos/tooltips Recharts, PR #148, v1.21.5 — última fase, fecha a iniciativa): os 5 blocos `Tooltip.contentStyle` (`MonthlyBarCard`, `DailyPaceCard`, `CategoryStackedBarCard`, `MonthlyAvgByCategoryCard`, `Charts`) tiveram a borda trocada para `rgba(255,255,255,0.12)`, `borderRadius` uniformizado para 14 e ganharam `boxShadow: "0 8px 24px rgba(0,0,0,0.4)"` (efeito de profundidade sobre o gráfico); o fundo do tooltip permanece **opaco** — exceção deliberada, por legibilidade instantânea de dados financeiros; `CartesianGrid` já estava consistente em todos os gráficos. Decisões de estilo fixadas para todo o overhaul: ícone do header = `Wallet`; realces de luz = branco neutro, sem tingimento de marca.
 - **Tela cheia iOS PWA (full-bleed)**: o `viewport-fit=cover` só passa a valer com o meta limpo (sem `maximum-scale`) **e** uma reinstalação na tela inicial (o iOS faz snapshot do viewport no add-to-home-screen). A medição no device foi decisiva: `100dvh`/`100svh` = a *layout viewport* (812 pt no iPhone 16 Pro, que **exclui** a área do home indicator), enquanto `100vh`/`100lvh` = a tela física completa (874 pt). Por isso `html`/`body`/`#root` usam **`height: 100lvh`** com `overflow: hidden` (sem rubber-band) e o shell `height: 100%`. Resultado: a tab bar encosta na borda física real (medido `belowNav = 0`), sem faixa preta. `env(safe-area-inset-bottom)` no padding da barra mantém os ícones acima do home indicator; `env(safe-area-inset-top)` no header limpa a Dynamic Island.
 
-São **6 tabs**: Home (antiga **Dashboard**, renomeada na v1.20.2, PR #138 —
+São **5 tabs**: Home (antiga **Dashboard**, renomeada na v1.20.2, PR #138 —
 ver "Identidade visual" acima), Trends (antiga **Analyze**, renomeada na
 v1.21.0, PR #143 — ver "Identidade visual" acima), Transactions, Import,
-**Preview** (nova na v1.50.0, PR #216 — ver item logo após Import abaixo),
 Settings (antiga **Audit**, renomeada e consolidada com o antigo
-`SettingsModal` na v1.17.0, PR #128 — ver item 5 abaixo). O app usa
+`SettingsModal` na v1.17.0, PR #128 — ver item 5 abaixo). (Houve uma 6ª tab,
+**Preview**, de v1.50.0 a v1.53.1 — removida na v1.54.0; ver item 4 "Import"
+abaixo e o changelog v1.54.0 para o histórico.) O app usa
 shell de altura cheia (`#root` em `100lvh` + shell `height:100%`): só o
 `<main>` faz scroll, então header e tab bar ficam fixos.
 
@@ -3282,73 +3320,17 @@ shell de altura cheia (`#root` em `100lvh` + shell `height:100%`): só o
    de duplicata real, pois o dedup final (`markDuplicates`) sempre roda
    contra o ledger antes de importar.
 
-   **Tab SimpleFin (v1.50.0, PR #216, então chamada "Preview"; tabela crua
-   desde v1.51.0; fallback ao vivo desde v1.51.1; renomeada + sort/filtro
-   por coluna na v1.52.0; sub-seção Holdings desde v1.53.0)** — tab na
-   navegação principal, logo após Import,
-   ícone `Eye`. É uma **vitrine 100% read-only**: ao entrar na tab,
-   busca automaticamente (sem precisar de clique) `GET
-   /api/simplefin-sync?pending=1` (a fila do cron) e classifica cada
-   transação com o helper `classifySimpleFinRows(transactions, accountMap)`
-   (compartilhado com os fluxos "Sync now"/"Revisar pendentes" do Import).
-   **Desde a v1.51.1**, se essa fila vier vazia (cron ainda não rodou com
-   sucesso, ou nunca rodou), a tab cai automaticamente para uma busca ao
-   vivo (`GET /api/simplefin-sync`, sem `?pending=1` — mesmo endpoint do
-   "Sync now"); também há um botão manual **"Buscar ao vivo"** sempre
-   visível e um indicador de fonte ("fila do cron diário" vs. "busca ao
-   vivo (agora)") acima da tabela. Desde a v1.51.0, em vez de reaproveitar
-   `TxnRow`, renderiza uma **tabela com uma coluna por campo cru do
-   SimpleFin** — `mapTransaction()` (`lib/simplefin.js`) preserva o objeto
-   original da API inteiro num campo `raw` (mais metadados de conta/org:
-   `accountId`, `accountName`, `accountCurrency`, `accountBalance`,
-   `orgName`, `orgDomain`), e a tab deriva as colunas dinamicamente da união
-   de chaves presentes em `raw` em todas as linhas — ordem: campos
-   conhecidos primeiro (`SF_RAW_COLUMN_ORDER`), qualquer campo
-   extra/institucional (ex. sob `extra`) depois, alfabético — mais duas
-   colunas finais fixas com a conta/categoria sugeridas, para comparar a
-   estrutura crua da API com a classificação do app lado a lado. Serve para
-   estudar como a API do SimpleFin realmente estrutura os dados. **Desde a
-   v1.52.0**: cada cabeçalho de coluna é clicável (ordena asc → desc → sem
-   ordenação; compara numericamente quando o valor é número, senão por
-   string) e tem, logo abaixo, um campo de texto para filtrar aquela coluna
-   por substring (case-insensitive, sobre o valor já formatado da célula) —
-   tudo em memória, sem re-fetch; `columns`/`displayRows` (`useMemo`)
-   centralizam sort/filtro para as colunas raw e para as duas colunas de
-   sugestão igualmente. Tem um aviso fixo no topo deixando claro que são
-   sugestões **não confirmadas**.
-   **Não existe nenhuma ação de escrita** — sem editar, deletar, selecionar
-   ou confirmar/importar a partir dessa tab (nem no modo "ao vivo"); para
-   importar de fato, o usuário continua usando a tab Import ("Sync now" ou
-   "Revisar N pendentes"), inalterada. **Importante**: `raw` nunca é
-   persistido no ledger — `confirm()` no Import o remove explicitamente
-   (`{ _dup, raw, ...t }`) antes de chamar `onImport`, então o campo existe
-   só em memória para essas duas telas. Estados tratados: vazio (nem fila
-   nem busca ao vivo trouxeram nada — sugestão de tentar "Buscar ao vivo"),
-   erro (distingue "SimpleFin não configurado" de falha de rede, mesmas
-   mensagens do fluxo de Import) e loading.
-
-   **Sub-seção Holdings (v1.53.0)** — abaixo da tabela de transactions,
-   mostra `account.holdings` cru (posições de investimento), a mesma
-   investigação descrita em "Versão atual" acima sobre por que a conta
-   Fidelity "Individual - TOD" não reporta trades/maturidades de bond em
-   `account.transactions`. Componente próprio (`SimpleFinHoldingsSection`)
-   com fetch/loading/error/rows independentes da tabela de transactions —
-   sempre busca ao vivo (`GET /api/simplefin-sync`, nunca `?pending=1`,
-   porque a fila do cron nunca inclui `holdings`), disparado ao montar a
-   tab, com botão próprio "Atualizar holdings". Mesma mecânica de
-   colunas/sort/filtro/tabela da tabela de transactions acima, mas via um
-   hook/componente compartilhado (`useSfRawTable` + `SfRawTable`, extraídos
-   nesta versão para eliminar a duplicação entre as duas tabelas) — colunas
-   derivadas da união de chaves em `raw` entre as linhas carregadas, com
-   `id` primeiro e o resto em ordem alfabética (sem uma "ordem preferida"
-   tipo `SF_RAW_COLUMN_ORDER`, já que o schema real de `holdings` que a
-   Fidelity/SimpleFin manda ainda não é conhecido — essa tabela existe
-   justamente para descobrir isso). Sem colunas de sugestão de conta/
-   categoria (não faz sentido para holdings) e sem nenhuma interpretação de
-   negócio sobre os dados — é puramente `mapHolding()` (`lib/simplefin.js`):
-   `{ id, sourceId, raw }`, com `raw` = objeto original da SimpleFin +
-   metadados de conta/org. Mesmos estados vazio/erro/loading da tabela de
-   transactions, mesmo padrão visual (`Empty`, `S.errorBar`).
+   **Tab SimpleFin/Preview — REMOVIDA na v1.54.0** (`src/App.jsx`). Existiu
+   de v1.50.0 a v1.53.1 (PR #216) como uma vitrine 100% read-only, logo após
+   Import na navegação, dos dados crus da API SimpleFin (tabela com uma
+   coluna por campo de `raw`, sort/filtro por coluna desde v1.52.0,
+   sub-seção Holdings desde v1.53.0). Removida junto com `TABS` entry
+   `preview`, `SimpleFinPreview`, `SimpleFinHoldingsSection`,
+   `SF_RAW_COLUMN_ORDER`, `useSfRawTable` e `SfRawTable` — não afetou o
+   fluxo de sync automático (`classifySimpleFinRows`, `syncSimpleFin`,
+   `loadSimpleFinPending`, o card "SimpleFin (auto)" abaixo, nem as
+   rotas/API server-side do SimpleFin). Ver changelog v1.54.0 acima para o
+   detalhe da remoção.
 
    **Deduplicação (três estados, desde a v1.56.0).** Na prévia, cada linha
    tem checkbox e um `_dupState` calculado por `markDuplicates`, com
