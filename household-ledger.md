@@ -1,4 +1,4 @@
-# Household Ledger · v1.70.0
+# Household Ledger · v1.70.2
 
 Aplicativo mobile-first de controle financeiro doméstico. Registra
 transações da casa (despesas e receitas) por categoria e conta, com
@@ -31,7 +31,39 @@ O `feature-auditor` deve conferir, como parte da checklist de auditoria, que
 o diff inclui o bump nos dois arquivos antes de aprovar — se faltar, isso é
 motivo de reprovação (devolver ao coder), não um detalhe opcional.
 
-Versão atual: **v1.70.0** — três mudanças no fluxo de categorização:
+Versão atual: **v1.70.2** — fix: `S.stickyTh` (v1.70.1) não fazia spread de
+`S.th`, então os `<th>` sticky de Transactions e Import perderam
+padding/cor/borda/`whiteSpace`. `S.th` e `S.stickyTh` agora derivam de um
+`TH_BASE` hoisted para fora do objeto `S` (necessário porque, dentro do
+próprio literal de `S`, `S.th` ainda não existe — o binding `S` só é
+atribuído depois que o literal termina de ser avaliado); `stickyTh` faz
+`{ ...TH_BASE, position: "sticky", ... }`, preservando o padding/borda/cor
+normais de um `th` e adicionando só a posição fixa + fundo opaco por cima.
+Nenhum uso individual de `<th style={{...S.stickyTh, ...}}>` nas tabelas
+precisou mudar.
+
+Versão anterior: **v1.70.1** — thead sticky nas tabelas desktop de Transactions
+(`TxnTable`) e do preview do Import (`ImportTransactions`, branch `wide`):
+ao rolar `<main>` (único elemento com scroll do shell), o cabeçalho (linha
+de filtros de coluna) fica fixo no topo em vez de rolar junto, então os
+filtros `HeaderFilter`/`DateHeaderFilter` continuam acessíveis com a lista
+rolada. Novo token `S.stickyTh` (`position: sticky`, `top: 0`, `zIndex: 2`,
+fundo opaco `rgba(11,13,16,0.92)` + `backdropFilter: blur(20px)
+saturate(180%)` — mesmo visual da sticky bar de Trends) aplicado a cada
+`<th>` das duas tabelas, substituindo `S.th` só ali (mesmo padding/borda,
+por spread). Fundo opaco é necessário porque `S.card` usa superfície
+semi-transparente — sem isso as linhas ficam visíveis por baixo do header
+ao rolar. Diferente da sticky bar de Trends, não precisou do truque de
+`top: -16`/margin negativa (que cancela o padding-top de `<main>` pra ficar
+flush contra o header do app): aqui o header da tabela pode ficar na
+posição padrão (respeitando o padding de `<main>`), então `top: 0` já
+resolve. Popovers de filtro continuam abrindo via `createPortal` em
+`document.body`, sem conflito de z-index com o header agora sticky.
+Client-side apenas (CSS/estilo), sem mudança de contrato de API/Redis,
+modelo de transação, ou layout mobile/Settings (fora de escopo, não
+tocados).
+
+Versão anterior: **v1.70.0** — três mudanças no fluxo de categorização:
 (1) badges de proveniência de categoria (`categoryBadge`) reduzidos para no
 máximo 4 caracteres (`rule`→`RULE`, `confirmed`→`OK`, `learned N%`→`LNNN`,
 ex. `L100`/`L067`/`L013`; `?` do Uncategorized ficou como estava); (2) novo
