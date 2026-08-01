@@ -74,6 +74,7 @@ import {
   normAccount,
   matchAccountWithAliases,
   resolveImportCategory,
+  buildMerchantMemory,
   txnFingerprint,
   markDuplicates,
   descWords,
@@ -704,7 +705,7 @@ function idleExpired() {
 // path, so the pending copy is discarded with a notice instead).
 
 // Single source for the version shown in the header and in diagnostics.
-const APP_VERSION = "v1.65.0";
+const APP_VERSION = "v1.66.0";
 
 const PENDING_SAVE_KEY = "household_pending_save";
 
@@ -8266,7 +8267,7 @@ function guessMapping(headers) {
 
 // Build a canonical transaction from a raw CSV record using the column mapping.
 // profile is optional; when provided, its normalizeAmount and defaultAccount are used.
-function buildRow(raw, mapping, profile, accountMap) {
+function buildRow(raw, mapping, profile, accountMap, merchantMemory) {
   const val = (key) => {
     const col = mapping[key];
     return col ? String(raw[col] ?? "").trim() : "";
@@ -8336,7 +8337,7 @@ function buildRow(raw, mapping, profile, accountMap) {
   // may never de-transfer a row unless it opted into `allowTransferOverride`.
   const { category, categorySource, categoryConfidence, categoryReason } = resolveImportCategory(
     { description, srcAccount: rawAccount, account, category: val("category"), ckCategory, ckType },
-    { categories: CATEGORIES, ckCategoryMap: CK_CATEGORY_MAP, descriptionRules: CATEGORY_DESCRIPTION_RULES }
+    { categories: CATEGORIES, ckCategoryMap: CK_CATEGORY_MAP, descriptionRules: CATEGORY_DESCRIPTION_RULES, merchantMemory }
   );
 
   const row = {
@@ -8501,6 +8502,15 @@ function ImportTransactions({ onImport, accountMap, config, transactions, ckCate
     setSfFromPending(false);
   };
 
+  // Merchant-memory classifier (Fase 1 of the categorization-memory work),
+  // trained on the WHOLE existing ledger. Built once per `transactions`
+  // reference change (this component only mounts while the Import tab is
+  // active — see the `tab === "import"` render branch — so this doesn't run
+  // on every keystroke elsewhere in the app), then handed to every
+  // `buildRow`/`classifySimpleFinRows` call for the current batch instead of
+  // being rebuilt per row.
+  const merchantMemory = useMemo(() => buildMerchantMemory(transactions), [transactions]);
+
   const selectMethod = (m) => {
     if (m === method) return;
     setMethod(m);
@@ -8563,7 +8573,7 @@ function ImportTransactions({ onImport, accountMap, config, transactions, ckCate
   const { csvRows, skippedCount } = useMemo(() => {
     if (method === "sf") return { csvRows: sfRows, skippedCount: 0 };
     if (rawRows.length === 0) return { csvRows: [], skippedCount: 0 };
-    const built = rawRows.map((r) => buildRow(r, mapping, profile, accountMap));
+    const built = rawRows.map((r) => buildRow(r, mapping, profile, accountMap, merchantMemory));
     let skipped = 0;
     const valid = [];
     for (const row of built) {
@@ -8576,7 +8586,7 @@ function ImportTransactions({ onImport, accountMap, config, transactions, ckCate
     // buildRow reads their module-level mirrors — but they must invalidate
     // this memo so editing a rule in Settings recomputes an already-parsed
     // preview instead of showing stale categories.
-  }, [method, sfRows, rawRows, mapping, profile, accountMap, config, ckCategoryMap, categoryDescriptionRules]);
+  }, [method, sfRows, rawRows, mapping, profile, accountMap, config, ckCategoryMap, categoryDescriptionRules, merchantMemory]);
 
   // Flag duplicates against existing data + within the batch. Three states now
   // (see markDuplicates): "certain" | "uncertain" | "new".
@@ -8764,7 +8774,7 @@ function ImportTransactions({ onImport, accountMap, config, transactions, ckCate
         setSfRows([]);
         return;
       }
-      const mapped = classifySimpleFinRows(data.transactions, accountMap);
+      const mapped = classifySimpleFinRows(data.transactions, accountMap, merchantMemory);
       setSfRows(mapped);
       setFileName(`SimpleFin sync — ${mapped.length} transaction${mapped.length === 1 ? "" : "s"}`);
       if (data.errors && data.errors.length) {
@@ -8798,7 +8808,7 @@ function ImportTransactions({ onImport, accountMap, config, transactions, ckCate
         setError(data.error || "Falha ao carregar pendências do SimpleFin.");
         return;
       }
-      const mapped = classifySimpleFinRows(data.transactions, accountMap);
+      const mapped = classifySimpleFinRows(data.transactions, accountMap, merchantMemory);
       setSfRows(mapped);
       setSfFromPending(true);
       setFileName(`SimpleFin pendentes — ${mapped.length} transaction${mapped.length === 1 ? "" : "s"}`);
@@ -9208,9 +9218,12 @@ function classifyAccount(rawAccount, accountUrn, accountMap) {
 // - run the full category pipeline (`resolveImportCategory`) instead of a bare
 //   matchOption of SimpleFin's placeholder category, which SimpleFin always
 //   sends as "Uncategorized": before this, no synced row could ever be
-//   classified by a Description rule.
+//   classified by a Description rule — and since Fase 1 (merchant memory,
+//   `merchantMemory` param below), a SimpleFin row with no matching rule can
+//   now also be classified by what similar merchants were categorized as
+//   historically. See resolveImportCategory (src/ledger.js) for precedence.
 // Used by ImportTransactions (both "Sync now" and "Revisar pendentes").
-function classifySimpleFinRows(transactions, accountMap) {
+function classifySimpleFinRows(transactions, accountMap, merchantMemory) {
   return (transactions || [])
     // Drop accounts the user marked as already covered by another feed, before
     // they ever reach the preview (Settings → "Ignored SimpleFin accounts").
@@ -9226,7 +9239,7 @@ function classifySimpleFinRows(transactions, accountMap) {
         ckCategory: t.ckCategory,
         ckType: t.ckType,
       },
-      { categories: CATEGORIES, ckCategoryMap: CK_CATEGORY_MAP, descriptionRules: CATEGORY_DESCRIPTION_RULES }
+      { categories: CATEGORIES, ckCategoryMap: CK_CATEGORY_MAP, descriptionRules: CATEGORY_DESCRIPTION_RULES, merchantMemory }
     );
     // `source` also set here (not only in lib/simplefin.js) so rows already
     // sitting in the server-side pending queue from before this version still

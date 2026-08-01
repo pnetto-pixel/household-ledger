@@ -1,4 +1,4 @@
-# Household Ledger · v1.65.0
+# Household Ledger · v1.66.0
 
 Aplicativo mobile-first de controle financeiro doméstico. Registra
 transações da casa (despesas e receitas) por categoria e conta, com
@@ -31,7 +31,59 @@ O `feature-auditor` deve conferir, como parte da checklist de auditoria, que
 o diff inclui o bump nos dois arquivos antes de aprovar — se faltar, isso é
 motivo de reprovação (devolver ao coder), não um detalhe opcional.
 
-Versão atual: **v1.65.0** — Fase 0 da classificação automática de categorias
+Versão atual: **v1.66.0** — Fase 1 da classificação automática de categorias:
+a memória de comerciante, construída em cima da fundação da Fase 0.
+1. `buildMerchantMemory(transactions)` (`src/ledger.js`, nova) — varre o
+   ledger inteiro e monta 6 mapas em camadas (`conta+descrição completa`,
+   `descrição completa`, `conta+2 tokens`, `2 tokens`, `1 token`, `conta`
+   sozinha como prior), cada um `chave → contagem por categoria`. Só treina
+   com linhas "confiáveis" (`isMemoryTrainableRow`, nova): exclui
+   `Uncategorized` (sem sinal), `Transfer` (estrutural — conta de origem/
+   destino, não tipo de comerciante; mesma razão pela qual uma regra de
+   descrição nunca pode ter `destinationCategory: Transfer`) e qualquer linha
+   cujo `categorySource === 'learned'` (nunca treina com os próprios palpites
+   — evita um loop de reforço onde um erro se perpetua a cada import sem
+   correção humana). Como o `categoryManual` desta household cobre só ~0.8%
+   do ledger, o bootstrap é o histórico inteiro sem essa flag — decisão
+   discutida e aceita com o usuário.
+2. `classifyMerchantMemory(row, memory)` (`src/ledger.js`, nova) — testa as 6
+   camadas da mais específica pra mais genérica; a PRIMEIRA com histórico
+   pra sua chave vence (sem votação entre camadas, pra uma correspondência
+   específica nunca ser diluída por ruído de uma camada mais grosseira).
+   `confidence = peso_da_camada × pureza × (0,5 + 0,5 × min(1, suporte/3))`.
+   Sempre retorna o melhor palpite disponível, por menor que seja a
+   confiança — Fase 1 aplica tudo automaticamente (decisão do usuário: revisa
+   no import de qualquer forma); o corte de aceitar/rejeitar por confiança
+   fica pra uma fase de UI futura. Retorna `null` só em cold-start genuíno
+   (nenhuma camada tem qualquer histórico).
+3. `resolveImportCategory` (`src/ledger.js`) ganha um novo degrau 2.5 na
+   precedência: quando nem regra nem categoria da própria fonte (CSV/CK)
+   produzem uma resposta real (`recomputed === "Uncategorized"`), a memória
+   tenta antes do fallback final. Nunca sobrepõe uma categoria real que a
+   fonte já forneceu (CSV/CK continuam mais autoritativos que um palpite),
+   nunca vence uma regra, e nunca desfaz a rede de segurança de Transfer
+   (mesma trava que já protegia contra regras). Quando a memória decide,
+   `categorySource` passa a valer `'learned'` com a confiança/motivo do
+   `classifyMerchantMemory`. `ctx.merchantMemory` é o novo campo opcional que
+   carrega essa memória pré-construída.
+4. `ImportTransactions` (`src/App.jsx`) constrói a memória uma vez por
+   `useMemo(() => buildMerchantMemory(transactions), [transactions])` —
+   componente só monta na aba Import, então isso não roda a cada tecla
+   digitada em outro lugar do app — e passa pra `buildRow`/
+   `classifySimpleFinRows`, que por sua vez passam pra `resolveImportCategory`
+   via `ctx.merchantMemory`. Sem essa memoização, o classificador recalcularia
+   a memória do zero pra CADA linha de um lote importado.
+   `merchantKey(description)` (Fase 0) é computado UMA vez por linha dentro
+   de `buildMerchantMemory`/`classifyMerchantMemory` e reaproveitado pelas 4
+   camadas que dependem dele — chamá-lo por camada era um desperdício de
+   4-5x medido (~250ms → ~117ms varrendo um ledger real de ~11,5 mil linhas).
+   Validado contra o histórico real da própria household (split cronológico
+   treino/teste): ~62% das linhas classificadas automaticamente com ~91% de
+   precisão no corte de confiança 0,5; ~42% a ~98% de precisão no corte 0,9 —
+   consistente com as estimativas discutidas com o usuário antes da
+   implementação.
+
+Versão anterior: **v1.65.0** — Fase 0 da classificação automática de categorias
 (fundação — nenhuma mudança visível ainda; o plano completo, debatido com o
 usuário, cobre normalizador de comerciante, memória de aprendizado,
 confiança/etiqueta na UI e confirmação manual como próximas fases):
