@@ -3321,6 +3321,16 @@ shell de altura cheia (`#root` em `100lvh` + shell `height:100%`): só o
    bloco só** dentro do `<main>` (`txnTab`/`txnControls`/`txnListScroll` sem
    mais as travas de `height:100%`/`maxHeight:50%`/scroll interno, que ficavam
    estranhas no layout full-screen).
+
+   **Desde a v1.70.0 (PR #263)**, o header da coluna Category (desktop) ganhou
+   um segundo `HeaderFilter` **"Status"** ao lado do filtro de categoria já
+   existente, filtrando por proveniência do badge (`Rule` / `Confirmed` /
+   `Learned – High` / `Learned – Medium` / `Learned – Low` / `Uncategorized`)
+   via `categoryBadgeFilterKey(row)`, reaplicando os mesmos thresholds de tier
+   do `categoryBadge()`. Os próprios badges (`categoryBadge()`) ficaram mais
+   compactos nessa versão — no máximo 4 caracteres (`RULE`, `OK`, `L100`/
+   `L067`/`L013`; o `?` de `Uncategorized` ficou como estava, por decisão do
+   usuário).
    No mobile, **swipe da linha para a esquerda** revela os chips **Edit** (abre
    `EditModal`) e **Delete** (`TxnAuditCard`). O **botão de export CSV foi
    removido**. O botão JSON já tinha saído (PR #14).
@@ -3392,6 +3402,18 @@ shell de altura cheia (`#root` em `100lvh` + shell `height:100%`): só o
    índice original), mesmo padrão adotado na tab Transactions. **Escopo:
    só a visão desktop em tabela** — a visão mobile (cards) do preview de
    import não ganhou filtro de header nesta versão.
+
+   **Filtro "Status" no header de Category (desktop, v1.70.0, PR #263)** —
+   mesmo `categoryBadgeFilterKey`/`HeaderFilter` "Status" descrito na tab
+   Transactions (item 3 acima), aplicado também à tabela de preview do
+   Import; sem equivalente na visão mobile (cards), pelo mesmo motivo do
+   item anterior. Nessa mesma versão, o botão **Confirm** deixou de perder
+   confirmações silenciosamente: `confirmedRows` era um estado local
+   resetado a cada novo `dedupedRows` (novo sync), descartando confirmações
+   já dadas mas ainda não importadas. Agora `syncSimpleFin`/
+   `loadSimpleFinPending` chamam `confirmDiscardUnimportedConfirmations()`
+   no início, que avisa via `window.confirm` quantas confirmações serão
+   perdidas e permite cancelar o sync.
 
    **SimpleFin (auto)** (v1.48.0, PR #213, Fase 1) — terceiro card na tab
    Import, ao lado de Credit Karma (CSV) e CSV genérico, com botão "Sync
@@ -5144,3 +5166,15 @@ riscos reais de perda de dados.
     indefinidamente** — resolvido em v1.68.0 (ver "Versão atual" no topo
     deste documento): `TxnTable`/`TxnAuditCard`/`EditModal` agora leem
     `categorySource` e oferecem o mesmo badge/confirmação do Import.
+  - [x] **Badges compactos + filtro "Status" + fix de confirmações
+    perdidas** (v1.70.0, PR #263) — `categoryBadge()` reduzido para no
+    máximo 4 caracteres (`RULE`/`OK`/`LNNN`, `?` intocado); novo filtro
+    "Status" na coluna Category (Transactions + Import desktop) via
+    `categoryBadgeFilterKey(row)`/`CATEGORY_BADGE_FILTER_OPTIONS`, sem
+    equivalente mobile no Import; fix de bug em que `Confirm` no Import
+    perdia confirmações silenciosamente a cada novo sync
+    (`confirmedRows` resetado sem aviso) — `syncSimpleFin`/
+    `loadSimpleFinPending` agora chamam
+    `confirmDiscardUnimportedConfirmations()` (`window.confirm`) antes de
+    descartar. Ver "Versão atual" no topo deste documento para o
+    detalhamento completo.
