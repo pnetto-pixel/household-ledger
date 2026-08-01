@@ -705,7 +705,7 @@ function idleExpired() {
 // path, so the pending copy is discarded with a notice instead).
 
 // Single source for the version shown in the header and in diagnostics.
-const APP_VERSION = "v1.69.2";
+const APP_VERSION = "v1.70.0";
 
 const PENDING_SAVE_KEY = "household_pending_save";
 
@@ -5223,6 +5223,7 @@ function Transactions({ transactions, money, hideValues, isWide, onDelete, onUpd
   const [catFilter, setCatFilter] = useState([]);
   const [acctFilter, setAcctFilter] = useState([]);
   const [typeFilter, setTypeFilter] = useState([]);
+  const [badgeFilter, setBadgeFilter] = useState([]);
   const [query, setQuery] = useState("");
   const [year, setYear] = useState("All");
   const [month, setMonth] = useState("All");
@@ -5347,6 +5348,7 @@ function Transactions({ transactions, money, hideValues, isWide, onDelete, onUpd
       .filter((t) => (catFilter.length === 0 ? true : catFilter.includes(t.category)))
       .filter((t) => (acctFilter.length === 0 ? true : acctFilter.includes(t.account || "Unassigned")))
       .filter((t) => (typeFilter.length === 0 ? true : typeFilter.includes(txnType(t.category))))
+      .filter((t) => (badgeFilter.length === 0 ? true : badgeFilter.includes(categoryBadgeFilterKey(t))))
       .filter((t) => matchPeriod(t.date, year, month))
       .filter((t) => {
         // From/To filter by day on both platforms.
@@ -5372,7 +5374,7 @@ function Transactions({ transactions, money, hideValues, isWide, onDelete, onUpd
       // common (e.g. a batch import) where visible reordering reads as a bug.
       .sort((a, b) => (a.t.date < b.t.date ? 1 : a.t.date > b.t.date ? -1 : a.i - b.i))
       .map(({ t }) => t);
-  }, [transactions, catFilter, acctFilter, typeFilter, query, year, month, from, to, dateYears, dateMonths, isWide]);
+  }, [transactions, catFilter, acctFilter, typeFilter, badgeFilter, query, year, month, from, to, dateYears, dateMonths, isWide]);
 
   // Bulk version — respects the CURRENT filters (`filtered`, not just the
   // lazy-loaded `visible` window), same "acts on everything matching, not
@@ -5424,6 +5426,7 @@ function Transactions({ transactions, money, hideValues, isWide, onDelete, onUpd
     catFilter.length > 0 ||
     acctFilter.length > 0 ||
     typeFilter.length > 0 ||
+    badgeFilter.length > 0 ||
     query ||
     year !== "All" ||
     month !== "All" ||
@@ -5436,6 +5439,7 @@ function Transactions({ transactions, money, hideValues, isWide, onDelete, onUpd
     setCatFilter([]);
     setAcctFilter([]);
     setTypeFilter([]);
+    setBadgeFilter([]);
     setQuery("");
     setYear("All");
     setMonth("All");
@@ -5522,6 +5526,7 @@ function Transactions({ transactions, money, hideValues, isWide, onDelete, onUpd
           <HeaderFilter chip label="Type" value={typeFilter} options={["Income", "Expense", "Transfer"]} onChange={setTypeFilter} />
           <HeaderFilter chip label="Account" value={acctFilter} options={acctOptions} onChange={setAcctFilter} />
           <HeaderFilter chip label="Category" value={catFilter} options={catOptions} onChange={setCatFilter} />
+          <HeaderFilter chip label="Status" value={badgeFilter} options={CATEGORY_BADGE_FILTER_OPTIONS} onChange={setBadgeFilter} />
           <DateHeaderFilter chip years={years} dateYears={dateYears} setDateYears={setDateYears} dateMonths={dateMonths} setDateMonths={setDateMonths} from={from} setFrom={setFrom} to={to} setTo={setTo} />
         </div>
       )}
@@ -5647,6 +5652,8 @@ function Transactions({ transactions, money, hideValues, isWide, onDelete, onUpd
           setAcctFilter={setAcctFilter}
           catFilter={catFilter}
           setCatFilter={setCatFilter}
+          badgeFilter={badgeFilter}
+          setBadgeFilter={setBadgeFilter}
           acctOptions={acctOptions}
           catOptions={catOptions}
           years={years}
@@ -5927,7 +5934,7 @@ function DateHeaderFilter({ years, dateYears, setDateYears, dateMonths, setDateM
 // row selection for bulk actions.
 // ---------------------------------------------------------------------------
 
-function TxnTable({ rows, money, selectedIds, allSelected, onToggleSelect, onSelectAll, onInlineChange, onConfirmLearned, onEdit, onDelete, typeFilter, setTypeFilter, acctFilter, setAcctFilter, catFilter, setCatFilter, acctOptions, catOptions, years, dateYears, setDateYears, dateMonths, setDateMonths, from, setFrom, to, setTo }) {
+function TxnTable({ rows, money, selectedIds, allSelected, onToggleSelect, onSelectAll, onInlineChange, onConfirmLearned, onEdit, onDelete, typeFilter, setTypeFilter, acctFilter, setAcctFilter, catFilter, setCatFilter, badgeFilter, setBadgeFilter, acctOptions, catOptions, years, dateYears, setDateYears, dateMonths, setDateMonths, from, setFrom, to, setTo }) {
   return (
     <div style={{ ...S.card, padding: 0, overflow: "visible" }}>
       <table style={S.table}>
@@ -5947,7 +5954,10 @@ function TxnTable({ rows, money, selectedIds, allSelected, onToggleSelect, onSel
               <HeaderFilter label="Type" value={typeFilter} options={["Income", "Expense", "Transfer"]} onChange={setTypeFilter} />
             </th>
             <th style={S.th}>
-              <HeaderFilter label="Category" value={catFilter} options={catOptions} onChange={setCatFilter} />
+              <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+                <HeaderFilter label="Category" value={catFilter} options={catOptions} onChange={setCatFilter} />
+                <HeaderFilter label="Status" value={badgeFilter} options={CATEGORY_BADGE_FILTER_OPTIONS} onChange={setBadgeFilter} />
+              </div>
             </th>
             <th style={{ ...S.th, textAlign: "right" }}>Amount</th>
             <th style={{ ...S.th, width: 70, textAlign: "right" }}></th>
@@ -8580,21 +8590,39 @@ const CATEGORY_BADGE_TIERS = {
 };
 function categoryBadge(row) {
   if (row.categorySource === "rule") {
-    return { label: "rule", ...CATEGORY_BADGE_TIERS.rule, title: row.categoryReason };
+    return { label: "RULE", ...CATEGORY_BADGE_TIERS.rule, title: row.categoryReason };
   }
   if (row.categorySource === "confirmed") {
-    return { label: "confirmed", ...CATEGORY_BADGE_TIERS.confirmed, title: row.categoryReason };
+    return { label: "OK", ...CATEGORY_BADGE_TIERS.confirmed, title: row.categoryReason };
   }
   if (row.categorySource === "learned") {
     const pct = Math.round((row.categoryConfidence || 0) * 100);
     const tier = row.categoryConfidence >= 0.7 ? "high" : row.categoryConfidence >= 0.4 ? "medium" : "low";
-    return { label: `learned ${pct}%`, ...CATEGORY_BADGE_TIERS[tier], title: row.categoryReason };
+    return { label: "L" + pct.toString().padStart(3, "0"), ...CATEGORY_BADGE_TIERS[tier], title: row.categoryReason };
   }
   if (row.category === "Uncategorized") {
     return { label: "?", ...CATEGORY_BADGE_TIERS.none, title: "Nothing classified this row yet" };
   }
   return null;
 }
+
+// Fase 2 (badge filter): stable bucket key for a row's provenance badge,
+// independent of the label text above — used to filter the Category column
+// by "where did this categorization come from" without introducing a new
+// column. Mirrors the same thresholds as categoryBadge (>=0.7 / >=0.4).
+// Returns null when the row has no badge at all (already-trusted category
+// straight from the import source).
+function categoryBadgeFilterKey(row) {
+  if (row.categorySource === "rule") return "Rule";
+  if (row.categorySource === "confirmed") return "Confirmed";
+  if (row.categorySource === "learned") {
+    const tier = row.categoryConfidence >= 0.7 ? "High" : row.categoryConfidence >= 0.4 ? "Medium" : "Low";
+    return `Learned – ${tier}`;
+  }
+  if (row.category === "Uncategorized") return "Uncategorized";
+  return null;
+}
+const CATEGORY_BADGE_FILTER_OPTIONS = ["Rule", "Confirmed", "Learned – High", "Learned – Medium", "Learned – Low", "Uncategorized"];
 
 // Sort key for "Revisar primeiro" (Fase 2): lower = needs review sooner. A
 // rule, a user confirmation, or a real category straight from the import
@@ -8821,6 +8849,7 @@ function ImportTransactions({
   // only — never changes what's checked for import.
   const [importAcctFilter, setImportAcctFilter] = useState([]);
   const [importCatFilter, setImportCatFilter] = useState([]);
+  const [importBadgeFilter, setImportBadgeFilter] = useState([]);
   const [importDateYears, setImportDateYears] = useState([]);
   const [importDateMonths, setImportDateMonths] = useState([]);
   const [importFrom, setImportFrom] = useState("");
@@ -8855,6 +8884,7 @@ function ImportTransactions({
     setConfirmedDups(new Map());
     setImportAcctFilter([]);
     setImportCatFilter([]);
+    setImportBadgeFilter([]);
     setImportDateYears([]);
     setImportDateMonths([]);
     setImportFrom("");
@@ -8949,6 +8979,7 @@ function ImportTransactions({
   const matchesImportHeaderFilters = (t) => {
     if (importAcctFilter.length && !importAcctFilter.includes(t.account || "Unassigned")) return false;
     if (importCatFilter.length && !importCatFilter.includes(t.category)) return false;
+    if (importBadgeFilter.length && !importBadgeFilter.includes(categoryBadgeFilterKey(t))) return false;
     if (importFrom && (t.date || "") < importFrom) return false;
     if (importTo && (t.date || "") > importTo) return false;
     const ym = (t.date || "").slice(0, 7);
@@ -8983,7 +9014,7 @@ function ImportTransactions({
       rows.sort((a, b) => (a.t.date < b.t.date ? 1 : a.t.date > b.t.date ? -1 : a.i - b.i));
     }
     return rows.map(({ t }) => t);
-  }, [displayRows, dupFilter, importAcctFilter, importCatFilter, importFrom, importTo, importDateMonths, previewSort]);
+  }, [displayRows, dupFilter, importAcctFilter, importCatFilter, importBadgeFilter, importFrom, importTo, importDateMonths, previewSort]);
 
   // How many rows currently on screen are still the memory's OWN unreviewed
   // guess — gates whether the sort toggle / bulk-confirm button are worth
@@ -9055,11 +9086,28 @@ function ImportTransactions({
     { id: "csv", title: "CSV", desc: "Manual mapping — for backfilling old history." },
   ];
 
+  // Guards against the silent-data-loss bug where a user clicks "Confirm"
+  // on several preview rows (categorySource: learned -> confirmed, see
+  // confirmCategory above) but never clicks "Import" — `confirmedRows` is
+  // local-only preview state, and a fresh sync replaces `dedupedRows`, which
+  // resets it via the useEffect above. Rather than lose those confirmations
+  // silently, ask before wiping them. Returns true when it's safe to
+  // proceed (nothing to lose, or the user opted to lose it anyway).
+  const confirmDiscardUnimportedConfirmations = () => {
+    if (confirmedRows.size === 0) return true;
+    const n = confirmedRows.size;
+    return window.confirm(
+      `You have ${n} confirmed transaction${n === 1 ? "" : "s"} that ${n === 1 ? "hasn't" : "haven't"} been imported yet. ` +
+      `Syncing again will lose ${n === 1 ? "that confirmation" : "those confirmations"}. Continue anyway?`
+    );
+  };
+
   // SimpleFin sync: hits the server endpoint, then runs the returned rows
   // through the same account-matching / category-fallback buildRow already
   // applies for CSV rows, so they land in the shared preview/dedup pipeline
   // looking exactly like any other imported row.
   const syncSimpleFin = async () => {
+    if (!confirmDiscardUnimportedConfirmations()) return;
     setError("");
     setDone("");
     setSfLoading(true);
@@ -9100,6 +9148,7 @@ function ImportTransactions({
   // account-matching / category-fallback as a manual sync so they land in the
   // shared preview/dedup pipeline looking identical either way.
   const loadSimpleFinPending = async () => {
+    if (!confirmDiscardUnimportedConfirmations()) return;
     setError("");
     setDone("");
     setSfLoading(true);
@@ -9325,7 +9374,10 @@ function ImportTransactions({
                           <HeaderFilter label="Account" value={importAcctFilter} options={importAcctOptions} onChange={setImportAcctFilter} />
                         </th>
                         <th style={S.th}>
-                          <HeaderFilter label="Category" value={importCatFilter} options={importCatOptions} onChange={setImportCatFilter} />
+                          <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+                            <HeaderFilter label="Category" value={importCatFilter} options={importCatOptions} onChange={setImportCatFilter} />
+                            <HeaderFilter label="Status" value={importBadgeFilter} options={CATEGORY_BADGE_FILTER_OPTIONS} onChange={setImportBadgeFilter} />
+                          </div>
                         </th>
                         <th style={{ ...S.th, textAlign: "right" }}>Amount</th>
                       </tr>

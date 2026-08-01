@@ -1,4 +1,4 @@
-# Household Ledger · v1.69.2
+# Household Ledger · v1.70.0
 
 Aplicativo mobile-first de controle financeiro doméstico. Registra
 transações da casa (despesas e receitas) por categoria e conta, com
@@ -31,7 +31,27 @@ O `feature-auditor` deve conferir, como parte da checklist de auditoria, que
 o diff inclui o bump nos dois arquivos antes de aprovar — se faltar, isso é
 motivo de reprovação (devolver ao coder), não um detalhe opcional.
 
-Versão atual: **v1.69.2** (PR #262, squash-merge SHA
+Versão atual: **v1.70.0** — três mudanças no fluxo de categorização:
+(1) badges de proveniência de categoria (`categoryBadge`) reduzidos para no
+máximo 4 caracteres (`rule`→`RULE`, `confirmed`→`OK`, `learned N%`→`LNNN`,
+ex. `L100`/`L067`/`L013`; `?` do Uncategorized ficou como estava); (2) novo
+filtro "Status" na coluna Category (Transactions e Import), ao lado do
+filtro de categoria já existente, via novo helper puro
+`categoryBadgeFilterKey(row)` (buckets: `Rule`, `Confirmed`, `Learned –
+High/Medium/Low`, `Uncategorized`, ou `null` sem badge) e o `HeaderFilter`
+já existente — reaplica os mesmos thresholds de tier do badge (>=0.7 /
+>=0.4); estado `badgeFilter`/`importBadgeFilter`, sem filtro mobile
+dedicado no Import (não havia padrão de filtro mobile ali para reaproveitar
+além dos chips já existentes na Transactions tab); (3) fix: `Confirm` na
+tela de Import (`ImportTransactions`) perdia confirmações silenciosamente
+quando o usuário confirmava linhas mas não clicava em "Import" antes de um
+novo sync — `confirmedRows` é estado local resetado a cada `dedupedRows`
+novo. Agora `syncSimpleFin`/`loadSimpleFinPending` chamam
+`confirmDiscardUnimportedConfirmations()`, que usa `window.confirm` (mesmo
+padrão já usado no restore de backup) para avisar quantas confirmações
+seriam perdidas antes de prosseguir; cancelar aborta o sync.
+
+Versão anterior: **v1.69.2** (PR #262, squash-merge SHA
 `bf5703151a026fc31e1317d51cb3cecc2e85134e`) — Tradução de strings de UI
 visíveis (PT→EN) em `src/App.jsx` e `src/ledger.js`: badges de categoria
 (`regra`→`rule`, `confirmado`→`confirmed`, `aprendido N%`→`learned N%`,
