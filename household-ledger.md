@@ -1,4 +1,4 @@
-# Household Ledger · v1.66.0
+# Household Ledger · v1.67.0
 
 Aplicativo mobile-first de controle financeiro doméstico. Registra
 transações da casa (despesas e receitas) por categoria e conta, com
@@ -31,7 +31,51 @@ O `feature-auditor` deve conferir, como parte da checklist de auditoria, que
 o diff inclui o bump nos dois arquivos antes de aprovar — se faltar, isso é
 motivo de reprovação (devolver ao coder), não um detalhe opcional.
 
-Versão atual: **v1.66.0** — Fase 1 da classificação automática de categorias:
+Versão atual: **v1.67.0** — Fase 2 da classificação automática de categorias:
+finalmente visível na tela de Import (`ImportTransactions`, `src/App.jsx`) —
+a memória da Fase 1 passa a aparecer, ser revisável e ensinável.
+1. **Etiqueta por linha** (`CategoryBadge`, nova) ao lado do seletor de
+   categoria: `regra` (azul) quando uma Description Rule decidiu, `aprendido
+   XX%` (verde ≥70%, amarelo ≥40%, vermelho abaixo disso) quando a memória
+   decidiu, `confirmado` (verde) depois que o usuário valida um palpite, e um
+   `?` (cinza) quando nada classificou a linha. Sem etiqueta quando a
+   categoria já veio pronta da própria fonte (CSV/CK) — não é um palpite,
+   não precisa de marcação. Tooltip mostra `categoryReason`.
+2. **Botão "✓" por linha** (`ConfirmCategoryButton`, nova), visível só em
+   linhas `categorySource === 'learned'` — confirma que o palpite está
+   certo, promovendo `categorySource` para `'confirmed'` (sem alterar a
+   categoria em si). Isso é o que fecha o ciclo de aprendizado: uma linha
+   `'learned'` é excluída do treino futuro por design (evita loop de
+   reforço — ver Fase 1), mas `'confirmed'` já não é `'learned'`, então
+   passa a ensinar a memória no próximo import. Some sozinho quando a linha
+   deixa de ser `'learned'` (confirmada, ou recategorizada manualmente).
+3. **Ordenação "Revisar primeiro"** — toggle ao lado do filtro de duplicatas
+   existente, alternando entre a ordem por data (padrão, inalterado) e por
+   `categoryReviewConfidence` crescente (nova): linhas menos confiáveis
+   sobem ao topo. Regra/confirmado/categoria real da fonte contam como
+   confiança máxima; só um palpite da memória (pela própria confiança) ou
+   uma linha genuinamente sem classificação (`Uncategorized`) rendem
+   embaixo — só aparece quando há pelo menos uma linha `'learned'` visível
+   (mesmo padrão de "só mostrar quando relevante" do filtro de duplicatas).
+4. **"Confirmar todos os aprendidos visíveis"** — botão de ação em massa que
+   confirma toda linha `'learned'` atualmente visível no preview filtrado
+   (respeitando os filtros de conta/categoria/data já aplicados).
+5. **Correção de um bug latente da Fase 0**: `setCategoryOverride` (a troca
+   manual de categoria no preview, existente desde antes deste projeto) não
+   limpava `categorySource`/`categoryConfidence`/`categoryReason` da linha —
+   uma correção manual sobre um palpite `'learned'` deixava esses campos
+   obsoletos, e `isMemoryTrainableRow` (Fase 1) excluiria essa linha do
+   treino por engano (achando que ainda era um palpite não revisado, quando
+   na verdade é uma correção humana genuína — o tipo de dado mais valioso
+   pra treinar). Corrigido para limpar os três campos em toda troca manual.
+6. Validado com Playwright contra um servidor de desenvolvimento real
+   (dados mockados: histórico de treino + sync SimpleFin simulado) — badge,
+   ordenação, confirmação individual, confirmação em massa, limpeza de
+   badge ao editar manualmente, e o layout mobile (quebra de linha do
+   badge/botão) todos conferidos rodando de verdade no navegador, não só em
+   teste unitário.
+
+Versão anterior: **v1.66.0** — Fase 1 da classificação automática de categorias:
 a memória de comerciante, construída em cima da fundação da Fase 0.
 1. `buildMerchantMemory(transactions)` (`src/ledger.js`, nova) — varre o
    ledger inteiro e monta 6 mapas em camadas (`conta+descrição completa`,

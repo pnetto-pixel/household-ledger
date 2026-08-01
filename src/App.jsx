@@ -705,7 +705,7 @@ function idleExpired() {
 // path, so the pending copy is discarded with a notice instead).
 
 // Single source for the version shown in the header and in diagnostics.
-const APP_VERSION = "v1.66.0";
+const APP_VERSION = "v1.67.0";
 
 const PENDING_SAVE_KEY = "household_pending_save";
 
@@ -8439,6 +8439,90 @@ function ImportNearMissHint({ nearMiss, fmtMoney, hideValues }) {
   );
 }
 
+// Fase 2 of the categorization-memory work: turns a row's categorySource/
+// categoryConfidence into a small pill's label + color, so the import
+// preview shows WHERE each category came from instead of presenting every
+// row as equally certain. `bg`/`border` follow the same rgba(base,0.12) /
+// rgba(base,0.3) convention already used for institution badges elsewhere
+// in this file. Returns null for a row whose category came straight from
+// the import source's own column — that's not a guess, so it needs no
+// provenance marker.
+const CATEGORY_BADGE_TIERS = {
+  rule: { color: "#60a5fa", bg: "rgba(96,165,250,0.12)", border: "rgba(96,165,250,0.3)" },
+  confirmed: { color: "#34d399", bg: "rgba(52,211,153,0.12)", border: "rgba(52,211,153,0.3)" },
+  high: { color: "#34d399", bg: "rgba(52,211,153,0.12)", border: "rgba(52,211,153,0.3)" },
+  medium: { color: "#fbbf24", bg: "rgba(251,191,36,0.12)", border: "rgba(251,191,36,0.3)" },
+  low: { color: "#f87171", bg: "rgba(248,113,113,0.12)", border: "rgba(248,113,113,0.3)" },
+  none: { color: "#8b94a3", bg: "rgba(139,148,163,0.12)", border: "rgba(139,148,163,0.3)" },
+};
+function categoryBadge(row) {
+  if (row.categorySource === "rule") {
+    return { label: "regra", ...CATEGORY_BADGE_TIERS.rule, title: row.categoryReason };
+  }
+  if (row.categorySource === "confirmed") {
+    return { label: "confirmado", ...CATEGORY_BADGE_TIERS.confirmed, title: row.categoryReason };
+  }
+  if (row.categorySource === "learned") {
+    const pct = Math.round((row.categoryConfidence || 0) * 100);
+    const tier = row.categoryConfidence >= 0.7 ? "high" : row.categoryConfidence >= 0.4 ? "medium" : "low";
+    return { label: `aprendido ${pct}%`, ...CATEGORY_BADGE_TIERS[tier], title: row.categoryReason };
+  }
+  if (row.category === "Uncategorized") {
+    return { label: "?", ...CATEGORY_BADGE_TIERS.none, title: "Nada classificou esta linha ainda" };
+  }
+  return null;
+}
+
+// Sort key for "Revisar primeiro" (Fase 2): lower = needs review sooner. A
+// rule, a user confirmation, or a real category straight from the import
+// source are all equally trusted (1) — only a memory guess (by its own
+// confidence) or a genuine "nothing classified this" (0) rank as worth a
+// second look.
+function categoryReviewConfidence(row) {
+  if (row.categorySource === "learned") return row.categoryConfidence || 0;
+  if (row.category === "Uncategorized") return 0;
+  return 1;
+}
+
+function CategoryBadge({ row }) {
+  const badge = categoryBadge(row);
+  if (!badge) return null;
+  return (
+    <span
+      title={badge.title || undefined}
+      style={{
+        marginLeft: 6, fontSize: 10, fontWeight: 700, color: badge.color,
+        background: badge.bg, border: `1px solid ${badge.border}`,
+        borderRadius: 6, padding: "1px 5px", verticalAlign: "1px", whiteSpace: "nowrap",
+      }}
+    >
+      {badge.label}
+    </span>
+  );
+}
+
+// Only rendered for a row still carrying the memory's OWN unreviewed guess
+// ('learned') — once confirmed, `row.categorySource` becomes 'confirmed' and
+// the badge above already reflects that, so there's nothing left for this
+// button to do (it naturally disappears rather than needing a second state).
+function ConfirmCategoryButton({ row, onConfirm }) {
+  if (row.categorySource !== "learned") return null;
+  return (
+    <button
+      type="button"
+      title="Confirmar esta categoria — ajuda a memória a aprender com mais confiança"
+      onClick={(e) => { e.stopPropagation(); onConfirm(row.id); }}
+      style={{
+        marginLeft: 4, fontSize: 10, fontWeight: 700, color: "#34d399",
+        background: "transparent", border: "1px solid rgba(52,211,153,0.3)",
+        borderRadius: 6, padding: "1px 5px", cursor: "pointer", verticalAlign: "1px",
+      }}
+    >
+      ✓
+    </button>
+  );
+}
+
 function ImportTransactions({ onImport, accountMap, config, transactions, ckCategoryMap, categoryDescriptionRules, money, hideValues, onConfirmDuplicateMatch, onSfSynced }) {
   // Three methods, in the order they're actually used now: SimpleFin
   // (on-demand/cron pull via api/simplefin-sync.js — the day-to-day path
@@ -8603,6 +8687,12 @@ function ImportTransactions({ onImport, accountMap, config, transactions, ckCate
   // Duplicate-visibility filter for the preview list only ("all" | "new" |
   // "review" | "dup"). Independent from `selected` (what actually gets imported).
   const [dupFilter, setDupFilter] = useState("all");
+  // Preview sort order (Fase 2 of the categorization-memory work): "date"
+  // (default, unchanged newest-first behavior) or "confidence" (least
+  // confident first — see categoryReviewConfidence) so the rows most worth a
+  // second look surface at the top instead of being buried under hundreds of
+  // confident ones. Independent from `selected`/`dupFilter`, same as those.
+  const [previewSort, setPreviewSort] = useState("date");
   // Header-column filters for the desktop preview table, same shape/behavior
   // as the Transactions tab's HeaderFilter/DateHeaderFilter (multi-select for
   // account/category, year/month tree + from/to range for date). Filtering
@@ -8625,10 +8715,21 @@ function ImportTransactions({ onImport, accountMap, config, transactions, ckCate
   // just like edits made after import. Reset whenever the parsed/mapped
   // batch changes (same trigger as `selected`/`dupFilter`).
   const [categoryOverrides, setCategoryOverrides] = useState(() => new Map());
+  // Rows the user explicitly confirmed the CURRENT (auto-classified) category
+  // for — id -> true (Fase 2 of the categorization-memory work). Confirming
+  // doesn't change the category value, only its provenance: from 'learned'
+  // (excluded from future training — see isMemoryTrainableRow, src/ledger.js)
+  // to 'confirmed' (included). This is what lets a review pass make the
+  // memory strictly better on every import instead of only ever staying the
+  // same size. Reset whenever the parsed/mapped batch changes, same as the
+  // other preview-only state above.
+  const [confirmedRows, setConfirmedRows] = useState(() => new Set());
   useEffect(() => {
     setSelected(new Set(dedupedRows.filter((r) => r._dupState !== "certain").map((r) => r.id)));
     setDupFilter("all");
+    setPreviewSort("date");
     setCategoryOverrides(new Map());
+    setConfirmedRows(new Set());
     setConfirmedDups(new Map());
     setImportAcctFilter([]);
     setImportCatFilter([]);
@@ -8661,21 +8762,53 @@ function ImportTransactions({ onImport, accountMap, config, transactions, ckCate
       if (newCategory === autoCategory) {
         next.delete(id);
       } else {
-        next.set(id, { category: newCategory, categoryManual: newCategory !== TRANSFER_CATEGORY });
+        next.set(id, {
+          category: newCategory,
+          categoryManual: newCategory !== TRANSFER_CATEGORY,
+          // A manual pick invalidates whatever classifier produced the OLD
+          // guess — 'rule'/'learned' no longer describe this row's ACTUAL
+          // category. Without clearing these, isMemoryTrainableRow would
+          // wrongly keep excluding a genuine human correction from training
+          // (it only excludes 'learned', which a stale value would still say).
+          categorySource: undefined,
+          categoryConfidence: undefined,
+          categoryReason: undefined,
+        });
       }
       return next;
     });
   };
 
+  // A row explicitly confirmed (see confirmedRows above) only matters while
+  // its category is still the memory's own unreviewed guess — confirming a
+  // row the user has since manually recategorized (categoryOverrides) would
+  // otherwise misreport a value the user never actually looked at as vouched
+  // for. `id` is confirmed relative to the SAME batch it was confirmed in.
+  const confirmCategory = (id) => {
+    setConfirmedRows((prev) => {
+      const next = new Set(prev);
+      next.add(id);
+      return next;
+    });
+  };
+
   // Rows as they should be shown/imported, with any preview-time category
-  // corrections applied on top of the deduped/auto-classified rows.
+  // corrections and confirmations applied on top of the deduped/auto-
+  // classified rows. Overrides are checked first: a manual pick already
+  // clears categorySource (see setCategoryOverride), so a stale confirmation
+  // on a since-overridden row is a no-op here (its categorySource is no
+  // longer 'learned').
   const displayRows = useMemo(() => {
-    if (categoryOverrides.size === 0) return dedupedRows;
+    if (categoryOverrides.size === 0 && confirmedRows.size === 0) return dedupedRows;
     return dedupedRows.map((r) => {
       const ov = categoryOverrides.get(r.id);
-      return ov ? { ...r, ...ov } : r;
+      const row = ov ? { ...r, ...ov } : r;
+      if (confirmedRows.has(r.id) && row.categorySource === "learned") {
+        return { ...row, categorySource: "confirmed" };
+      }
+      return row;
     });
-  }, [dedupedRows, categoryOverrides]);
+  }, [dedupedRows, categoryOverrides, confirmedRows]);
 
   // Options for the header-filter dropdowns, derived from the current preview
   // batch (not the whole ledger) — matches what's actually on screen.
@@ -8699,6 +8832,53 @@ function ImportTransactions({ onImport, accountMap, config, transactions, ckCate
     const ym = (t.date || "").slice(0, 7);
     if (importDateMonths.length && !importDateMonths.includes(ym)) return false;
     return true;
+  };
+
+  // Filtered + sorted preview list (Fase 2 of the categorization-memory
+  // work: hoisted out of the render IIFE it used to live in, so both the
+  // render AND the header's "learned" count / bulk-confirm button can share
+  // one computation instead of the button acting on a different row set than
+  // what's actually on screen).
+  const previewRows = useMemo(() => {
+    const rows = displayRows
+      .filter((t) =>
+        dupFilter === "dup" ? t._dupState === "certain"
+          : dupFilter === "review" ? t._dupState === "uncertain"
+          : dupFilter === "new" ? t._dupState === "new"
+          : true
+      )
+      .filter((t) => matchesImportHeaderFilters(t))
+      .map((t, i) => ({ t, i }));
+    if (previewSort === "confidence") {
+      // Ascending — least confident (most worth a second look) first.
+      rows.sort((a, b) => {
+        const diff = categoryReviewConfidence(a.t) - categoryReviewConfidence(b.t);
+        return diff !== 0 ? diff : a.i - b.i;
+      });
+    } else {
+      // Same newest-first order as the Transactions tab, with a stable
+      // tie-break by original index (see filtered's comment there).
+      rows.sort((a, b) => (a.t.date < b.t.date ? 1 : a.t.date > b.t.date ? -1 : a.i - b.i));
+    }
+    return rows.map(({ t }) => t);
+  }, [displayRows, dupFilter, importAcctFilter, importCatFilter, importFrom, importTo, importDateMonths, previewSort]);
+
+  // How many rows currently on screen are still the memory's OWN unreviewed
+  // guess — gates whether the sort toggle / bulk-confirm button are worth
+  // showing at all (same "only show it when it's relevant" pattern as
+  // `dupCount || reviewCount` gating the duplicate-filter segmented control).
+  const learnedVisibleCount = useMemo(
+    () => previewRows.filter((t) => t.categorySource === "learned").length,
+    [previewRows]
+  );
+  const confirmAllVisibleLearned = () => {
+    const ids = previewRows.filter((t) => t.categorySource === "learned").map((t) => t.id);
+    if (ids.length === 0) return;
+    setConfirmedRows((prev) => {
+      const next = new Set(prev);
+      for (const id of ids) next.add(id);
+      return next;
+    });
   };
 
   const toggleRow = (id) => setSelected((prev) => {
@@ -8974,21 +9154,18 @@ function ImportTransactions({ onImport, accountMap, config, transactions, ckCate
                 ))}
               </div>
             ) : null}
+            {learnedVisibleCount > 0 ? (
+              <>
+                <span style={{ color: "#fbbf24" }}>· {learnedVisibleCount} aprendido{learnedVisibleCount === 1 ? "" : "s"}</span>
+                <div style={S.segmented}>
+                  <button onClick={() => setPreviewSort("date")} style={S.segmentedBtn(previewSort === "date")}>Mais recentes</button>
+                  <button onClick={() => setPreviewSort("confidence")} style={S.segmentedBtn(previewSort === "confidence")}>Revisar primeiro</button>
+                </div>
+                <button onClick={confirmAllVisibleLearned} style={S.linkBtn}>Confirmar todos os aprendidos visíveis</button>
+              </>
+            ) : null}
           </div>
           {(() => {
-            const previewRows = displayRows
-              .filter((t) =>
-                dupFilter === "dup" ? t._dupState === "certain"
-                  : dupFilter === "review" ? t._dupState === "uncertain"
-                  : dupFilter === "new" ? t._dupState === "new"
-                  : true
-              )
-              .filter((t) => matchesImportHeaderFilters(t))
-              .map((t, i) => ({ t, i }))
-              // Same newest-first order as the Transactions tab, with a stable
-              // tie-break by original index (see filtered's comment there).
-              .sort((a, b) => (a.t.date < b.t.date ? 1 : a.t.date > b.t.date ? -1 : a.i - b.i))
-              .map(({ t }) => t);
             const shown = previewRows.slice(0, 400);
             const overflowNotice = previewRows.length > 400 ? (
               <div style={{ fontSize: 11, color: "#fbbf24", padding: "8px 12px", textAlign: "center" }}>
@@ -9070,6 +9247,8 @@ function ImportTransactions({ onImport, accountMap, config, transactions, ckCate
                                     <option key={c} value={c}>{c}</option>
                                   ))}
                                 </select>
+                                <CategoryBadge row={t} />
+                                <ConfirmCategoryButton row={t} onConfirm={confirmCategory} />
                               </td>
                               <td style={{ ...S.td, textAlign: "right", color: "#cbd5e1", whiteSpace: "nowrap" }}>{fmtMoney(t.amount)}</td>
                             </tr>
@@ -9123,7 +9302,7 @@ function ImportTransactions({ onImport, accountMap, config, transactions, ckCate
                             {review ? <span title={reasons} style={S.dupBadge(true)}>DUP?</span> : null}
                             {edited ? <span title={`Auto-detected as ${autoCategory}`} style={{ marginLeft: 6, fontSize: 10, fontWeight: 700, color: "#60a5fa", border: "1px solid #1d3a5f", borderRadius: 6, padding: "1px 5px", verticalAlign: "1px" }}>EDITED</span> : null}
                           </div>
-                          <div style={{ fontSize: 11, color: "#8b94a3", display: "flex", alignItems: "center", gap: 6, marginTop: 3 }}>
+                          <div style={{ fontSize: 11, color: "#8b94a3", display: "flex", alignItems: "center", gap: 6, marginTop: 3, flexWrap: "wrap" }}>
                             <span style={{ whiteSpace: "nowrap" }}>{t.date}{t.account ? ` · ${t.account}` : ""}</span>
                             <select
                               value={t.category}
@@ -9135,6 +9314,8 @@ function ImportTransactions({ onImport, accountMap, config, transactions, ckCate
                                 <option key={c} value={c}>{c}</option>
                               ))}
                             </select>
+                            <CategoryBadge row={t} />
+                            <ConfirmCategoryButton row={t} onConfirm={confirmCategory} />
                           </div>
                         </div>
                         <span style={{ fontSize: 14, color: "#cbd5e1", whiteSpace: "nowrap" }}>{fmtMoney(t.amount)}</span>
