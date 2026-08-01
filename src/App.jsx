@@ -104,6 +104,7 @@ const DEFAULT_EXPENSE_CATEGORIES = [
   "Shopping",
   "Transport",
   "Travel",
+  "Uncategorized",
   "Utilities",
 ];
 const DEFAULT_INCOME_CATEGORIES = ["Salary", "Bonus", "Bela Income", "Other Income"];
@@ -169,6 +170,12 @@ function applyConfig(cfg) {
   // is never silently downgraded to the expense "Other" — which would invert
   // its displayed sign in the cash-flow view.
   if (!INCOME_CATEGORIES.includes("Other Income")) INCOME_CATEGORIES = [...INCOME_CATEGORIES, "Other Income"];
+  // Same guarantee for "Uncategorized" — the import pipeline's fallback for
+  // "nothing classified this row" (resolveImportCategory/mapCkCategory in
+  // src/ledger.js, DEFAULT_CATEGORY in lib/simplefin.js). A household whose
+  // saved `expenseCategories` predates this category would otherwise never
+  // see it as a selectable option even though the pipeline can produce it.
+  if (!EXPENSE_CATEGORIES.includes("Uncategorized")) EXPENSE_CATEGORIES = [...EXPENSE_CATEGORIES, "Uncategorized"];
   CATEGORIES = [...EXPENSE_CATEGORIES, ...INCOME_CATEGORIES, TRANSFER_CATEGORY];
   // No `.length` guard: clearing the last entry must actually clear the list.
   if (Array.isArray(cfg?.ignoredSimplefinAccounts)) IGNORED_SIMPLEFIN_ACCOUNTS = [...cfg.ignoredSimplefinAccounts];
@@ -697,7 +704,7 @@ function idleExpired() {
 // path, so the pending copy is discarded with a notice instead).
 
 // Single source for the version shown in the header and in diagnostics.
-const APP_VERSION = "v1.64.6";
+const APP_VERSION = "v1.65.0";
 
 const PENDING_SAVE_KEY = "household_pending_save";
 
@@ -7785,7 +7792,7 @@ function CkCategoryMapSection({ transactions, map, onSave, config, highlightToke
               {token}
             </div>
             <select
-              value={draft[token] || DEFAULT_CK_CATEGORY_MAP[token] || "Other"}
+              value={draft[token] || DEFAULT_CK_CATEGORY_MAP[token] || "Uncategorized"}
               onChange={(e) => setDestination(token, e.target.value)}
               style={{ ...S.select, flex: "0 0 auto", maxWidth: 160 }}
             >
@@ -8327,7 +8334,7 @@ function buildRow(raw, mapping, profile, accountMap) {
   // can run the EXACT same pipeline instead of defaulting every synced row to
   // "Other". See that function for the precedence and why a description rule
   // may never de-transfer a row unless it opted into `allowTransferOverride`.
-  const { category } = resolveImportCategory(
+  const { category, categorySource, categoryConfidence, categoryReason } = resolveImportCategory(
     { description, srcAccount: rawAccount, account, category: val("category"), ckCategory, ckType },
     { categories: CATEGORIES, ckCategoryMap: CK_CATEGORY_MAP, descriptionRules: CATEGORY_DESCRIPTION_RULES }
   );
@@ -8346,6 +8353,16 @@ function buildRow(raw, mapping, profile, accountMap) {
   // you: Y" once the user manually corrects the category. The manual-correction
   // detection itself does NOT depend on this field.
   row.autoCategory = category;
+  // Provenance of the resolved category (Fase 0 of the categorization-memory
+  // work — see household-ledger.md): 'rule' | 'none' today, more values
+  // (e.g. 'learned') land as the classifier grows. Additive and only written
+  // when there's something to say — 'none'/0/"" carries no information yet,
+  // so it's omitted rather than bloating every row.
+  if (categorySource && categorySource !== "none") {
+    row.categorySource = categorySource;
+    row.categoryConfidence = categoryConfidence;
+    row.categoryReason = categoryReason;
+  }
   // Keep the raw source account string for auditing the classification: lets
   // you see what each row was classified from (or why it stayed unmapped).
   if (rawAccount) row.srcAccount = rawAccount;
@@ -9190,8 +9207,8 @@ function classifyAccount(rawAccount, accountUrn, accountMap) {
 //   "CREDIT CARD" — collapsed onto the same alias guess.
 // - run the full category pipeline (`resolveImportCategory`) instead of a bare
 //   matchOption of SimpleFin's placeholder category, which SimpleFin always
-//   sends as "Other": before this, no synced row could ever be classified by a
-//   Description rule.
+//   sends as "Uncategorized": before this, no synced row could ever be
+//   classified by a Description rule.
 // Used by ImportTransactions (both "Sync now" and "Revisar pendentes").
 function classifySimpleFinRows(transactions, accountMap) {
   return (transactions || [])
@@ -9200,7 +9217,7 @@ function classifySimpleFinRows(transactions, accountMap) {
     .filter((t) => !isIgnoredSimplefinAccount(t, IGNORED_SIMPLEFIN_ACCOUNTS))
     .map((t) => {
     const account = classifyAccount(t.srcAccount, t.accountUrn || "", accountMap) || "";
-    const { category } = resolveImportCategory(
+    const { category, categorySource, categoryConfidence, categoryReason } = resolveImportCategory(
       {
         description: t.description,
         srcAccount: t.srcAccount,
@@ -9214,7 +9231,15 @@ function classifySimpleFinRows(transactions, accountMap) {
     // `source` also set here (not only in lib/simplefin.js) so rows already
     // sitting in the server-side pending queue from before this version still
     // get tagged for the cross-source duplicate check.
-    return { ...t, account, category, autoCategory: category, source: "sf" };
+    const row = { ...t, account, category, autoCategory: category, source: "sf" };
+    // Same additive provenance fields as buildRow — see that function's
+    // comment for why 'none'/0/"" is omitted rather than written.
+    if (categorySource && categorySource !== "none") {
+      row.categorySource = categorySource;
+      row.categoryConfidence = categoryConfidence;
+      row.categoryReason = categoryReason;
+    }
+    return row;
   });
 }
 
@@ -9358,25 +9383,30 @@ export function detectManualCategoryCorrections(transactions, descriptionRules) 
     .sort((a, b) => b.count - a.count);
 }
 
-// Group D (uncategorized merchants): rows that landed in the catch-all "Other"
-// grouped by their description fragment (`descFragment`, the same merchant key
-// Group C and the created rule use). This is the SimpleFin-shaped gap: those
-// rows arrive with no source category at all, so nothing but a description rule
-// can ever classify them — and until one exists they pile up invisibly in
-// "Other".
+// Group D (uncategorized merchants): rows that landed in the catch-all
+// "Other" OR "Uncategorized" grouped by their description fragment
+// (`descFragment`, the same merchant key Group C and the created rule use).
+// This is the SimpleFin-shaped gap: those rows arrive with no source category
+// at all, so nothing but a description rule can ever classify them — and
+// until one exists they pile up invisibly. Both categories are checked
+// because the import pipeline's fallback changed from "Other" to
+// "Uncategorized" (see resolveImportCategory, src/ledger.js) — pre-existing
+// rows stayed "Other" (never rewritten), new ones land in "Uncategorized";
+// this panel treats both as the same kind of gap.
 // Skips, from the start (not as a follow-up):
 // - rows already matched by ANY existing description rule. First-match-wins
 //   means a new rule for the same fragment could never fire anyway, and without
 //   this the panel would flood with the entire pre-fix SimpleFin history the
 //   moment the user creates the very rule it asked for.
-// - rows the user manually set to "Other" (categoryManual) — that's a decision,
-//   not a gap.
+// - rows the user manually set to "Other"/"Uncategorized" (categoryManual) —
+//   that's a decision, not a gap.
 // Threshold >= 2 like the other groups; capped at the top 20 fragments so the
 // panel stays a suggestion list instead of a report.
 export function detectOtherDescriptionFragments(transactions, descriptionRules) {
   const groups = new Map();
   for (const t of transactions || []) {
-    if ((t.category || "") !== "Other") continue;
+    const cat = t.category || "";
+    if (cat !== "Other" && cat !== "Uncategorized") continue;
     if (t.categoryManual === true) continue;
     if (findMatchingDescriptionRule(t, descriptionRules)) continue; // already covered
     const key = descFragment(t.description);

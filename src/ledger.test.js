@@ -22,6 +22,7 @@ import {
   markDuplicates,
   scoreDuplicateCandidate,
   normalizeMerchant,
+  merchantKey,
   resolveImportCategory,
   matchOption,
   DUP_SCORE_CERTAIN,
@@ -132,10 +133,58 @@ describe("ckCategoryToken / mapCkCategory", () => {
     expect(mapCkCategory("Anything", "TRANSFER", map)).toBe(TRANSFER_CATEGORY);
     expect(mapCkCategory("Anything", "PAYMENT", map)).toBe(TRANSFER_CATEGORY);
   });
-  it("income type maps to Other Income; unknown tokens fall back to Other", () => {
+  it("income type maps to Other Income; unknown tokens fall back to Uncategorized", () => {
     expect(mapCkCategory("Paycheck", "INCOME", {})).toBe("Other Income");
-    expect(mapCkCategory("Mystery Thing", "expense", {})).toBe("Other");
+    expect(mapCkCategory("Mystery Thing", "expense", {})).toBe("Uncategorized");
     expect(mapCkCategory("Groceries", "expense", { GROCERIES: "Groceries" })).toBe("Groceries");
+  });
+});
+
+describe("merchantKey", () => {
+  it("strips a full inlined street address (Apple Card shape)", () => {
+    expect(merchantKey("ULTA #1499 1019 W UNIVERSITY AVE GEORG").key).toBe("ULTA");
+    expect(merchantKey("CIRCLE K # 41554 3100 N AW GRIMES BLVD").key).toBe("CIRCLE K");
+  });
+
+  it("strips an aggregator prefix and reports it separately", () => {
+    const r = merchantKey("DD *DOORDASH THEGREATG");
+    expect(r.key).toBe("DOORDASH THEGREATG");
+    expect(r.prefix).toBe("DD");
+
+    const r2 = merchantKey("TST* SONGBIRD  MEANWHILE");
+    expect(r2.key).toBe("SONGBIRD MEANWHILE");
+    expect(r2.prefix).toBe("TST");
+  });
+
+  it("distinguishes a sub-merchant that a coarser key would merge", () => {
+    // Both start "H-E-B", but the FULL key must stay distinct — only a
+    // caller deliberately truncating to a coarse token count should merge
+    // them (see the merchant-memory tiered backoff this feeds).
+    const heb = merchantKey("H-E-B ONLINE #108");
+    const hebGas = merchantKey("H-E-B GAS/CAR WASH#591");
+    expect(heb.key).not.toBe(hebGas.key);
+    expect(heb.tokens.slice(0, 2).join(" ")).toBe(hebGas.tokens.slice(0, 2).join(" "));
+  });
+
+  it("strips store numbers, phone numbers, and a trailing state code", () => {
+    expect(merchantKey("STARBUCKS #4821").key).toBe("STARBUCKS");
+    expect(merchantKey("STARBUCKS 8007827282").key).toBe("STARBUCKS");
+    // Only the trailing 2-letter code is state-code-stripped — "SEATTLE" is
+    // a real word, not a code, so it survives in the full key. A caller
+    // truncating to the first 2 tokens (the merchant-memory tiered backoff)
+    // still gets the comparable "AMAZON MARKETPLACE" bucket.
+    const r = merchantKey("AMAZON MARKETPLACE SEATTLE WA");
+    expect(r.key).toBe("AMAZON MARKETPLACE SEATTLE");
+    expect(r.tokens.slice(0, 2).join(" ")).toBe("AMAZON MARKETPLACE");
+  });
+
+  it("keeps a merchant name that itself starts with a number/directional", () => {
+    expect(merchantKey("0009P - PARKINGCOM").key).toBe("0009P PARKINGCOM");
+  });
+
+  it("handles empty/missing input", () => {
+    expect(merchantKey("")).toEqual({ key: "", tokens: [], prefix: "" });
+    expect(merchantKey(null)).toEqual({ key: "", tokens: [], prefix: "" });
   });
 });
 
@@ -601,7 +650,7 @@ describe("markDuplicates — _dupNearMiss (diagnostics for rows that stay \"new\
 });
 
 describe("resolveImportCategory", () => {
-  const CATS = ["Groceries", "Restaurant", "Other", "Shopping", TRANSFER_CATEGORY, "Other Income"];
+  const CATS = ["Groceries", "Restaurant", "Other", "Shopping", TRANSFER_CATEGORY, "Other Income", "Uncategorized"];
   const ctx = (rules, map) => ({
     categories: CATS,
     ckCategoryMap: map || { GROCERIES: "Groceries" },
@@ -658,10 +707,29 @@ describe("resolveImportCategory", () => {
       ctx(rules)
     );
     expect(out.category).toBe("Restaurant");
+    expect(out.categorySource).toBe("rule");
+    expect(out.categoryConfidence).toBe(1);
+    expect(out.categoryReason).toContain("starbucks");
   });
 
-  it("falls back to Other when nothing classifies the row", () => {
-    expect(resolveImportCategory({ description: "Mystery", category: "" }, ctx()).category).toBe("Other");
+  it("falls back to Uncategorized when nothing classifies the row", () => {
+    const out = resolveImportCategory({ description: "Mystery", category: "" }, ctx());
+    expect(out.category).toBe("Uncategorized");
+    expect(out.categorySource).toBe("none");
+    expect(out.categoryConfidence).toBe(0);
+    expect(out.categoryReason).toBe("");
+  });
+
+  it("categorySource stays 'none' when a rule matches but the Transfer safety net vetoes it", () => {
+    // (b) above already proves the category itself stays Transfer; this
+    // proves the provenance fields don't misreport the rule as the winner.
+    const rules = [{ matchField: "description", pattern: "zelle", destinationCategory: "Shopping" }];
+    const out = resolveImportCategory(
+      { description: "ZELLE PAYMENT", category: TRANSFER_CATEGORY, srcAccount: "Chase" },
+      ctx(rules)
+    );
+    expect(out.categorySource).toBe("none");
+    expect(out.categoryConfidence).toBe(0);
   });
 });
 

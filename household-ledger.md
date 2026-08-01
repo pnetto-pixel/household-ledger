@@ -1,4 +1,4 @@
-# Household Ledger · v1.64.6
+# Household Ledger · v1.65.0
 
 Aplicativo mobile-first de controle financeiro doméstico. Registra
 transações da casa (despesas e receitas) por categoria e conta, com
@@ -31,7 +31,48 @@ O `feature-auditor` deve conferir, como parte da checklist de auditoria, que
 o diff inclui o bump nos dois arquivos antes de aprovar — se faltar, isso é
 motivo de reprovação (devolver ao coder), não um detalhe opcional.
 
-Versão atual: **v1.64.6** — Home's `AccountBalancesCard` (`src/App.jsx`)
+Versão atual: **v1.65.0** — Fase 0 da classificação automática de categorias
+(fundação — nenhuma mudança visível ainda; o plano completo, debatido com o
+usuário, cobre normalizador de comerciante, memória de aprendizado,
+confiança/etiqueta na UI e confirmação manual como próximas fases):
+1. Nova função pura `merchantKey(description)` (`src/ledger.js`) — reduz uma
+   descrição bruta a uma chave de comerciante comparável: corta endereço
+   completo inline (formato Apple Card: "CIRCLE K # 41554 3100 N AW GRIMES
+   BLVD" → "CIRCLE K"), separa prefixo de agregador de pagamento ("TST*",
+   "DD *") em campo próprio, remove telefone/número de loja/sigla de estado
+   final. Retorna `{ key, tokens, prefix }` — `tokens` existe pra quem chamar
+   truncar em N palavras (base da memória de comerciante da Fase 1, ainda não
+   implementada). Testada em `src/ledger.test.js` com os formatos reais do
+   SimpleFin/Apple Card/agregadores de delivery.
+2. `resolveImportCategory` (`src/ledger.js`) passa a retornar também
+   `categorySource`/`categoryConfidence`/`categoryReason` — hoje só dois
+   valores possíveis: `'rule'` (confiança 1) quando uma regra de descrição
+   efetivamente decidiu a categoria FINAL (checado contra o resultado, não
+   contra "uma regra bateu" — a rede de segurança de Transfer pode vetar uma
+   regra vencedora sem `allowTransferOverride`), ou `'none'` (confiança 0)
+   pro resto. `buildRow` e `classifySimpleFinRows` (`src/App.jsx`) gravam
+   esses três campos na linha só quando `categorySource !== 'none'` —
+   aditivo, não infla toda linha com "nada a dizer ainda". Nunca grava
+   `'manual'` aqui — isso continua exclusivo dos fluxos de edição do usuário
+   (`categoryManual`), que não passam por esta função.
+3. Nova categoria `Uncategorized`, que substitui `Other` como fallback de
+   "nada classificou esta linha" em três pontos: `resolveImportCategory` e
+   `mapCkCategory` (`src/ledger.js`), e `DEFAULT_CATEGORY` (`lib/simplefin.js`
+   — crítico corrigir aqui também, já que esse placeholder alimenta
+   `resolveImportCategory` como se fosse a categoria da própria fonte; deixá-lo
+   em `"Other"` faria `matchOption` casar como categoria legítima e todo
+   lançamento SimpleFin não classificado cairia silenciosamente em "Other" em
+   vez de sinalizar como não-classificado). `Other` continua existindo,
+   inalterado, como categoria normal e selecionável manualmente — linhas
+   antigas nela não mudam; só o alvo do fallback automático mudou.
+   `applyConfig` (`src/App.jsx`) garante `Uncategorized` sempre presente em
+   `EXPENSE_CATEGORIES` mesmo para households com config já salva no Redis
+   (mesmo padrão de guarantee já usado para `"Other Income"`).
+   `detectOtherDescriptionFragments` (painel "Suggested rules", Grupo D)
+   passa a olhar `Other` E `Uncategorized` juntos, pra não perder cobertura
+   silenciosamente com a troca do fallback.
+
+Versão anterior: **v1.64.6** — Home's `AccountBalancesCard` (`src/App.jsx`)
 removed the per-group subtitle (e.g. "Credit Cards" / "Checking & Savings" /
 "Other") that used to render above each group's row list (`renderGroup`'s
 `<h3 style={S.sectionTitle}>`), keeping only the card's overall "Account

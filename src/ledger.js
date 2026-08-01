@@ -107,9 +107,10 @@ export function ckCategoryToken(name) {
 
 // Pure re-implementation of the exporters' `mapCat`/`mapCategory`: Transfer/
 // Payment checked first (excluded from all ledger totals), then Income, then
-// the table lookup with an "Other" fallback. `mapObj` is a parameter (not the
-// live CK_CATEGORY_MAP) so the audit UI can preview a draft mapping before
-// saving.
+// the table lookup with an "Uncategorized" fallback — a "we don't know yet"
+// gap, distinct from "Other" (which stays a normal, user-pickable category;
+// see resolveImportCategory below). `mapObj` is a parameter (not the live
+// CK_CATEGORY_MAP) so the audit UI can preview a draft mapping before saving.
 export function mapCkCategory(ckCategoryRaw, ckType, mapObj) {
   const token = ckCategoryToken(ckCategoryRaw);
   const ty = String(ckType || "").toUpperCase();
@@ -121,7 +122,7 @@ export function mapCkCategory(ckCategoryRaw, ckType, mapObj) {
     return TRANSFER_CATEGORY;
   }
   if (ty === "INCOME") return "Other Income";
-  return (mapObj && mapObj[token]) || "Other";
+  return (mapObj && mapObj[token]) || "Uncategorized";
 }
 
 // ---------------------------------------------------------------------------
@@ -198,6 +199,107 @@ export function matchOption(value, options, fallback) {
 }
 
 // ---------------------------------------------------------------------------
+// Merchant key normalization
+// ---------------------------------------------------------------------------
+
+// US state postal codes and street-suffix words — used only to spot where a
+// street address starts in a raw description, so it can be cut off. NOT an
+// exhaustive geography/address parser; good enough to recognize the pattern
+// every source that inlines a full merchant address into `description`
+// actually uses ("<number> <street-suffix>...", e.g. Apple Card's "3100 N AW
+// GRIMES BLVD").
+const US_STATE_CODES = new Set([
+  "AL", "AK", "AZ", "AR", "CA", "CO", "CT", "DE", "FL", "GA", "HI", "ID",
+  "IL", "IN", "IA", "KS", "KY", "LA", "ME", "MD", "MA", "MI", "MN", "MS",
+  "MO", "MT", "NE", "NV", "NH", "NJ", "NM", "NY", "NC", "ND", "OH", "OK",
+  "OR", "PA", "RI", "SC", "SD", "TN", "TX", "UT", "VT", "VA", "WA", "WV",
+  "WI", "WY", "DC",
+]);
+const STREET_SUFFIXES = new Set([
+  "AVE", "AVENUE", "ST", "STREET", "RD", "ROAD", "BLVD", "DR", "DRIVE",
+  "LN", "LANE", "PKWY", "PARKWAY", "HWY", "HIGHWAY", "SUITE", "STE", "CIR",
+  "CT", "TRL", "WAY", "N", "S", "E", "W", "NE", "NW", "SE", "SW",
+]);
+
+// Payment-aggregator prefix a source tacks in front of the real merchant name
+// ("TST* SONGBIRD", "DD *DOORDASH THEGREATG", "IFD*FAMILIA SALATINO"). Generic
+// on purpose (any 2-8 letter code followed by asterisk(s)) rather than an
+// enumerated list — a fixed list of known aggregators (the narrower
+// `MERCHANT_PREFIXES` above, tuned for the duplicate-scorer's fuzzier Jaccard
+// match) silently misses new ones and merges nothing, which is a much
+// smaller problem for that consumer than it is here: every uncaught prefix
+// keeps its own restaurant/service from ever accumulating enough history to
+// be recognized as one merchant.
+const AGGREGATOR_PREFIX_RE = /^([A-Z]{2,8})\s*\*+\s*/;
+
+// Reduce a raw, UPPERCASE-source description to a merchant-matching key: an
+// address-stripped, punctuation-stripped, aggregator-prefix-stripped string,
+// plus its word tokens so a caller can build a coarser key by truncating to
+// the first N tokens (used by the merchant-memory classifier's confidence
+// tiers — the future `buildMerchantMemory`, not yet implemented). Deliberately
+// a SEPARATE function from `normalizeMerchant` above, not a shared/extended
+// one: that function serves the duplicate scorer, where an uncaught prefix
+// or an un-stripped address just nudges a Jaccard score — tolerable noise.
+// Here, an un-stripped address turns every visit to the same gas station
+// into an unrecognized one-off (each has a different pump-side street
+// address string), which silently prevents that merchant from ever building
+// enough history to be classified automatically — a correctness bug for
+// this consumer, not just noise.
+//
+// Returns `{ key, tokens, prefix }`:
+//   `key`    — the normalized string, ALL surviving tokens joined by a
+//              single space ("" when nothing survives normalization).
+//   `tokens` — `key` split on whitespace (empty array for "").
+//   `prefix` — the aggregator code stripped from the front ("TST", "DD"),
+//              or "" when none matched.
+export function merchantKey(description) {
+  let s = String(description || "").toUpperCase().trim();
+  if (!s) return { key: "", tokens: [], prefix: "" };
+
+  let prefix = "";
+  const prefixMatch = s.match(AGGREGATOR_PREFIX_RE);
+  if (prefixMatch) {
+    prefix = prefixMatch[1];
+    s = s.slice(prefixMatch[0].length);
+  }
+
+  // Cut everything from the first "<2-6-digit number> <street-suffix word>"
+  // pair onward — this is where a full street address starts. Scanning from
+  // index 1 (never cut the very first word) so a merchant name that happens
+  // to start with a number/directional survives.
+  const words = s.split(/\s+/);
+  let cut = words.length;
+  for (let i = 1; i < words.length; i++) {
+    const isAddressNumber = /^\d{2,6}$/.test(words[i]);
+    const nextIsStreetWord = i + 1 < words.length
+      && STREET_SUFFIXES.has(words[i + 1].replace(/[^A-Z]/g, ""));
+    if (isAddressNumber && nextIsStreetWord) {
+      cut = i;
+      break;
+    }
+  }
+  s = words.slice(0, cut).join(" ");
+
+  s = s
+    .replace(/\b\d{3}[- ]?\d{3}[- ]?\d{4}\b/g, " ") // phone numbers
+    .replace(/#\s*[A-Z]?-?\d+/g, " ")               // store/order numbers ("#1499")
+    .replace(/\b\d{3,}\b/g, " ")                    // any other 3+ digit run
+    .replace(/[^A-Z0-9&' ]+/g, " ")                 // remaining punctuation
+    .replace(/\s+/g, " ")
+    .trim();
+
+  const tokens = s ? s.split(" ") : [];
+  // Trailing state code, stripped once (same non-idempotence rationale as
+  // normalizeMerchant's trailing-code strip): a merchant whose real name
+  // ends in a two-letter word keeps it.
+  while (tokens.length > 1 && US_STATE_CODES.has(tokens[tokens.length - 1])) {
+    tokens.pop();
+  }
+
+  return { key: tokens.join(" "), tokens, prefix };
+}
+
+// ---------------------------------------------------------------------------
 // Import-time category resolution
 // ---------------------------------------------------------------------------
 
@@ -209,7 +311,7 @@ export function matchOption(value, options, fallback) {
 //
 // Precedence (PR #135 — must stay byte-for-byte equivalent):
 //   1. `csvCategory`   = the source's own category column, matched against the
-//                        current category list ("Other" when unknown).
+//                        current category list ("Uncategorized" when unknown).
 //   2. `recomputed`    = when a raw CK category traveled with the row, the
 //                        editable CK map wins over the source's column;
 //                        otherwise `csvCategory`.
@@ -218,15 +320,31 @@ export function matchOption(value, options, fallback) {
 //      The ONLY escape is a winning rule with `allowTransferOverride: true`
 //      (which itself requires a non-empty `providerPattern`).
 //
+// The fallback for "nothing classified this row" is "Uncategorized", NOT
+// "Other" — "Other" stays a normal category a user can pick deliberately
+// (old rows keep it, unchanged); "Uncategorized" means the pipeline itself
+// doesn't know, so it's visually and semantically distinct (see household
+// ledger docs for the categorization-memory design this feeds).
+//
 // `row` carries { description, srcAccount, account, category, ckCategory,
 // ckType }; `ctx` carries the runtime-configurable lists
 // { categories, ckCategoryMap, descriptionRules } (App.jsx owns those).
+//
+// Also returns `categorySource`/`categoryConfidence`/`categoryReason` — the
+// provenance of the resolved category, foundation for the merchant-memory
+// classifier (a future addition). In this version only two values exist:
+// 'rule' (a description rule's destination is what actually won — checked
+// against the FINAL category, not just "a rule matched", since the Transfer
+// safety net can still veto a matched rule) at confidence 1, or 'none'
+// (everything else) at confidence 0. Never set to 'manual' here — that flag
+// is only ever set by the user-facing edit paths (categoryManual), which
+// don't go through this function.
 export function resolveImportCategory(row, ctx) {
   const categories = (ctx && ctx.categories) || [];
   const ckCategoryMap = (ctx && ctx.ckCategoryMap) || {};
   const descriptionRules = (ctx && ctx.descriptionRules) || [];
 
-  const csvCategory = matchOption(row.category, categories, "Other");
+  const csvCategory = matchOption(row.category, categories, "Uncategorized");
   const recomputedCategory = row.ckCategory
     ? mapCkCategory(row.ckCategory, row.ckType, ckCategoryMap)
     : csvCategory;
@@ -241,9 +359,18 @@ export function resolveImportCategory(row, ctx) {
     ? matchedRule.destinationCategory
     : ((overridden === TRANSFER_CATEGORY || csvCategory === TRANSFER_CATEGORY)
         ? TRANSFER_CATEGORY
-        : matchOption(overridden, categories, "Other"));
+        : matchOption(overridden, categories, "Uncategorized"));
 
-  return { category, csvCategory, matchedRule };
+  let categorySource = "none";
+  let categoryConfidence = 0;
+  let categoryReason = "";
+  if (matchedRule && category === matchedRule.destinationCategory) {
+    categorySource = "rule";
+    categoryConfidence = 1;
+    categoryReason = `Regra de descrição: "${matchedRule.pattern}" → ${matchedRule.destinationCategory}`;
+  }
+
+  return { category, csvCategory, matchedRule, categorySource, categoryConfidence, categoryReason };
 }
 
 // ---------------------------------------------------------------------------
