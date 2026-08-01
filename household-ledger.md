@@ -31,7 +31,7 @@ O `feature-auditor` deve conferir, como parte da checklist de auditoria, que
 o diff inclui o bump nos dois arquivos antes de aprovar — se faltar, isso é
 motivo de reprovação (devolver ao coder), não um detalhe opcional.
 
-Versão atual: **v1.70.2** — fix: `S.stickyTh` (v1.70.1) não fazia spread de
+Versão atual: **v1.70.2** (PR #265, squash-merge) — fix: `S.stickyTh` (v1.70.1) não fazia spread de
 `S.th`, então os `<th>` sticky de Transactions e Import perderam
 padding/cor/borda/`whiteSpace`. `S.th` e `S.stickyTh` agora derivam de um
 `TH_BASE` hoisted para fora do objeto `S` (necessário porque, dentro do
@@ -3366,6 +3366,12 @@ shell de altura cheia (`#root` em `100lvh` + shell `height:100%`): só o
    No mobile, **swipe da linha para a esquerda** revela os chips **Edit** (abre
    `EditModal`) e **Delete** (`TxnAuditCard`). O **botão de export CSV foi
    removido**. O botão JSON já tinha saído (PR #14).
+
+   **Desde a v1.70.1 (PR #265, desktop only)**, o `<thead>` da tabela fica
+   sticky (`S.stickyTh`, `top: 0`) ao rolar a lista, mantendo os filtros de
+   coluna (`HeaderFilter`/`DateHeaderFilter`) sempre visíveis; mesmo token
+   aplicado à tabela do preview do Import (branch `wide`). Ver changelog no
+   topo do documento para detalhes de implementação.
 
    A auditoria de origem aparece como tooltip na célula de conta (desktop),
    linha "Source account (audit)" no `EditModal`, e `src:` no card mobile
