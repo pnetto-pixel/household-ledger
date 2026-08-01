@@ -705,7 +705,7 @@ function idleExpired() {
 // path, so the pending copy is discarded with a notice instead).
 
 // Single source for the version shown in the header and in diagnostics.
-const APP_VERSION = "v1.70.0";
+const APP_VERSION = "v1.70.2";
 
 const PENDING_SAVE_KEY = "household_pending_save";
 
@@ -5940,27 +5940,27 @@ function TxnTable({ rows, money, selectedIds, allSelected, onToggleSelect, onSel
       <table style={S.table}>
         <thead>
           <tr>
-            <th style={{ ...S.th, width: 36, textAlign: "center" }}>
+            <th style={{ ...S.stickyTh, width: 36, textAlign: "center" }}>
               <input type="checkbox" checked={allSelected} onChange={(e) => onSelectAll(e.target.checked)} style={S.checkbox} />
             </th>
-            <th style={S.th}>
+            <th style={S.stickyTh}>
               <DateHeaderFilter years={years} dateYears={dateYears} setDateYears={setDateYears} dateMonths={dateMonths} setDateMonths={setDateMonths} from={from} setFrom={setFrom} to={to} setTo={setTo} />
             </th>
-            <th style={S.th}>Description</th>
-            <th style={S.th}>
+            <th style={S.stickyTh}>Description</th>
+            <th style={S.stickyTh}>
               <HeaderFilter label="Account (source)" value={acctFilter} options={acctOptions} onChange={setAcctFilter} />
             </th>
-            <th style={S.th}>
+            <th style={S.stickyTh}>
               <HeaderFilter label="Type" value={typeFilter} options={["Income", "Expense", "Transfer"]} onChange={setTypeFilter} />
             </th>
-            <th style={S.th}>
+            <th style={S.stickyTh}>
               <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
                 <HeaderFilter label="Category" value={catFilter} options={catOptions} onChange={setCatFilter} />
                 <HeaderFilter label="Status" value={badgeFilter} options={CATEGORY_BADGE_FILTER_OPTIONS} onChange={setBadgeFilter} />
               </div>
             </th>
-            <th style={{ ...S.th, textAlign: "right" }}>Amount</th>
-            <th style={{ ...S.th, width: 70, textAlign: "right" }}></th>
+            <th style={{ ...S.stickyTh, textAlign: "right" }}>Amount</th>
+            <th style={{ ...S.stickyTh, width: 70, textAlign: "right" }}></th>
           </tr>
         </thead>
         <tbody>
@@ -9355,8 +9355,8 @@ function ImportTransactions({
                   <table style={S.table}>
                     <thead>
                       <tr>
-                        <th style={{ ...S.th, width: 36, textAlign: "center" }} />
-                        <th style={S.th}>
+                        <th style={{ ...S.stickyTh, width: 36, textAlign: "center" }} />
+                        <th style={S.stickyTh}>
                           <DateHeaderFilter
                             years={importYears}
                             dateYears={importDateYears}
@@ -9369,17 +9369,17 @@ function ImportTransactions({
                             setTo={setImportTo}
                           />
                         </th>
-                        <th style={S.th}>Description</th>
-                        <th style={S.th}>
+                        <th style={S.stickyTh}>Description</th>
+                        <th style={S.stickyTh}>
                           <HeaderFilter label="Account" value={importAcctFilter} options={importAcctOptions} onChange={setImportAcctFilter} />
                         </th>
-                        <th style={S.th}>
+                        <th style={S.stickyTh}>
                           <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
                             <HeaderFilter label="Category" value={importCatFilter} options={importCatOptions} onChange={setImportCatFilter} />
                             <HeaderFilter label="Status" value={importBadgeFilter} options={CATEGORY_BADGE_FILTER_OPTIONS} onChange={setImportBadgeFilter} />
                           </div>
                         </th>
-                        <th style={{ ...S.th, textAlign: "right" }}>Amount</th>
+                        <th style={{ ...S.stickyTh, textAlign: "right" }}>Amount</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -9929,6 +9929,18 @@ function Empty({ children }) {
 const FONT_STACK =
   '-apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", system-ui, "Segoe UI", Roboto, Helvetica, Arial, sans-serif';
 
+// Base `<th>` style, hoisted out of the `S` object literal so `stickyTh`
+// below can spread it — `S.th` isn't reachable from inside the literal that
+// defines `S` itself (the binding doesn't exist yet during evaluation).
+const TH_BASE = {
+  padding: "10px 12px",
+  color: "#8b94a3",
+  fontWeight: 600,
+  textAlign: "left",
+  borderBottom: "1px solid #1f242c",
+  whiteSpace: "nowrap",
+};
+
 const S = {
   app: {
     // Fills #root, which is sized to 100lvh (the full physical screen) in
@@ -10360,13 +10372,25 @@ const S = {
     borderCollapse: "collapse",
     fontSize: 12,
   },
-  th: {
-    padding: "10px 12px",
-    color: "#8b94a3",
-    fontWeight: 600,
-    textAlign: "left",
-    borderBottom: "1px solid #1f242c",
-    whiteSpace: "nowrap",
+  th: TH_BASE,
+  // Sticky variant of `th` for the desktop Transactions table and the
+  // Import preview table (both scroll inside <main>, the app's only
+  // scrolling element). `background` must be OPAQUE — `S.card`'s
+  // semi-transparent surface would let table rows show through while
+  // scrolling underneath the stuck header. `top: 0` is enough here (unlike
+  // the Trends sticky bar, which needed a negative-offset trick to cancel
+  // <main>'s padding-top and sit flush against the app header above it —
+  // these table headers are fine sitting at the normal padded position).
+  // Spreads TH_BASE so it keeps the same padding/color/border as a plain
+  // `th` — only adds the sticky positioning + opaque background on top.
+  stickyTh: {
+    ...TH_BASE,
+    position: "sticky",
+    top: 0,
+    zIndex: 2,
+    background: "rgba(11,13,16,0.92)",
+    backdropFilter: "blur(20px) saturate(180%)",
+    WebkitBackdropFilter: "blur(20px) saturate(180%)",
   },
   td: {
     padding: "9px 12px",
