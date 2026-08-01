@@ -4879,6 +4879,17 @@ riscos reais de perda de dados.
   (read-only) + fluxo normal de restore.
 - [ ] **Backup dos demais namespaces** (config, aliases, rules, CK map,
   account map, dismissed) no arquivo de backup local e/ou nos snapshots.
+- [ ] **Diagnóstico/limpeza de `id` duplicado em `transactions`** (origem
+  provável: import de restauração de backup JSON preserva o `id` de entrada
+  quando já presente — `rows.map(r => r.id ? r : {...r, id: uid()})`,
+  `src/App.jsx` ~linha 7808 — reimportar/mesclar backups sobrepostos pode
+  legitimamente produzir dois objetos com o mesmo `id`; achado durante a
+  investigação do bugfix v1.69.1 do filtro de Account em Transactions, que só
+  mitigou o sintoma client-side). Falta: (a) `console.warn`/telemetria
+  quando o de-dupe defensivo do `filtered` (`TransactionsTab`) encontrar ids
+  de fato duplicados, para confirmar a origem real; (b) rotina de
+  auditoria/limpeza server-side (ou no "Data quality" da Fase 7) para ids
+  duplicados já persistidos no Redis.
 
 ### Fase 7 — Extensões propostas (da revisão de 2026-07-10, ainda não iniciadas)
 
