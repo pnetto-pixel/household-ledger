@@ -705,7 +705,7 @@ function idleExpired() {
 // path, so the pending copy is discarded with a notice instead).
 
 // Single source for the version shown in the header and in diagnostics.
-const APP_VERSION = "v1.69.0";
+const APP_VERSION = "v1.69.1";
 
 const PENDING_SAVE_KEY = "household_pending_save";
 
@@ -5332,7 +5332,18 @@ function Transactions({ transactions, money, hideValues, isWide, onDelete, onUpd
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    return [...transactions]
+    // Defensive de-dupe by id before anything else: two transaction objects
+    // sharing the same `id` (e.g. a stale duplicate left over from an old
+    // import/merge edge case) collide as the React `key` on <tr>/<TxnAuditCard>
+    // below. With a duplicate key, the reconciler can keep a stale DOM node
+    // (and its already-rendered <select> value) for one of the two rows
+    // instead of updating it — which showed up as a row passing the Account
+    // filter (its real `t.account` matched) while visually still displaying a
+    // sibling row's account. Keeping the LAST occurrence (closest to what a
+    // Map-based merge/save would naturally produce) makes every rendered key
+    // unique again, independent of whatever produced the duplicate upstream.
+    const deduped = [...new Map(transactions.map((t) => [t.id, t])).values()];
+    return deduped
       .filter((t) => (catFilter.length === 0 ? true : catFilter.includes(t.category)))
       .filter((t) => (acctFilter.length === 0 ? true : acctFilter.includes(t.account || "Unassigned")))
       .filter((t) => (typeFilter.length === 0 ? true : typeFilter.includes(txnType(t.category))))

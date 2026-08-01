@@ -1,4 +1,4 @@
-# Household Ledger · v1.69.0
+# Household Ledger · v1.69.1
 
 Aplicativo mobile-first de controle financeiro doméstico. Registra
 transações da casa (despesas e receitas) por categoria e conta, com
@@ -31,7 +31,23 @@ O `feature-auditor` deve conferir, como parte da checklist de auditoria, que
 o diff inclui o bump nos dois arquivos antes de aprovar — se faltar, isso é
 motivo de reprovação (devolver ao coder), não um detalhe opcional.
 
-Versão atual: **v1.69.0** — Home e Import agora persistem estado entre
+Versão atual: **v1.69.1** — Bugfix na tab Transactions (Account filter):
+de-dupe defensivo por `id` no `filtered` (useMemo) da `TransactionsTab`, antes
+de qualquer filtro. Se dois objetos de transação na `transactions` em memória
+compartilhassem o mesmo `id` (dado legado/corrompido de algum import/merge
+antigo — não confirmado onde ele se origina), eles colidiam como `key` de
+React em `<tr>`/`<TxnAuditCard>`, e o reconciliador podia manter o DOM (e o
+valor já renderizado do `<select>` de conta) de uma linha "vazado" sobre a
+outra — sintoma reportado: com o filtro "Account (source): Apple" ativo, duas
+linhas no topo (ordenadas por data desc) mostravam Account = "Bank of
+America" mesmo passando pelo predicado `acctFilter.includes(t.account)`
+(que só pode ser satisfeito se o `t.account` real fosse "Apple"). Mantém a
+ÚLTIMA ocorrência de cada `id` repetido. Client-side apenas, sem mudança de
+contrato de API/Redis/modelo de transação — não corrige o dado já persistido
+no Redis (se houver mesmo `id` duplicado lá, ele continua existindo, só não
+quebra mais a renderização da tabela).
+
+Versão anterior: **v1.69.0** — Home e Import agora persistem estado entre
 trocas de tab, reduzindo chamadas desnecessárias ao SimpleFin (client-side
 apenas, sem mudança de contrato de API/Redis):
 1. **`AccountBalancesCard` (Home)** — parou de ter seu próprio
