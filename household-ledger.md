@@ -1,4 +1,4 @@
-# Household Ledger · v1.67.0
+# Household Ledger · v1.68.0
 
 Aplicativo mobile-first de controle financeiro doméstico. Registra
 transações da casa (despesas e receitas) por categoria e conta, com
@@ -31,7 +31,44 @@ O `feature-auditor` deve conferir, como parte da checklist de auditoria, que
 o diff inclui o bump nos dois arquivos antes de aprovar — se faltar, isso é
 motivo de reprovação (devolver ao coder), não um detalhe opcional.
 
-Versão atual: **v1.67.0** — Fase 2 da classificação automática de categorias:
+Versão atual: **v1.68.0** — fecha a lacuna encontrada na auditoria
+`/feature-workflow` da PR #256: linhas `categorySource === 'learned'` nunca
+revisadas na tela de Import ficavam congeladas indefinidamente — sem badge,
+sem confirmação, excluídas do treino futuro (`isMemoryTrainableRow`) para
+sempre, sem nenhuma outra forma de promovê-las. Reaproveita `CategoryBadge`/
+`ConfirmCategoryButton` (Fase 2) fora do Import:
+1. **`TxnTable`/`TxnAuditCard`** (`src/App.jsx`, aba Transactions) — badge
+   por linha e botão "✓" ao lado do seletor de categoria, idêntico ao do
+   Import. Novo prop `onConfirmLearned` encadeado de `Transactions` até os
+   dois componentes de linha (desktop e mobile).
+2. **`confirmLearned(id)`** (novo, em `Transactions`) — promove uma linha
+   `categorySource === 'learned'` para `'confirmed'` via `onUpdate`, sem
+   alterar a categoria. **`learnedCount`/`confirmAllVisibleLearned`**
+   (novos) — contador "N aprendidos" + confirmação em massa respeitando os
+   filtros atuais (`filtered`, não só a janela lazy-loaded `visible`) —
+   mesmo padrão dos outros botões de ação em massa já existentes na aba.
+   Posicionados na barra de filtros, ao lado de "Clear filters"/"Clear
+   selection".
+3. **`handleInlineChange`** (novo, substitui a arrow function inline que
+   existia em `onInlineChange`) — corrige o mesmo bug latente já corrigido
+   na Fase 2 do Import (`setCategoryOverride`): trocar a categoria pelo
+   dropdown inline da tabela/card agora limpa `categorySource`/
+   `categoryConfidence`/`categoryReason` obsoletos, para que
+   `isMemoryTrainableRow` não continue excluindo do treino uma correção
+   humana genuína achando que ainda é um palpite não revisado.
+4. **`EditModal.submit`** — mesma correção de limpeza de proveniência ao
+   trocar a categoria pelo formulário de edição. Além disso, um aviso
+   informativo (somente leitura, sem botão de confirmar dentro do modal de
+   propósito — o "✓" já existe na linha da lista, sem precisar abrir o
+   modal) mostra o badge + "categoria sugerida pela memória — confirme ou
+   corrija na lista de transações" quando `txn.categorySource === "learned"`.
+5. Validado com Playwright contra um dev server real (mesma metodologia da
+   Fase 2): badge/confirmação individual/confirmação em massa/edição manual
+   limpando o badge/hint no EditModal — todos conferidos com persistência
+   real via PUT `/api/transactions` mockado (`categorySource: "confirmed"`
+   de fato chega no payload salvo), em desktop e mobile.
+
+Versão anterior: **v1.67.0** — Fase 2 da classificação automática de categorias:
 finalmente visível na tela de Import (`ImportTransactions`, `src/App.jsx`) —
 a memória da Fase 1 passa a aparecer, ser revisável e ensinável.
 1. **Etiqueta por linha** (`CategoryBadge`, nova) ao lado do seletor de
@@ -4995,8 +5032,7 @@ riscos reais de perda de dados.
   - [ ] **Fase 4 futura — classificação por LLM** para o que sobrar sem
     classificação, só depois de um período real de uso da memória —
     decisão explícita do usuário de aguardar; ainda não iniciada.
-  - [ ] **Linhas `'learned'` nunca revisadas no import ficam congeladas
-    indefinidamente** — `Transactions`/`EditModal` não leem `categorySource`
-    hoje, então fora da tela de Import não há badge nem confirmação
-    disponível para essas linhas; lacuna identificada em auditoria, ainda
-    sem decisão de produto.
+  - [x] **Linhas `'learned'` nunca revisadas no import ficam congeladas
+    indefinidamente** — resolvido em v1.68.0 (ver "Versão atual" no topo
+    deste documento): `TxnTable`/`TxnAuditCard`/`EditModal` agora leem
+    `categorySource` e oferecem o mesmo badge/confirmação do Import.

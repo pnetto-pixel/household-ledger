@@ -705,7 +705,7 @@ function idleExpired() {
 // path, so the pending copy is discarded with a notice instead).
 
 // Single source for the version shown in the header and in diagnostics.
-const APP_VERSION = "v1.67.0";
+const APP_VERSION = "v1.68.0";
 
 const PENDING_SAVE_KEY = "household_pending_save";
 
@@ -5264,6 +5264,33 @@ function Transactions({ transactions, money, hideValues, isWide, onDelete, onUpd
     setSelectedIds(new Set());
   };
 
+  // Inline category/account edit from the table row / mobile card dropdown
+  // (as opposed to the full EditModal). Same fix as the Import preview's
+  // setCategoryOverride and EditModal's submit below: a manual category pick
+  // invalidates whatever classifier (rule/memory) produced the OLD category
+  // — otherwise isMemoryTrainableRow (src/ledger.js) would keep excluding a
+  // genuine correction from training because the row still says 'learned'.
+  const handleInlineChange = (t, patch) => {
+    const next = { ...t, ...patch };
+    if (patch.category !== undefined && patch.category !== t.category) {
+      next.categorySource = undefined;
+      next.categoryConfidence = undefined;
+      next.categoryReason = undefined;
+    }
+    onUpdate(next);
+  };
+
+  // Closes the loop for a row that was never touched during import review
+  // (the intended review point — see ImportTransactions): 'learned' rows
+  // otherwise stay 'learned' — and excluded from future training, see
+  // isMemoryTrainableRow — indefinitely, with no other way to promote them.
+  // Confirming doesn't change the category, only its provenance.
+  const confirmLearned = (id) => {
+    const t = transactions.find((x) => x.id === id);
+    if (!t || t.categorySource !== "learned") return;
+    onUpdate({ ...t, categorySource: "confirmed" });
+  };
+
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     return [...transactions]
@@ -5296,6 +5323,19 @@ function Transactions({ transactions, money, hideValues, isWide, onDelete, onUpd
       .sort((a, b) => (a.t.date < b.t.date ? 1 : a.t.date > b.t.date ? -1 : a.i - b.i))
       .map(({ t }) => t);
   }, [transactions, catFilter, acctFilter, typeFilter, query, year, month, from, to, dateYears, dateMonths, isWide]);
+
+  // Bulk version — respects the CURRENT filters (`filtered`, not just the
+  // lazy-loaded `visible` window), same "acts on everything matching, not
+  // just what's rendered" semantics as the other bulk actions on this tab.
+  const learnedCount = useMemo(
+    () => filtered.filter((t) => t.categorySource === "learned").length,
+    [filtered]
+  );
+  const confirmAllVisibleLearned = () => {
+    const ids = filtered.filter((t) => t.categorySource === "learned").map((t) => t.id);
+    if (ids.length === 0) return;
+    onUpdateMany(ids, { categorySource: "confirmed" });
+  };
 
   // Reset visible window whenever filters change.
   useEffect(() => {
@@ -5456,6 +5496,12 @@ function Transactions({ transactions, money, hideValues, isWide, onDelete, onUpd
               Clear selection ({selectedIds.size})
             </button>
           ) : null}
+          {learnedCount > 0 ? (
+            <>
+              <span style={{ fontSize: 12, color: "#fbbf24" }}>{learnedCount} aprendido{learnedCount === 1 ? "" : "s"}</span>
+              <button onClick={confirmAllVisibleLearned} style={S.linkBtn}>Confirmar todos os aprendidos visíveis</button>
+            </>
+          ) : null}
         </div>
       </div>
 
@@ -5541,7 +5587,8 @@ function Transactions({ transactions, money, hideValues, isWide, onDelete, onUpd
           allSelected={allSelected}
           onToggleSelect={toggleRowSelect}
           onSelectAll={(checked) => handleSelectAll(filtered, checked)}
-          onInlineChange={(t, patch) => onUpdate({ ...t, ...patch })}
+          onInlineChange={handleInlineChange}
+          onConfirmLearned={confirmLearned}
           onEdit={setEditing}
           onDelete={onDelete}
           typeFilter={typeFilter}
@@ -5579,7 +5626,8 @@ function Transactions({ transactions, money, hideValues, isWide, onDelete, onUpd
                   money={money}
                   selected={selectedIds.has(t.id)}
                   onToggleSelect={toggleRowSelect}
-                  onInlineChange={(txn, patch) => onUpdate({ ...txn, ...patch })}
+                  onInlineChange={handleInlineChange}
+                  onConfirmLearned={confirmLearned}
                   onEdit={setEditing}
                   onDelete={onDelete}
                 />
@@ -5829,7 +5877,7 @@ function DateHeaderFilter({ years, dateYears, setDateYears, dateMonths, setDateM
 // row selection for bulk actions.
 // ---------------------------------------------------------------------------
 
-function TxnTable({ rows, money, selectedIds, allSelected, onToggleSelect, onSelectAll, onInlineChange, onEdit, onDelete, typeFilter, setTypeFilter, acctFilter, setAcctFilter, catFilter, setCatFilter, acctOptions, catOptions, years, dateYears, setDateYears, dateMonths, setDateMonths, from, setFrom, to, setTo }) {
+function TxnTable({ rows, money, selectedIds, allSelected, onToggleSelect, onSelectAll, onInlineChange, onConfirmLearned, onEdit, onDelete, typeFilter, setTypeFilter, acctFilter, setAcctFilter, catFilter, setCatFilter, acctOptions, catOptions, years, dateYears, setDateYears, dateMonths, setDateMonths, from, setFrom, to, setTo }) {
   return (
     <div style={{ ...S.card, padding: 0, overflow: "visible" }}>
       <table style={S.table}>
@@ -5896,6 +5944,8 @@ function TxnTable({ rows, money, selectedIds, allSelected, onToggleSelect, onSel
                       <option key={c}>{c}</option>
                     ))}
                   </select>
+                  <CategoryBadge row={t} />
+                  <ConfirmCategoryButton row={t} onConfirm={onConfirmLearned} />
                 </td>
                 <td style={{ ...S.td, textAlign: "right", color: amt.color, fontWeight: 600, whiteSpace: "nowrap" }}>
                   {amt.sign}{money(amt.value)}
@@ -6003,7 +6053,7 @@ function TxnRow({ t, money, onDelete, onEdit, selectMode = false, selected = fal
 // Width of the action rail revealed by swiping the card left (two chips).
 const SWIPE_ACTION_WIDTH = 132;
 
-function TxnAuditCard({ t, money, selected, onToggleSelect, onInlineChange, onEdit, onDelete }) {
+function TxnAuditCard({ t, money, selected, onToggleSelect, onInlineChange, onConfirmLearned, onEdit, onDelete }) {
   const type = txnType(t.category);
   const amt = amountDisplay(t);
 
@@ -6123,6 +6173,8 @@ function TxnAuditCard({ t, money, selected, onToggleSelect, onInlineChange, onEd
               <option key={c}>{c}</option>
             ))}
           </select>
+          <CategoryBadge row={t} />
+          <ConfirmCategoryButton row={t} onConfirm={onConfirmLearned} />
         </div>
       </div>
     </div>
@@ -6177,6 +6229,15 @@ function EditModal({ txn, onClose, onSave }) {
     // preserves whatever flag the row already had.
     if (category !== txn.category) {
       next.categoryManual = category !== TRANSFER_CATEGORY;
+      // Same fix as the Import preview's setCategoryOverride and the
+      // Transactions tab's inline dropdown (handleInlineChange): a manual
+      // pick invalidates whatever classifier (rule/memory) produced the OLD
+      // category — otherwise isMemoryTrainableRow (src/ledger.js) would keep
+      // excluding a genuine human correction from training because the row
+      // still says 'learned'.
+      next.categorySource = undefined;
+      next.categoryConfidence = undefined;
+      next.categoryReason = undefined;
     }
     onSave(next);
   };
@@ -6234,6 +6295,18 @@ function EditModal({ txn, onClose, onSave }) {
           {txn.ckCategory ? (
             <div style={{ fontSize: 12, color: "#8b94a3", marginTop: -6 }}>
               Source category (audit): <span style={{ color: "#cbd5e1" }}>{txn.ckCategory}</span>
+            </div>
+          ) : null}
+          {/* Informational only — no confirm affordance here on purpose. The
+              row-level ✓ in the Transactions list (ConfirmCategoryButton)
+              already covers confirming without needing to open this modal;
+              adding a second confirm path here would need its own pending
+              state distinct from the form's own draft. Changing the select
+              above still fixes it: submit() clears categorySource when the
+              category actually changes. */}
+          {txn.categorySource === "learned" ? (
+            <div style={{ fontSize: 12, color: "#8b94a3", marginTop: -6 }}>
+              <CategoryBadge row={txn} /> categoria sugerida pela memória — confirme ou corrija na lista de transações.
             </div>
           ) : null}
           <Field label="Account">
