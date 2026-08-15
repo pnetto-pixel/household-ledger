@@ -1,4 +1,4 @@
-# Household Ledger · v1.70.2
+# Household Ledger · v1.71.0
 
 Aplicativo mobile-first de controle financeiro doméstico. Registra
 transações da casa (despesas e receitas) por categoria e conta, com
@@ -31,7 +31,38 @@ O `feature-auditor` deve conferir, como parte da checklist de auditoria, que
 o diff inclui o bump nos dois arquivos antes de aprovar — se faltar, isso é
 motivo de reprovação (devolver ao coder), não um detalhe opcional.
 
-Versão atual: **v1.70.2** (PR #265, squash-merge) — fix: `S.stickyTh` (v1.70.1) não fazia spread de
+Versão atual: **v1.71.0** — a classificação automática (rule-based e
+merchant-memory) agora pode sugerir "Transfer" como categoria, o que antes
+era estruturalmente impossível: (1) `isMemoryTrainableRow` (`src/ledger.js`)
+não exclui mais linhas `Transfer` do treinamento da memória de comerciantes
+— `classifyMerchantMemory` agora pode retornar `Transfer` com confiança
+normal, igual a qualquer outra categoria; (2) `sanitize()`
+(`api/category-description-rules.js`) não rejeita mais uma regra cujo
+`destinationCategory` seja `"Transfer"` — o usuário pode cadastrar uma regra
+simples ("descrição contém 'MOBILE PYMT' → Transfer") sem precisar de
+`allowTransferOverride`/`providerPattern`; o mesmo relaxamento foi replicado
+no guard client-side equivalente (`saveCategoryDescriptionRules`, `src/
+App.jsx`) e a lista de destinos do editor de regras (`destinationOptions` em
+`DescriptionRulesSection`) agora inclui Transfer. Motivação: um pagamento de
+cartão de crédito via SimpleFin (ex. "CAPITAL ONE MOBILE PYMT") nunca era
+sugerido como Transfer, sempre caindo em outra categoria com confiança baixa
+vinda da memória. `allowTransferOverride`+`providerPattern` continuam
+existindo, mas com um escopo mais estreito e não relacionado: são o único
+mecanismo que permite uma regra tirar uma linha DE DENTRO de Transfer
+(de-transferir) quando a categoria de origem já é Transfer — o safety net em
+`resolveImportCategory` (`src/ledger.js`) segue impedindo isso por padrão.
+Entrar em Transfer nunca precisou desse escape hatch e continua sem
+precisar. Nenhuma sugestão (regra ou memória) é aplicada automaticamente: a
+tela de preview do Import (`ImportTransactions`) sempre mostra a categoria
+sugerida por linha, editável, antes de qualquer persistência — só o botão
+"Confirm"/`onImport` grava no ledger. `Transfer` continua excluída de todos
+os totais/gráficos (`computeTotalsCore`), isso não mudou — a alteração é só
+sobre qual categoria é *sugerida*. Testes atualizados em
+`src/ledger.test.js` (`isMemoryTrainableRow`, `buildMerchantMemory`/
+`classifyMerchantMemory`, `resolveImportCategory`) para refletir o novo
+comportamento pretendido (não apenas "consertados" para passar).
+
+Versão anterior: **v1.70.2** (PR #265, squash-merge) — fix: `S.stickyTh` (v1.70.1) não fazia spread de
 `S.th`, então os `<th>` sticky de Transactions e Import perderam
 padding/cor/borda/`whiteSpace`. `S.th` e `S.stickyTh` agora derivam de um
 `TH_BASE` hoisted para fora do objeto `S` (necessário porque, dentro do

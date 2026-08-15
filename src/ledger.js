@@ -304,15 +304,23 @@ export function merchantKey(description) {
 // ---------------------------------------------------------------------------
 
 // A row is trainable when its category is an actual answer, not a "we don't
-// know" placeholder or a structural bucket a merchant can't teach:
+// know" placeholder:
 // - "Uncategorized" carries no signal (nothing classified it — see
 //   resolveImportCategory).
-// - Transfer is excluded on purpose: it is driven by which ACCOUNTS a flow
-//   moves between, not by what kind of merchant it is, and a description
-//   rule can never target it either (api/category-description-rules.js's
-//   sanitize() rejects a Transfer destinationCategory) — the memory follows
-//   the same rule so it can never accidentally hide a real expense/income
-//   from the totals.
+// - Transfer IS trainable (as of the "learn Transfer" fix — previously
+//   excluded here on the theory that it's driven by which ACCOUNTS a flow
+//   moves between rather than by merchant, e.g. a credit-card payment. In
+//   practice that just meant SimpleFin rows like "CAPITAL ONE MOBILE PYMT"
+//   could never be suggested as Transfer and always landed in some other
+//   category at low confidence. Treating Transfer like any other learnable
+//   category lets a merchant that's consistently a self-transfer (e.g. a
+//   recurring card payment) get suggested as Transfer with normal
+//   confidence — resolveImportCategory's Transfer safety net still applies
+//   unchanged (a guess of Transfer simply keeps/sets the row as Transfer,
+//   same code path as a source category already being Transfer) and every
+//   suggestion — rule or learned — is reviewed by the user in the Import
+//   preview before anything is persisted, so a wrong guess is always
+//   correctable, never auto-applied).
 // - `categorySource === 'learned'` rows are the memory's OWN past guesses.
 //   Training on them would let a wrong guess reinforce itself on every later
 //   import instead of requiring a human correction (or explicit
@@ -325,7 +333,7 @@ export function merchantKey(description) {
 export function isMemoryTrainableRow(t) {
   if (!t) return false;
   const cat = t.category || "";
-  if (!cat || cat === "Uncategorized" || cat === TRANSFER_CATEGORY) return false;
+  if (!cat || cat === "Uncategorized") return false;
   if (t.categorySource === "learned") return false;
   return true;
 }
@@ -482,12 +490,14 @@ export function classifyMerchantMemory(row, memory) {
 //                        ever classify a synced row beyond a hand-written rule.
 //   3.  the FIRST matching description rule overrides everything above
 //       (including a memory guess).
-//   4.  Transfer safety net: neither a description rule NOR a memory guess
-//       can ever de-transfer a row. The ONLY escape is a winning rule with
+//   4.  Transfer safety net: a description rule or a memory guess CAN move a
+//       row INTO Transfer (both are learnable/settable as Transfer like any
+//       other category — see isMemoryTrainableRow and
+//       api/category-description-rules.js's sanitize()), but neither can ever
+//       de-transfer a row that's already Transfer by source category. The
+//       ONLY escape for that direction is a winning rule with
 //       `allowTransferOverride: true` (which itself requires a non-empty
-//       `providerPattern`) — memory has no equivalent escape hatch by design;
-//       see buildMerchantMemory's isMemoryTrainableRow for why Transfer is
-//       excluded from what memory can even learn to suggest.
+//       `providerPattern`).
 //
 // The fallback for "nothing classified this row" (rule, memory, and source
 // category all came up empty) is "Uncategorized", NOT "Other" — "Other"

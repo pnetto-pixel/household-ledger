@@ -9,14 +9,21 @@
 // "portfolio:<scope>:<hash>:holdings" -> "household:<scope>:<hash>:categorydescriptionrules"
 //
 // Semantics: the array ORDER matters — the first rule that matches a row wins.
-// A rule's destinationCategory may NEVER be "Transfer" (that would let a
-// description rule "de-transfer" a row); such rules are dropped on sanitize.
+// A rule's destinationCategory MAY be "Transfer" (e.g. "description contains
+// 'MOBILE PYMT' -> Transfer" for a SimpleFin credit-card payment that never
+// gets suggested as Transfer any other way) — a rule like that just makes a
+// row Transfer, same as if the row's own source category already were.
+// `allowTransferOverride` (+ `providerPattern`) stays a SEPARATE, narrower
+// mechanism: it is the only way for a rule to move a row OUT of Transfer
+// (de-transfer) when the row's source category is already Transfer; see
+// src/ledger.js's resolveImportCategory for the Transfer safety net that
+// enforces this asymmetry (into Transfer is always allowed, out of Transfer
+// requires the override).
 
 import { getRedis } from '../lib/redis.js';
 import { authenticate } from '../lib/auth.js';
 
 const MATCH_FIELDS = ['description', 'provider', 'both'];
-const TRANSFER = 'Transfer';
 
 function keyFromAuth(auth) {
   if (!auth?.storageKey) return null;
@@ -27,14 +34,18 @@ function keyFromAuth(auth) {
 
 // Drop items without a non-empty pattern OR without a non-empty
 // destinationCategory; normalize matchField to one of the 3 values
-// (default "both"); generate an id when missing; reject Transfer as a
-// destination. Preserves array order.
+// (default "both"); generate an id when missing. destinationCategory MAY be
+// "Transfer" — a normal rule is allowed to route a row INTO Transfer (that's
+// just the rule doing its ordinary job of setting a category). Preserves
+// array order.
 //
 // Optional fields (additive, back-compat): `providerPattern` (string, trimmed —
 // an extra AND condition against the row's provider/account) and
 // `allowTransferOverride` (boolean — when true, this rule is permitted to move
 // a row OUT of Transfer on import; only ever meaningful together with a
-// non-empty providerPattern). Both are only persisted when present/meaningful.
+// non-empty providerPattern). Both are only persisted when present/meaningful,
+// and stay unrelated to a plain destinationCategory === "Transfer" rule
+// above — that direction (into Transfer) never needed this escape hatch.
 function sanitize(rules) {
   const out = [];
   if (!Array.isArray(rules)) return out;
@@ -44,7 +55,6 @@ function sanitize(rules) {
     const pattern = typeof r.pattern === 'string' ? r.pattern.trim() : '';
     const destinationCategory = typeof r.destinationCategory === 'string' ? r.destinationCategory.trim() : '';
     if (!pattern || !destinationCategory) continue;
-    if (destinationCategory === TRANSFER) continue;
     const matchField = MATCH_FIELDS.includes(r.matchField) ? r.matchField : 'both';
     const id = typeof r.id === 'string' && r.id.trim() ? r.id.trim() : `r${Date.now()}${n}`;
     const clean = { id, matchField, pattern, destinationCategory };

@@ -337,16 +337,18 @@ function currentCkCategoryMapConfig() {
 // Ordered list of override rules that force a destination category when the
 // row's description and/or provider (srcAccount/account) contains a substring
 // pattern. First matching rule wins (array order is semantic). These OVERRIDE
-// the CK category map / CSV category for NON-Transfer rows. `destinationCategory`
-// is never "Transfer" (guaranteed both server-side in
-// api/category-description-rules.js and client-side in the save path).
+// the CK category map / CSV category. `destinationCategory` MAY be "Transfer"
+// (a rule routing a row INTO Transfer is just an ordinary destination, e.g.
+// "MOBILE PYMT" -> Transfer for a SimpleFin credit-card payment).
 //
-// By default a rule can never de-transfer a row: the Transfer safety net in
-// buildRow keeps a CK-sourced Transfer as Transfer even when a rule matches.
-// A rule MAY opt into `allowTransferOverride: true` (requires a non-empty
-// `providerPattern` AND condition) to skip that safety net and promote a
-// Transfer row into its destination category on future imports — this is the
-// generalization of the former hard-coded Apple Daily Cash heuristic.
+// By default a rule can never de-transfer a row OUT of Transfer: the Transfer
+// safety net in buildRow keeps a CK-sourced Transfer as Transfer even when a
+// rule matches. A rule MAY opt into `allowTransferOverride: true` (requires a
+// non-empty `providerPattern` AND condition) to skip that safety net and
+// promote a Transfer row into its destination category on future imports —
+// this is the generalization of the former hard-coded Apple Daily Cash
+// heuristic. `allowTransferOverride` is unrelated to (and doesn't gate) a
+// rule whose destinationCategory is simply "Transfer".
 // Seed is empty (no pre-populated rule). Same runtime-override pattern as
 // CK_CATEGORY_MAP: module state, replaced by
 // applyCategoryDescriptionRulesConfig() once /api/category-description-rules
@@ -705,7 +707,7 @@ function idleExpired() {
 // path, so the pending copy is discarded with a notice instead).
 
 // Single source for the version shown in the header and in diagnostics.
-const APP_VERSION = "v1.70.2";
+const APP_VERSION = "v1.71.0";
 
 const PENDING_SAVE_KEY = "household_pending_save";
 
@@ -1684,12 +1686,15 @@ export default function App() {
   }, [authed, loadCategoryDescriptionRules]);
 
   // Persist the description rules. Deliberately no cascade: only new imports
-  // (buildRow) are affected — existing transactions keep their category.
-  // Client-side guard: never persist a Transfer destination (the endpoint also
-  // enforces this) so a rule can never de-transfer a row.
+  // (buildRow) are affected — existing transactions keep their category. A
+  // rule's destinationCategory MAY be "Transfer" (e.g. "MOBILE PYMT" ->
+  // Transfer for a SimpleFin credit-card payment) — that just routes a row
+  // INTO Transfer, same as api/category-description-rules.js's sanitize().
+  // De-transferring a row still requires the separate allowTransferOverride
+  // escape hatch (enforced in the rule editor, see DescriptionRulesSection).
   const saveCategoryDescriptionRules = useCallback((nextRules) => {
     const clean = (Array.isArray(nextRules) ? nextRules : []).filter(
-      (r) => r && r.pattern && r.destinationCategory && r.destinationCategory !== TRANSFER_CATEGORY
+      (r) => r && r.pattern && r.destinationCategory
     );
     applyCategoryDescriptionRulesConfig(clean);
     setCategoryDescriptionRules(currentCategoryDescriptionRulesConfig());
@@ -7995,12 +8000,14 @@ function DescriptionRulesSection({ rules, onSave, config, prefill, transactions 
     }
   }, [prefill]);
 
-  // Destination options: current expense + income categories, NO Transfer
-  // (a description rule may never de-transfer a row).
+  // Destination options: current expense + income categories, PLUS Transfer
+  // — a plain rule may route a row INTO Transfer (e.g. "MOBILE PYMT" for a
+  // SimpleFin credit-card payment). Moving a row OUT of Transfer still needs
+  // the separate `allowTransferOverride` escape hatch below, not this list.
   const destinationOptions = useMemo(() => {
     const expense = config?.expenseCategories || EXPENSE_CATEGORIES;
     const income = config?.incomeCategories || INCOME_CATEGORIES;
-    return [...expense, ...income];
+    return [...expense, ...income, TRANSFER_CATEGORY];
   }, [config]);
 
   const dirty = useMemo(
@@ -8093,10 +8100,13 @@ function DescriptionRulesSection({ rules, onSave, config, prefill, transactions 
         Force a destination category when a transaction's description and/or
         provider contains a text fragment. The first matching rule wins, so
         order matters — reorder with ↑/↓. These take precedence over the Credit
-        Karma category map, except they never change transactions that are
-        already Transfer. Only the category is set; the imported amount and its
-        sign are never touched. Saving only affects future imports — existing
-        transactions keep their current category.
+        Karma category map. A rule may route a row INTO Transfer (e.g. a
+        recurring credit-card payment) like any other destination, but a plain
+        rule can never move a row OUT of Transfer once the source already
+        marked it as Transfer — that requires "Allow override" below. Only the
+        category is set; the imported amount and its sign are never touched.
+        Saving only affects future imports — existing transactions keep their
+        current category.
       </div>
 
       {draft.length === 0 ? (

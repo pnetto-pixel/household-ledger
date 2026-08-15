@@ -196,9 +196,9 @@ describe("isMemoryTrainableRow", () => {
     expect(isMemoryTrainableRow({ category: "Groceries" })).toBe(true);
   });
 
-  it("rejects Uncategorized (no signal) and Transfer (structural, not merchant-driven)", () => {
+  it("rejects Uncategorized (no signal) but accepts Transfer (learnable like any other category)", () => {
     expect(isMemoryTrainableRow({ category: "Uncategorized" })).toBe(false);
-    expect(isMemoryTrainableRow({ category: TRANSFER_CATEGORY })).toBe(false);
+    expect(isMemoryTrainableRow({ category: TRANSFER_CATEGORY })).toBe(true);
     expect(isMemoryTrainableRow({ category: "" })).toBe(false);
   });
 
@@ -297,12 +297,15 @@ describe("buildMerchantMemory / classifyMerchantMemory", () => {
     expect(guess.confidence).toBeLessThan(0.5);
   });
 
-  it("never trains on Transfer — a merchant that's always Transfer has no memory entry", () => {
+  it("trains on Transfer like any other category — a merchant that's always Transfer is suggested as Transfer", () => {
     const memory = buildMerchantMemory([
-      { description: "JPMORGAN CHASE AUTO", account: "SoFi", category: TRANSFER_CATEGORY },
-      { description: "JPMORGAN CHASE AUTO", account: "SoFi", category: TRANSFER_CATEGORY },
+      { description: "CAPITAL ONE MOBILE PYMT", account: "Chase", category: TRANSFER_CATEGORY },
+      { description: "CAPITAL ONE MOBILE PYMT", account: "Chase", category: TRANSFER_CATEGORY },
+      { description: "CAPITAL ONE MOBILE PYMT", account: "Chase", category: TRANSFER_CATEGORY },
     ]);
-    expect(classifyMerchantMemory({ description: "JPMORGAN CHASE AUTO", account: "SoFi" }, memory)).toBe(null);
+    const guess = classifyMerchantMemory({ description: "CAPITAL ONE MOBILE PYMT", account: "Chase" }, memory);
+    expect(guess.category).toBe(TRANSFER_CATEGORY);
+    expect(guess.confidence).toBeGreaterThan(0.9); // account+full layer, unanimous, weight 1.00
   });
 
   it("never trains on Uncategorized or on the memory's own past 'learned' guesses", () => {
@@ -843,6 +846,32 @@ describe("resolveImportCategory", () => {
     expect(out.categorySource).toBe("rule");
     expect(out.categoryConfidence).toBe(1);
     expect(out.categoryReason).toContain("starbucks");
+  });
+
+  it("(f) a plain rule (no allowTransferOverride) CAN route a row INTO Transfer", () => {
+    const rules = [{ matchField: "description", pattern: "mobile pymt", destinationCategory: TRANSFER_CATEGORY }];
+    const out = resolveImportCategory(
+      { description: "CAPITAL ONE MOBILE PYMT", category: "Other", srcAccount: "Chase" },
+      ctx(rules)
+    );
+    expect(out.category).toBe(TRANSFER_CATEGORY);
+    expect(out.categorySource).toBe("rule");
+    expect(out.categoryConfidence).toBe(1);
+  });
+
+  it("(g) merchant memory trained on Transfer can suggest Transfer for a fresh SimpleFin row", () => {
+    const memory = buildMerchantMemory([
+      { description: "CAPITAL ONE MOBILE PYMT", account: "Chase", category: TRANSFER_CATEGORY },
+      { description: "CAPITAL ONE MOBILE PYMT", account: "Chase", category: TRANSFER_CATEGORY },
+      { description: "CAPITAL ONE MOBILE PYMT", account: "Chase", category: TRANSFER_CATEGORY },
+    ]);
+    const out = resolveImportCategory(
+      { description: "CAPITAL ONE MOBILE PYMT", category: "Uncategorized", account: "Chase" },
+      ctx([], null, memory)
+    );
+    expect(out.category).toBe(TRANSFER_CATEGORY);
+    expect(out.categorySource).toBe("learned");
+    expect(out.categoryConfidence).toBeGreaterThan(0);
   });
 
   it("falls back to Uncategorized when nothing classifies the row", () => {
