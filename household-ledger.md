@@ -31,7 +31,7 @@ O `feature-auditor` deve conferir, como parte da checklist de auditoria, que
 o diff inclui o bump nos dois arquivos antes de aprovar — se faltar, isso é
 motivo de reprovação (devolver ao coder), não um detalhe opcional.
 
-Versão atual: **v1.71.0** — a classificação automática (rule-based e
+Versão atual: **v1.71.0** (PR #267, squash-merge) — a classificação automática (rule-based e
 merchant-memory) agora pode sugerir "Transfer" como categoria, o que antes
 era estruturalmente impossível: (1) `isMemoryTrainableRow` (`src/ledger.js`)
 não exclui mais linhas `Transfer` do treinamento da memória de comerciantes
@@ -2638,13 +2638,20 @@ usuário; ver UI e Roadmap Fase 5).
 
 Painel de regras de categoria, **Fatia 1**. Novo tipo de regra editável:
 "descrição/provider contém X → categoria Y", com **precedência de override**
-sobre o mapa CK→ledger para categorias não-`Transfer`. Endpoint
-`api/category-description-rules.js` (GET/PUT, mesmo padrão de
-`api/ck-category-map.js`), persiste `{ rules: [...], savedAt }` em Redis
-`household:*:categorydescriptionrules`. A **ordem do array é semântica**: a
-primeira regra da lista que casar vence (não há resolução por
-especificidade). `destinationCategory` **nunca pode ser `Transfer`** —
-bloqueado tanto no `sanitize()` do endpoint quanto no client.
+sobre o mapa CK→ledger. Endpoint `api/category-description-rules.js`
+(GET/PUT, mesmo padrão de `api/ck-category-map.js`), persiste
+`{ rules: [...], savedAt }` em Redis `household:*:categorydescriptionrules`.
+A **ordem do array é semântica**: a primeira regra da lista que casar vence
+(não há resolução por especificidade). **Até a v1.70.2, `destinationCategory`
+nunca podia ser `Transfer`** — bloqueado tanto no `sanitize()` do endpoint
+quanto no client. **Desde a v1.71.0 (PR #267)** esse bloqueio foi removido:
+uma regra normal pode ter `destinationCategory: "Transfer"` sem precisar de
+`allowTransferOverride`/`providerPattern` (ex.: "descrição contém 'MOBILE
+PYMT' → Transfer"). Isso é ortogonal ao mecanismo abaixo, que continua
+existindo sem mudança de escopo — `allowTransferOverride` só importa quando
+a categoria **de origem** (CSV/CK) já é `Transfer` e a regra precisa
+sobrepor a rede de segurança para *tirar* a linha de Transfer; entrar em
+Transfer nunca precisou desse escape hatch.
 
 **Shape de cada regra (desde o PR #135, v1.20.0):**
 
@@ -2707,9 +2714,9 @@ A seção **Description rules**, na tab **Settings** (posição 2, logo após
 "Suggested rules" desde a v1.63.0/PR #248; **desde a v1.63.0** também em
 formato de tabela compacta, mesmo padrão de `TxnTable`, em vez de cards
 empilhados), permite add / edição inline / delete com confirmação em 2
-cliques / reordenar (↑/↓, já que a ordem é semântica); o select de
-categoria de destino não lista `Transfer`;
-um aviso explica a precedência sobre o mapa CK (exceto Transfer). **Desde o
+cliques / reordenar (↑/↓, já que a ordem é semântica); **desde a v1.71.0
+(PR #267)** o select de categoria de destino inclui `Transfer` (antes era
+bloqueado); um aviso explica a precedência sobre o mapa CK. **Desde o
 PR #135**, cada regra tem também um checkbox **"Allow removing from
 Transfer"** (`allowTransferOverride`, default desmarcado) que, quando
 marcado, revela um campo condicional **"Provider/account pattern"**
@@ -3768,8 +3775,13 @@ shell de altura cheia (`#root` em `100lvh` + shell `height:100%`): só o
    vermelho, confirmação em 2 cliques) / reordenar via setas ↑/↓ — a ordem é
    **semântica** (primeira regra que casa vence). Cada regra tem um select
    de `matchField` (description / provider / both), um input de padrão e um
-   select de categoria de destino que **nunca lista `Transfer`** (bloqueado
-   também no endpoint). Um aviso explica que essas regras têm precedência
+   select de categoria de destino. **Desde a v1.71.0 (PR #267), esse select
+   inclui `Transfer`** — antes era estruturalmente bloqueado (client e
+   endpoint), o que impedia regras simples do tipo "descrição contém
+   'MOBILE PYMT' → Transfer"; agora uma regra pode apontar direto para
+   Transfer sem precisar do mecanismo `allowTransferOverride`/
+   `providerPattern` (que continua existindo, mas só para o caso oposto —
+   ver nota abaixo). Um aviso explica que essas regras têm precedência
    sobre o mapa CK (Category mapping) para categorias não-Transfer.
 
    > **Nota (PR #135, v1.20.0) — Apple Daily Cash rule removida como seção
@@ -5247,3 +5259,14 @@ riscos reais de perda de dados.
     `confirmDiscardUnimportedConfirmations()` (`window.confirm`) antes de
     descartar. Ver "Versão atual" no topo deste documento para o
     detalhamento completo.
+  - [x] **Classificação (rule-based e memória) nunca sugeria `Transfer`** —
+    resolvido em v1.71.0 (PR #267, ver "Versão atual" no topo deste
+    documento): `isMemoryTrainableRow` não exclui mais `Transfer` do treino
+    da memória de comerciantes e `sanitize()`
+    (`api/category-description-rules.js`) não rejeita mais Description
+    rules com `destinationCategory: "Transfer"`. Antes, um pagamento de
+    cartão de crédito via SimpleFin (ex. "CAPITAL ONE MOBILE PYMT") nunca
+    podia ser sugerido como Transfer nem por regra nem por memória.
+    `allowTransferOverride`/`providerPattern` continuam existindo, sem
+    mudança de escopo — servem só para *tirar* uma linha de dentro de
+    Transfer, nunca para entrar nela (isso nunca precisou desse mecanismo).
