@@ -2862,7 +2862,7 @@ function Dashboard({ transactions, money, hideValues, isWide, budgets, config, a
       mm, yy,
       // No transactions at all in the same period last year → the whole "LY"
       // row is noise ($0 / —) and gets dropped from the hero (v1.75.0).
-      hasYY: yyTxns.length > 0,
+      hasYY: yy.income !== 0 || yy.expenses !== 0,
       mmPctExp: pctExp(period.expenses, mm.expenses),
       yyPctExp: pctExp(period.expenses, yy.expenses),
       mmPctInc: pct(period.income, mm.income),
@@ -3171,7 +3171,7 @@ function Dashboard({ transactions, money, hideValues, isWide, budgets, config, a
                           the two can't be confused. With neither comparison
                           available the row shows no pill at all instead of a
                           bare "—". */}
-                      {(changes.mm != null || changes.yy != null) && (
+                      {changes.mm != null && (
                         <ChangeBadge label={changes.yy == null ? "" : "M/M"} pct={changes.mm} hideValues={hideValues} />
                       )}
                       {changes.yy != null && <ChangeBadge label="Y/Y" pct={changes.yy} hideValues={hideValues} />}
@@ -3980,8 +3980,9 @@ function bucketAxisProps(buckets, granularity, narrow) {
     interval: step - 1,
     tickFormatter: (bk) => {
       const year = String(bk).slice(0, 4);
-      if (yearMark.get(year) === idxOf.get(bk)) return `'${year.slice(2)}`;
-      return String(bucketLabel(bk)).split("/")[0];
+      const label = String(bucketLabel(bk)).split("/")[0];
+      if (yearMark.get(year) === idxOf.get(bk)) return `${label} '${year.slice(2)}`;
+      return label;
     },
   };
 }
@@ -6383,7 +6384,7 @@ function TxnAuditCard({ t, money, selected, selectMode, onToggleSelect, onConfir
           <div style={S.txnCompactDesc}>{t.description || t.category}</div>
           <div style={S.txnCompactMeta} title={t.srcAccount && !mappedAccount ? `src: ${t.srcAccount}` : undefined}>
             <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>
-              {t.category}
+              {t.category || "Uncategorized"}
               {t.account || !mappedAccount ? ` · ${accountLabel}` : ""}
             </span>
             {t.categorySource === "learned" ? (
@@ -8054,9 +8055,10 @@ function SettingsTab({
           <ChevronLeft size={18} color="#0A84FF" />
           <span>Settings</span>
         </button>
-        {/* SnapshotsSection renders its own heading (title + count), so it
-            would otherwise show two stacked titles. */}
-        {view === "snapshots" ? null : (
+        {/* SnapshotsSection, AccountAliasesSection and CkCategoryMapSection
+            render their own heading (title + count), so they would otherwise
+            show two stacked titles. */}
+        {view === "snapshots" || view === "aliases" || view === "ckmap" ? null : (
           <h3 style={S.sectionTitle}>{SUB_VIEW_TITLES[view] || "Settings"}</h3>
         )}
         <BareCardContext.Provider value={true}>{renderSubView()}</BareCardContext.Provider>
@@ -9077,7 +9079,7 @@ function ImportTransactions({
   const sfNewThisMonth = useMemo(() => {
     const now = new Date();
     const first = localISO(new Date(now.getFullYear(), now.getMonth(), 1));
-    return transactions.filter((t) => t.source === "sf" && t.date >= first).length;
+    return transactions.filter((t) => t.source === "sf" && !isTransfer(t.category) && (t.date || "") >= first).length;
   }, [transactions]);
   const sfStatusSubtitle = useMemo(() => {
     const parts = [];
