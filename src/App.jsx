@@ -40,6 +40,7 @@ import {
   Coins,
   Tag,
   RefreshCw,
+  SlidersHorizontal,
 } from "lucide-react";
 import {
   ResponsiveContainer,
@@ -707,7 +708,7 @@ function idleExpired() {
 // path, so the pending copy is discarded with a notice instead).
 
 // Single source for the version shown in the header and in diagnostics.
-const APP_VERSION = "v1.74.0";
+const APP_VERSION = "v1.75.0";
 
 const PENDING_SAVE_KEY = "household_pending_save";
 
@@ -2367,13 +2368,10 @@ function SaveIndicator({ saving, dirty, savedAt, saveError }) {
     );
   }
   if (savedAt && !dirty && !saving && !saveError) {
+    // Steady state: a quiet green dot instead of a "✓ saved 08:55 PM" string —
+    // the exact time stays available as the tooltip / accessible label.
     const timeStr = new Date(savedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-    return (
-      <span style={{ fontSize: 10, color: "#34d399", display: "flex", alignItems: "center", gap: 3 }}>
-        <span>✓</span>
-        <span>saved {timeStr}</span>
-      </span>
-    );
+    return <span role="img" title={`Saved ${timeStr}`} aria-label={`Saved ${timeStr}`} style={S.savedDot} />;
   }
   return null;
 }
@@ -3122,7 +3120,6 @@ function Dashboard({ transactions, money, hideValues, isWide, budgets, config, a
           ) : (
             <div style={{ ...S.card, padding: "8px 0" }}>
               {catExpenses.map(([cat, total], idx) => {
-                const dotColor = getCategoryColor(cat);
                 const changes = catChanges[cat] || { mm: null, yy: null };
                 return (
                   <div key={cat} style={{
@@ -3133,14 +3130,7 @@ function Dashboard({ transactions, money, hideValues, isWide, budgets, config, a
                     borderBottom: idx < catExpenses.length - 1 ? "1px solid #1a1f26" : "none",
                   }}>
                     {/* Category avatar */}
-                    <div style={{
-                      width: 34, height: 34, borderRadius: 10, flexShrink: 0,
-                      background: `linear-gradient(135deg, rgba(255,255,255,0.25), rgba(255,255,255,0) 60%), linear-gradient(135deg, ${dotColor} 0%, ${dotColor}99 100%)`,
-                      display: "grid", placeItems: "center",
-                      boxShadow: `0 2px 8px ${dotColor}59, inset 0 1px 1px rgba(255,255,255,0.3)`,
-                    }}>
-                      {React.createElement(catIcon(cat), { size: 16, color: "#fff" })}
-                    </div>
+                    <CategoryAvatar cat={cat} size={34} />
                     {/* Name + badges */}
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ fontSize: 14, color: "#e5e7eb", fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
@@ -5220,6 +5210,25 @@ function getCategoryColor(cat) {
   return CATEGORY_COLOR_MAP[cat] || catDotColor(cat);
 }
 
+// Rounded category tile (colored gradient + line-art icon), shared by the
+// Home "By category" list and every mobile transaction row so both read as
+// the same object. `size` drives the icon size proportionally.
+function CategoryAvatar({ cat, size = 32 }) {
+  const color = getCategoryColor(cat);
+  return (
+    <div
+      style={{
+        width: size, height: size, borderRadius: 10, flexShrink: 0,
+        background: `linear-gradient(135deg, rgba(255,255,255,0.25), rgba(255,255,255,0) 60%), linear-gradient(135deg, ${color} 0%, ${color}99 100%)`,
+        display: "grid", placeItems: "center",
+        boxShadow: `0 2px 8px ${color}59, inset 0 1px 1px rgba(255,255,255,0.3)`,
+      }}
+    >
+      {React.createElement(catIcon(cat), { size: Math.round(size * 0.47), color: "#fff" })}
+    </div>
+  );
+}
+
 // ===========================================================================
 // Transactions list
 // ===========================================================================
@@ -5234,9 +5243,13 @@ function Transactions({ transactions, money, hideValues, isWide, onDelete, onUpd
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
   const [editing, setEditing] = useState(null);
+  // Mobile: collapsible filter panel + opt-in multi-select mode.
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const [selectMode, setSelectMode] = useState(false);
 
-  // Bulk-select state. Rows are always selectable via their checkbox on both
-  // platforms; the bulk-edit bar appears once anything is selected.
+  // Bulk-select state. Desktop rows always carry a checkbox; on mobile they
+  // only appear once `selectMode` is on ("Select" in the summary row). The
+  // bulk-edit bar appears as soon as anything is selected, either way.
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [bulkCat, setBulkCat] = useState("");
@@ -5471,11 +5484,8 @@ function Transactions({ transactions, money, hideValues, isWide, onDelete, onUpd
     return groups;
   }, [visible]);
 
-  const net = summary.income + summary.expenses;
-
-  // Abbreviated money format for the audit summary bar when the full
-  // format doesn't fit on one line, e.g. "$1.23K" / "-$1.23K". Respects
-  // the hideValues eye toggle the same way `money` does.
+  // Abbreviated money format for the one-line audit summary, e.g. "$6.4K" /
+  // "-$1.2M". Respects the hideValues eye toggle the same way `money` does.
   const moneyShortK = useCallback(
     (n) => {
       if (hideValues) return "•••••";
@@ -5483,80 +5493,157 @@ function Transactions({ transactions, money, hideValues, isWide, onDelete, onUpd
       const sign = v < 0 ? "-" : "";
       const abs = Math.abs(v);
       if (abs < 1000) return `${sign}$${Math.round(abs)}`;
-      return `${sign}$${(abs / 1000).toFixed(2)}K`;
+      if (abs < 1000000) return `${sign}$${(abs / 1000).toFixed(1)}K`;
+      return `${sign}$${(abs / 1000000).toFixed(1)}M`;
     },
     [hideValues]
   );
 
-  // Audit summary bar: once any of income/expenses/net reaches 8 digits
-  // (i.e. >= $100,000.00 with its 2 decimals), the full money format is
-  // long enough to push the 4 pills onto 2 lines on mobile. Switch all 3
-  // monetary values to the abbreviated `moneyShortK` format together
-  // (tudo-ou-nada) — a fixed digit threshold, not a measured one, since
-  // measuring the rendered width proved unreliable across devices.
-  const useShortFormat =
-    Math.abs(summary.income) >= 100000 ||
-    Math.abs(summary.expenses) >= 100000 ||
-    Math.abs(net) >= 100000;
+  // One removable chip per ACTIVE filter group (type / account / category /
+  // date). Also drives the numeric badge on the filter-panel button — the
+  // free-text query isn't counted (it's already visible in the search box).
+  const activeFilterChips = useMemo(() => {
+    const chips = [];
+    const many = (arr, noun) => (arr.length === 1 ? arr[0] : `${arr.length} ${noun}`);
+    if (typeFilter.length) chips.push({ key: "type", label: many(typeFilter, "types"), clear: () => setTypeFilter([]) });
+    if (acctFilter.length) chips.push({ key: "acct", label: many(acctFilter, "accounts"), clear: () => setAcctFilter([]) });
+    if (catFilter.length) chips.push({ key: "cat", label: many(catFilter, "categories"), clear: () => setCatFilter([]) });
+    const dateActive =
+      dateMonths.length > 0 || dateYears.length > 0 || !!from || !!to || year !== "All" || month !== "All";
+    if (dateActive) {
+      let label;
+      if (dateMonths.length === 1) {
+        label = new Date(`${dateMonths[0]}-01T00:00:00`).toLocaleDateString("en-US", { month: "short", year: "numeric" });
+      } else if (dateYears.length === 1 && dateMonths.length === 12) {
+        label = String(dateYears[0]);
+      } else if (dateMonths.length > 1) {
+        label = `${dateMonths.length} months`;
+      } else if (from || to) {
+        label = `${from || "…"} → ${to || "…"}`;
+      } else {
+        label = periodLabel(year, month);
+      }
+      chips.push({
+        key: "date",
+        label,
+        clear: () => { setDateMonths([]); setDateYears([]); setFrom(""); setTo(""); setYear("All"); setMonth("All"); },
+      });
+    }
+    return chips;
+  }, [typeFilter, acctFilter, catFilter, dateMonths, dateYears, from, to, year, month]);
+
+  // Select mode (mobile): checkboxes stay hidden until the user opts in via
+  // the "Select" button; leaving the mode also drops the current selection.
+  const toggleSelectMode = () => {
+    if (selectMode) {
+      setSelectMode(false);
+      setSelectedIds(new Set());
+    } else {
+      setSelectMode(true);
+    }
+  };
 
   return (
     <div style={S.txnTab}>
       {/* Fixed controls (capped at half the height, scroll internally if
           taller) over a list that owns the rest of the space and scrolls. */}
       <div style={S.txnControls}>
-      {/* Search box */}
-      <div style={S.searchWrap}>
-        <Search size={16} color="#8b94a3" />
-        <input
-          type="text"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="Search description, category, account…"
-          style={S.searchInput}
-        />
-        {query ? (
-          <button onClick={() => setQuery("")} style={S.deleteBtn} title="Clear search">
-            <X size={15} />
-          </button>
-        ) : null}
+      {/* Search box + filter panel toggle */}
+      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        <div style={{ ...S.searchWrap, flex: 1, minWidth: 0 }}>
+          <Search size={16} color="#8b94a3" />
+          <input
+            type="text"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search"
+            style={S.searchInput}
+          />
+          {query ? (
+            <button onClick={() => setQuery("")} style={S.deleteBtn} title="Clear search">
+              <X size={15} />
+            </button>
+          ) : null}
+        </div>
+        {!isWide && (
+          <div style={{ position: "relative", flexShrink: 0 }}>
+            <button
+              onClick={() => setFiltersOpen((o) => !o)}
+              style={S.filterToggleBtn(filtersOpen || activeFilterChips.length > 0)}
+              title="Filters"
+              aria-label="Filters"
+              aria-expanded={filtersOpen}
+            >
+              <SlidersHorizontal size={18} />
+            </button>
+            {activeFilterChips.length > 0 ? (
+              <span style={S.filterCountBadge}>{activeFilterChips.length}</span>
+            ) : null}
+          </div>
+        )}
       </div>
 
-      {/* Filter chips — mobile only (desktop uses column-header filters in the table) */}
-      {!isWide && (
-        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-          <HeaderFilter chip label="Type" value={typeFilter} options={["Income", "Expense", "Transfer"]} onChange={setTypeFilter} />
-          <HeaderFilter chip label="Account" value={acctFilter} options={acctOptions} onChange={setAcctFilter} />
-          <HeaderFilter chip label="Category" value={catFilter} options={catOptions} onChange={setCatFilter} />
-          <DateHeaderFilter chip years={years} dateYears={dateYears} setDateYears={setDateYears} dateMonths={dateMonths} setDateMonths={setDateMonths} from={from} setFrom={setFrom} to={to} setTo={setTo} />
+      {/* Collapsible filter panel — mobile only (desktop uses the
+          column-header filters inside the table) */}
+      {!isWide && filtersOpen && (
+        <div style={S.txnFilterPanel}>
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+            <HeaderFilter chip label="Type" value={typeFilter} options={["Income", "Expense", "Transfer"]} onChange={setTypeFilter} />
+            <HeaderFilter chip label="Account" value={acctFilter} options={acctOptions} onChange={setAcctFilter} />
+            <HeaderFilter chip label="Category" value={catFilter} options={catOptions} onChange={setCatFilter} />
+            <DateHeaderFilter chip years={years} dateYears={dateYears} setDateYears={setDateYears} dateMonths={dateMonths} setDateMonths={setDateMonths} from={from} setFrom={setFrom} to={to} setTo={setTo} />
+          </div>
+          {hasFilters ? (
+            <button onClick={clearFilters} style={{ ...S.linkBtn, alignSelf: "flex-start" }}>
+              Clear all filters
+            </button>
+          ) : null}
         </div>
       )}
 
-      {/* Audit summary — colored pills */}
-      <div style={S.summaryBar}>
-        <span style={{ fontSize: 11, color: "#636366" }}>{filtered.length} txns</span>
-        <span style={{ fontSize: 11, color: "#34d399", background: "rgba(52,211,153,0.1)", borderRadius: 6, padding: "2px 8px" }}>↑ {useShortFormat ? moneyShortK(summary.income) : money(summary.income)}</span>
-        <span style={{ fontSize: 11, color: summary.expenses < 0 ? "#f87171" : "#34d399", background: summary.expenses < 0 ? "rgba(248,113,113,0.1)" : "rgba(52,211,153,0.1)", borderRadius: 6, padding: "2px 8px" }}>{summary.expenses < 0 ? `↓ ${useShortFormat ? moneyShortK(Math.abs(summary.expenses)) : money(Math.abs(summary.expenses))}` : `↑ ${useShortFormat ? moneyShortK(Math.abs(summary.expenses)) : money(Math.abs(summary.expenses))}`}</span>
-        <span style={{ fontSize: 11, color: net >= 0 ? "#34d399" : "#f87171", background: "rgba(255,255,255,0.05)", borderRadius: 6, padding: "2px 8px" }}>= {useShortFormat ? moneyShortK(net) : money(net)}</span>
-      </div>
-
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-        <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-          {hasFilters ? (
-            <button onClick={clearFilters} style={S.linkBtn}>
-              Clear filters
+      {/* Active filters as removable chips + the "confirm all learned" chip */}
+      {(activeFilterChips.length > 0 || learnedCount > 0) && (
+        <div style={S.txnChipsRow}>
+          {activeFilterChips.map((c) => (
+            <button key={c.key} onClick={c.clear} style={S.txnActiveChip} title={`Clear ${c.label}`}>
+              <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 150 }}>{c.label}</span>
+              <X size={12} style={{ opacity: 0.7, flexShrink: 0 }} />
             </button>
-          ) : null}
-          {selectedIds.size > 0 ? (
-            <button onClick={() => setSelectedIds(new Set())} style={S.linkBtn}>
-              Clear selection ({selectedIds.size})
-            </button>
-          ) : null}
+          ))}
           {learnedCount > 0 ? (
-            <>
-              <span style={{ fontSize: 12, color: "#fbbf24" }}>{learnedCount} learned</span>
-              <button onClick={confirmAllVisibleLearned} style={S.linkBtn}>Confirm all visible learned</button>
-            </>
+            <button onClick={confirmAllVisibleLearned} style={S.txnLearnedChip} title="Confirm all visible learned categories">
+              <Check size={13} />
+              {learnedCount} learned
+            </button>
           ) : null}
+        </div>
+      )}
+
+      {/* Audit summary — plain text line + select-mode toggle */}
+      <div style={S.txnSummaryRow}>
+        <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+          {filtered.length} txn{filtered.length !== 1 ? "s" : ""} ·{" "}
+          <span style={{ color: "#34d399" }}>{moneyShortK(summary.income)}</span> in ·{" "}
+          <span style={{ color: summary.expenses > 0 ? "#34d399" : "#f87171" }}>{moneyShortK(Math.abs(summary.expenses))}</span> out
+        </span>
+        <div style={{ display: "flex", alignItems: "center", gap: 12, flexShrink: 0 }}>
+          {isWide && hasFilters ? (
+            <button onClick={clearFilters} style={S.linkBtn}>Clear filters</button>
+          ) : null}
+          {isWide ? (
+            selectedIds.size > 0 ? (
+              <button onClick={() => setSelectedIds(new Set())} style={S.linkBtn}>
+                Clear selection ({selectedIds.size})
+              </button>
+            ) : null
+          ) : (
+            <button
+              onClick={toggleSelectMode}
+              style={{ ...S.linkBtn, fontSize: 13, fontWeight: 600, padding: "8px 2px 8px 10px" }}
+            >
+              {selectMode ? "Done" : "Select"}
+            </button>
+          )}
         </div>
       </div>
 
@@ -5612,10 +5699,11 @@ function Transactions({ transactions, money, hideValues, isWide, onDelete, onUpd
         </div>
       )}
 
-      {/* Mobile select-all helper (desktop uses the table header checkbox) */}
-      {!isWide && filtered.length > 0 && (
-        <label style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer", fontSize: 13, color: "#cbd5e1" }}>
-          <input type="checkbox" checked={allSelected} onChange={(e) => handleSelectAll(filtered, e.target.checked)} style={S.checkbox} />
+      {/* Mobile select-all helper — only while select mode is on
+          (desktop uses the table header checkbox) */}
+      {!isWide && selectMode && filtered.length > 0 && (
+        <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", fontSize: 13, color: "#cbd5e1" }}>
+          <input type="checkbox" checked={allSelected} onChange={(e) => handleSelectAll(filtered, e.target.checked)} style={S.checkboxLg} />
           Select all ({filtered.length})
         </label>
       )}
@@ -5664,19 +5752,22 @@ function Transactions({ transactions, money, hideValues, isWide, onDelete, onUpd
                   {txns.length} txn{txns.length !== 1 ? "s" : ""}
                 </span>
               </div>
-              {txns.map((t) => (
-                <TxnAuditCard
-                  key={t.id}
-                  t={t}
-                  money={money}
-                  selected={selectedIds.has(t.id)}
-                  onToggleSelect={toggleRowSelect}
-                  onInlineChange={handleInlineChange}
-                  onConfirmLearned={confirmLearned}
-                  onEdit={setEditing}
-                  onDelete={onDelete}
-                />
-              ))}
+              <div style={S.txnGroupCard}>
+                {txns.map((t, i) => (
+                  <TxnAuditCard
+                    key={t.id}
+                    t={t}
+                    money={money}
+                    first={i === 0}
+                    selected={selectedIds.has(t.id)}
+                    selectMode={selectMode}
+                    onToggleSelect={toggleRowSelect}
+                    onConfirmLearned={confirmLearned}
+                    onEdit={setEditing}
+                    onDelete={onDelete}
+                  />
+                ))}
+              </div>
             </React.Fragment>
           ))}
         </div>
@@ -6091,23 +6182,31 @@ function TxnRow({ t, money, onDelete, onEdit, selectMode = false, selected = fal
   );
 }
 
-// Mobile audit card — the desktop table row's info, stacked for narrow
-// screens, with inline-editable Account/Category, a Type badge, CK orig and a
-// selection checkbox.
-// Width of the action rail revealed by swiping the card left (two chips).
+// Mobile transaction row — a compact, dense line (category avatar,
+// description, "{category} · {account}" meta, signed amount) that lives
+// inside a per-date group container (see S.txnGroupCard). Account/category
+// editing happens in the EditModal (tap the row) or via bulk-edit; the row
+// itself only surfaces an amber "learned" pill to confirm an auto-assigned
+// category in place.
+// Width of the action rail revealed by swiping the row left (two chips).
 const SWIPE_ACTION_WIDTH = 132;
 
-function TxnAuditCard({ t, money, selected, onToggleSelect, onInlineChange, onConfirmLearned, onEdit, onDelete }) {
-  const type = txnType(t.category);
+function TxnAuditCard({ t, money, selected, selectMode, onToggleSelect, onConfirmLearned, onEdit, onDelete, first }) {
   const amt = amountDisplay(t);
+  const mappedAccount = ACCOUNTS.includes(t.account);
+  const accountLabel = t.account ? (mappedAccount ? t.account : `${t.account} (unmapped)`) : "—";
 
-  // Swipe-to-reveal: drag the card left to expose Edit/Delete chips. Tracks a
-  // horizontal-only gesture so taps on the inner selects/checkbox still work.
+  // Swipe-to-reveal: drag the row left to expose Edit/Delete chips. Tracks a
+  // horizontal-only gesture so vertical scrolling still works.
   const [dx, setDx] = useState(0);
   const [open, setOpen] = useState(false);
   const start = useRef(null);
+  // Set when a gesture actually moved the row, so the synthetic click that
+  // follows touchend doesn't also open the edit modal / toggle selection.
+  const swiped = useRef(false);
 
   const onTouchStart = (e) => {
+    swiped.current = false;
     start.current = { x: e.touches[0].clientX, y: e.touches[0].clientY, base: open ? -SWIPE_ACTION_WIDTH : 0, horiz: null };
   };
   const onTouchMove = (e) => {
@@ -6123,6 +6222,7 @@ function TxnAuditCard({ t, money, selected, onToggleSelect, onInlineChange, onCo
     if (!start.current.horiz) return;
     let next = start.current.base + ddx;
     next = Math.max(-SWIPE_ACTION_WIDTH, Math.min(0, next)); // clamp to [-width, 0]
+    if (next !== start.current.base) swiped.current = true;
     setDx(next);
   };
   const onTouchEnd = () => {
@@ -6136,9 +6236,18 @@ function TxnAuditCard({ t, money, selected, onToggleSelect, onInlineChange, onCo
   const translate = start.current ? dx : open ? -SWIPE_ACTION_WIDTH : 0;
   const closeRail = () => { setOpen(false); setDx(0); };
 
+  // Tap: toggles selection in select mode, otherwise opens the edit modal.
+  // A tap while the action rail is open just closes the rail.
+  const handleClick = () => {
+    if (swiped.current) { swiped.current = false; return; }
+    if (open) { closeRail(); return; }
+    if (selectMode) onToggleSelect(t.id);
+    else onEdit(t);
+  };
+
   return (
-    <div style={{ position: "relative", borderRadius: 14, overflow: "hidden" }}>
-      {/* Action rail behind the card */}
+    <div style={{ position: "relative", overflow: "hidden", borderTop: first ? "none" : "1px solid rgba(255,255,255,0.06)" }}>
+      {/* Action rail behind the row */}
       <div style={{ position: "absolute", inset: 0, display: "flex", justifyContent: "flex-end" }}>
         <button
           onClick={() => { closeRail(); onEdit(t); }}
@@ -6160,64 +6269,50 @@ function TxnAuditCard({ t, money, selected, onToggleSelect, onInlineChange, onCo
         ) : null}
       </div>
 
-      {/* Foreground card (slides over the rail) */}
+      {/* Foreground row (slides over the rail) */}
       <div
         onTouchStart={onTouchStart}
         onTouchMove={onTouchMove}
         onTouchEnd={onTouchEnd}
+        onClick={handleClick}
         style={{
-          ...S.txnRow,
-          flexDirection: "column",
-          alignItems: "stretch",
-          gap: 10,
+          ...S.txnCompactRow,
           background: selected ? "#1a1f2e" : "#161a20",
-          outline: selected ? "1px solid #3b82f6" : undefined,
           transform: `translateX(${translate}px)`,
           transition: start.current ? "none" : "transform 0.2s ease",
-          position: "relative",
         }}
       >
-        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <input type="checkbox" checked={selected} onChange={() => onToggleSelect(t.id)} style={S.checkbox} />
-          <div style={{ minWidth: 0, flex: 1 }}>
-            <div style={{ fontSize: 14, color: "#e5e7eb", overflowWrap: "anywhere", lineHeight: 1.35 }}>
-              {t.description || t.category}
-            </div>
-            {t.srcAccount && !ACCOUNTS.includes(t.account) ? (
-              <div style={{ fontSize: 11, color: "#8b94a3", marginTop: 2 }}>
-                src: {t.srcAccount}
-              </div>
+        {selectMode ? (
+          <input
+            type="checkbox"
+            checked={selected}
+            onChange={() => onToggleSelect(t.id)}
+            onClick={(e) => e.stopPropagation()}
+            style={S.checkboxLg}
+          />
+        ) : null}
+        <CategoryAvatar cat={t.category} size={32} />
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={S.txnCompactDesc}>{t.description || t.category}</div>
+          <div style={S.txnCompactMeta} title={t.srcAccount && !mappedAccount ? `src: ${t.srcAccount}` : undefined}>
+            <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>
+              {t.category}
+              {t.account || !mappedAccount ? ` · ${accountLabel}` : ""}
+            </span>
+            {t.categorySource === "learned" ? (
+              <button
+                type="button"
+                onClick={(e) => { e.stopPropagation(); onConfirmLearned(t.id); }}
+                title="Confirm this category — helps the memory learn with more confidence"
+                style={S.learnedPill}
+              >
+                learned
+              </button>
             ) : null}
           </div>
-          <span style={{ color: amt.color, fontWeight: 600, fontSize: 14, whiteSpace: "nowrap" }}>
-            {amt.sign}{money(amt.value)}
-          </span>
         </div>
-
-        <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-          <span title={type} style={{ ...S.badge, color: TYPE_COLOR[type], borderColor: TYPE_COLOR[type] }}>{type.charAt(0)}</span>
-          <select
-            value={ACCOUNTS.includes(t.account) ? t.account : ""}
-            onChange={(e) => onInlineChange(t, { account: e.target.value })}
-            style={{ ...S.cellSelect, flex: "1 1 140px", maxWidth: "none" }}
-          >
-            {!ACCOUNTS.includes(t.account) && (
-              <option value="">{t.account ? `${t.account} (unmapped)` : "—"}</option>
-            )}
-            {ACCOUNTS.map((a) => (
-              <option key={a}>{a}</option>
-            ))}
-          </select>
-          <select
-            value={CATEGORIES.includes(t.category) ? t.category : "Other"}
-            onChange={(e) => onInlineChange(t, { category: e.target.value })}
-            style={{ ...S.cellSelect, flex: "1 1 120px", maxWidth: "none" }}
-          >
-            {CATEGORIES.map((c) => (
-              <option key={c}>{c}</option>
-            ))}
-          </select>
-          <ConfirmCategoryButton row={t} onConfirm={onConfirmLearned} />
+        <div style={{ fontSize: 14, fontWeight: 600, whiteSpace: "nowrap", color: amt.color }}>
+          {amt.sign}{money(amt.value)}
         </div>
       </div>
     </div>
@@ -10492,6 +10587,13 @@ const S = {
     cursor: "pointer",
     flexShrink: 0,
   },
+  checkboxLg: {
+    width: 20,
+    height: 20,
+    accentColor: "#3b82f6",
+    cursor: "pointer",
+    flexShrink: 0,
+  },
   // Audit / table view
   filterBar: {
     display: "flex",
@@ -10499,20 +10601,149 @@ const S = {
     flexWrap: "wrap",
     alignItems: "center",
   },
-  summaryBar: {
+  // Transactions tab (mobile) — one-line text summary, removable filter
+  // chips, collapsible filter panel and the dense grouped row list.
+  txnSummaryRow: {
     display: "flex",
-    gap: 8,
-    flexWrap: "nowrap",
-    overflow: "hidden",
     alignItems: "center",
+    justifyContent: "space-between",
+    gap: 8,
     minWidth: 0,
     fontSize: 12,
-    padding: "6px 10px",
+    color: "#8b94a3",
+    padding: "0 2px",
+  },
+  txnChipsRow: {
+    display: "flex",
+    gap: 6,
+    flexWrap: "nowrap",
+    overflowX: "auto",
+    scrollbarWidth: "none",
+    WebkitOverflowScrolling: "touch",
+    paddingBottom: 2,
+  },
+  txnActiveChip: {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 5,
+    flexShrink: 0,
+    maxWidth: 190,
+    background: "rgba(30,58,95,0.75)",
+    border: "1px solid #3b82f6",
+    color: "#93c5fd",
+    borderRadius: 999,
+    padding: "5px 11px",
+    fontSize: 12,
+    fontWeight: 600,
+    cursor: "pointer",
+  },
+  txnLearnedChip: {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 5,
+    flexShrink: 0,
+    background: "rgba(251,191,36,0.08)",
+    border: "1px solid rgba(251,191,36,0.5)",
+    color: "#fbbf24",
+    borderRadius: 999,
+    padding: "5px 11px",
+    fontSize: 12,
+    fontWeight: 600,
+    cursor: "pointer",
+  },
+  txnFilterPanel: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 8,
+    padding: 10,
     background: "rgba(22,26,32,0.7)",
     border: "1px solid rgba(255,255,255,0.08)",
     borderRadius: 14,
-    backdropFilter: "blur(16px) saturate(160%)",
-    WebkitBackdropFilter: "blur(16px) saturate(160%)",
+  },
+  filterToggleBtn: (active) => ({
+    width: 44,
+    height: 44,
+    borderRadius: 12,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    background: active ? "rgba(30,58,95,0.75)" : "rgba(15,18,22,0.92)",
+    border: active ? "1px solid #3b82f6" : "1px solid rgba(255,255,255,0.08)",
+    color: active ? "#93c5fd" : "#8b94a3",
+    cursor: "pointer",
+    flexShrink: 0,
+  }),
+  filterCountBadge: {
+    position: "absolute",
+    top: -6,
+    right: -6,
+    minWidth: 18,
+    height: 18,
+    borderRadius: 999,
+    background: "#0A84FF",
+    color: "#fff",
+    fontSize: 11,
+    fontWeight: 700,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: "0 5px",
+    pointerEvents: "none",
+  },
+  // One container per date group; rows are separated by a hairline instead
+  // of each being its own card (density — see v1.75.0 redesign).
+  txnGroupCard: {
+    background: "#161a20",
+    border: "1px solid #1e2530",
+    borderRadius: 14,
+    overflow: "hidden",
+  },
+  txnCompactRow: {
+    display: "flex",
+    alignItems: "center",
+    gap: 12,
+    padding: "10px 12px",
+    position: "relative",
+    cursor: "pointer",
+  },
+  txnCompactDesc: {
+    fontSize: 14,
+    color: "#e5e7eb",
+    lineHeight: 1.35,
+    whiteSpace: "nowrap",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+  },
+  txnCompactMeta: {
+    display: "flex",
+    alignItems: "center",
+    gap: 6,
+    marginTop: 2,
+    fontSize: 11,
+    color: "#8b94a3",
+    whiteSpace: "nowrap",
+    overflow: "hidden",
+  },
+  learnedPill: {
+    flexShrink: 0,
+    fontSize: 10,
+    fontWeight: 600,
+    lineHeight: 1.4,
+    color: "#fbbf24",
+    background: "rgba(251,191,36,0.14)",
+    border: "none",
+    borderRadius: 999,
+    padding: "2px 7px",
+    cursor: "pointer",
+  },
+  savedDot: {
+    display: "inline-block",
+    width: 7,
+    height: 7,
+    borderRadius: 999,
+    background: "#34d399",
+    boxShadow: "0 0 6px rgba(52,211,153,0.6)",
+    flexShrink: 0,
   },
   swipeAction: {
     border: "none",

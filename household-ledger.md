@@ -1,4 +1,4 @@
-# Household Ledger · v1.74.0
+# Household Ledger · v1.75.0
 
 Aplicativo mobile-first de controle financeiro doméstico. Registra
 transações da casa (despesas e receitas) por categoria e conta, com
@@ -31,7 +31,14 @@ O `feature-auditor` deve conferir, como parte da checklist de auditoria, que
 o diff inclui o bump nos dois arquivos antes de aprovar — se faltar, isso é
 motivo de reprovação (devolver ao coder), não um detalhe opcional.
 
-Versão atual: **v1.74.0** (PR #271, draft, branch
+Versão atual: **v1.75.0** — Redesign de front-end (Txns, Header, Home,
+Trends, Import, Settings). Rodada 1 entregue: tab **Txns** no celular
+(linhas densas agrupadas por data, painel de filtros colapsável, chips de
+filtro removíveis, modo de seleção opt-in) e **Header/SaveIndicator** (o
+estado "saved" virou um ponto verde). As demais rodadas (Home, Trends,
+Import, Settings) entram sob a mesma versão.
+
+Versão anterior: **v1.74.0** (PR #271, draft, branch
 `claude/feature-workflow-badges-status-c4audy`, pendente de merge) —
 compacta a barra de bulk-edit da tab **Transactions** numa única linha
 (mobile-first, `flexWrap: nowrap`) e troca o badge de tipo (`Expense`/
