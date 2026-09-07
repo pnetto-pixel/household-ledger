@@ -707,7 +707,7 @@ function idleExpired() {
 // path, so the pending copy is discarded with a notice instead).
 
 // Single source for the version shown in the header and in diagnostics.
-const APP_VERSION = "v1.73.0";
+const APP_VERSION = "v1.74.0";
 
 const PENDING_SAVE_KEY = "household_pending_save";
 
@@ -5563,51 +5563,41 @@ function Transactions({ transactions, money, hideValues, isWide, onDelete, onUpd
       {/* Bulk-edit bar: shown whenever there's a selection */}
       {selectedIds.size > 0 && (
         <div style={S.bulkBar}>
-          <span style={{ fontSize: 13, color: "#e5e7eb", fontWeight: 600 }}>
-            {selectedIds.size} selected
-          </span>
-
-          <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-            <select value={bulkCat} onChange={(e) => setBulkCat(e.target.value)} style={{ ...S.select, flex: "0 1 150px" }}>
-              <option value="">Set category…</option>
-              {CATEGORIES.map((c) => (
-                <option key={c}>{c}</option>
-              ))}
-            </select>
-            <button
-              disabled={!bulkCat}
-              onClick={() => { applyBulk({ category: bulkCat, categoryManual: bulkCat !== TRANSFER_CATEGORY }); setBulkCat(""); }}
-              style={S.exportBtn(!bulkCat)}
-            >
-              Apply
-            </button>
-          </div>
-
-          <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-            <select value={bulkAcct} onChange={(e) => setBulkAcct(e.target.value)} style={{ ...S.select, flex: "0 1 150px" }}>
-              <option value="">Set account…</option>
-              {ACCOUNTS.map((a) => (
-                <option key={a}>{a}</option>
-              ))}
-            </select>
-            <button
-              disabled={!bulkAcct}
-              onClick={() => { applyBulk({ account: bulkAcct }); setBulkAcct(""); }}
-              style={S.exportBtn(!bulkAcct)}
-            >
-              Apply
-            </button>
-          </div>
-
-          <button onClick={() => applyBulk({ category: TRANSFER_CATEGORY, categoryManual: false })} style={S.exportBtn(false)} title="Mark as account transfer / card payment (excluded from totals)">
-            Mark as Transfer
-          </button>
-
           {!confirmDelete ? (
-            <button onClick={() => setConfirmDelete(true)} style={S.deleteSelectedBtn}>
-              <Trash2 size={15} />
-              Delete ({selectedIds.size})
-            </button>
+            <>
+              <select value={bulkCat} onChange={(e) => setBulkCat(e.target.value)} style={{ ...S.select, flex: "1 1 0", minWidth: 0 }}>
+                <option value="">Category…</option>
+                {CATEGORIES.map((c) => (
+                  <option key={c}>{c}</option>
+                ))}
+              </select>
+
+              <select value={bulkAcct} onChange={(e) => setBulkAcct(e.target.value)} style={{ ...S.select, flex: "1 1 0", minWidth: 0 }}>
+                <option value="">Account…</option>
+                {ACCOUNTS.map((a) => (
+                  <option key={a}>{a}</option>
+                ))}
+              </select>
+
+              <button
+                disabled={!bulkCat && !bulkAcct}
+                title="Apply to selected"
+                onClick={() => {
+                  const patch = {};
+                  if (bulkCat) { patch.category = bulkCat; patch.categoryManual = bulkCat !== TRANSFER_CATEGORY; }
+                  if (bulkAcct) patch.account = bulkAcct;
+                  applyBulk(patch);
+                  setBulkCat(""); setBulkAcct("");
+                }}
+                style={S.iconBtn(!bulkCat && !bulkAcct)}
+              >
+                <Check size={15} />
+              </button>
+
+              <button onClick={() => setConfirmDelete(true)} style={S.deleteIconBtn} title={`Delete ${selectedIds.size} selected`}>
+                <Trash2 size={15} />
+              </button>
+            </>
           ) : (
             <span style={{ display: "flex", gap: 6, alignItems: "center" }}>
               <span style={{ fontSize: 12, color: "#fca5a5" }}>Delete {selectedIds.size}?</span>
@@ -5987,7 +5977,7 @@ function TxnTable({ rows, money, selectedIds, allSelected, onToggleSelect, onSel
                   </select>
                 </td>
                 <td style={S.td}>
-                  <span style={{ ...S.badge, color: TYPE_COLOR[type], borderColor: TYPE_COLOR[type] }}>{type}</span>
+                  <span title={type} style={{ ...S.badge, color: TYPE_COLOR[type], borderColor: TYPE_COLOR[type] }}>{type.charAt(0)}</span>
                 </td>
                 <td style={S.td}>
                   <select
@@ -6205,7 +6195,7 @@ function TxnAuditCard({ t, money, selected, onToggleSelect, onInlineChange, onCo
         </div>
 
         <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-          <span style={{ ...S.badge, color: TYPE_COLOR[type], borderColor: TYPE_COLOR[type] }}>{type}</span>
+          <span title={type} style={{ ...S.badge, color: TYPE_COLOR[type], borderColor: TYPE_COLOR[type] }}>{type.charAt(0)}</span>
           <select
             value={ACCOUNTS.includes(t.account) ? t.account : ""}
             onChange={(e) => onInlineChange(t, { account: e.target.value })}
@@ -10468,6 +10458,33 @@ const S = {
     fontWeight: 600,
     alignSelf: "flex-start",
   },
+  // Icon-only bulk-bar buttons (Apply / Delete) — must stay tap-friendly while
+  // never shrinking or wrapping in the single-line nowrap bulk bar.
+  iconBtn: (disabled) => ({
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    flexShrink: 0,
+    background: "#1e2328",
+    border: "1px solid #3a3f4a",
+    color: "#e0e6f0",
+    borderRadius: 8,
+    padding: "9px 11px",
+    cursor: disabled ? "not-allowed" : "pointer",
+    opacity: disabled ? 0.4 : 1,
+  }),
+  deleteIconBtn: {
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    flexShrink: 0,
+    background: "#3b0d0d",
+    border: "1px solid #7f1d1d",
+    color: "#fca5a5",
+    borderRadius: 8,
+    padding: "9px 11px",
+    cursor: "pointer",
+  },
   checkbox: {
     width: 16,
     height: 16,
@@ -10543,7 +10560,7 @@ const S = {
   bulkBar: {
     display: "flex",
     gap: 8,
-    flexWrap: "wrap",
+    flexWrap: "nowrap",
     alignItems: "center",
     padding: "8px 10px",
     background: "rgba(16,24,38,0.7)",

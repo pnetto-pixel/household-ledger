@@ -1,4 +1,4 @@
-# Household Ledger · v1.73.0
+# Household Ledger · v1.74.0
 
 Aplicativo mobile-first de controle financeiro doméstico. Registra
 transações da casa (despesas e receitas) por categoria e conta, com
@@ -31,8 +31,53 @@ O `feature-auditor` deve conferir, como parte da checklist de auditoria, que
 o diff inclui o bump nos dois arquivos antes de aprovar — se faltar, isso é
 motivo de reprovação (devolver ao coder), não um detalhe opcional.
 
-Versão atual: **v1.73.0** (PR #270, branch
-`claude/feature-workflow-badges-status-c4audy`, draft — aguardando merge) —
+Versão atual: **v1.74.0** (PR #271, draft, branch
+`claude/feature-workflow-badges-status-c4audy`, pendente de merge) —
+compacta a barra de bulk-edit da tab **Transactions** numa única linha
+(mobile-first, `flexWrap: nowrap`) e troca o badge de tipo (`Expense`/
+`Income`/`Transfer`) por uma única letra nas listas de transações. Mudanças
+em `src/App.jsx`, todas dentro de `Transactions`/`TxnTable`/`TxnAuditCard`:
+- Barra de seleção (`S.bulkBar`): removido o `<span>{N} selected</span>`
+  (redundante com "Clear selection (N)" já exibido acima) e o botão "Mark as
+  Transfer" (redundante — escolher `Transfer` no select de categoria e
+  aplicar produzia o mesmo patch, já que `categoryManual` sempre era
+  `bulkCat !== TRANSFER_CATEGORY`). Os dois botões "Apply" (categoria/conta)
+  viraram um único botão ícone (`Check`, `lucide-react`) que monta um patch
+  combinado (`{ category, categoryManual }` se houver categoria selecionada
+  e/ou `{ account }` se houver conta) numa única chamada a `applyBulk`. O
+  botão Delete perdeu o texto "Delete (N)", ficando só com o ícone
+  `Trash2` — a contagem some do rótulo, mas continua acessível via `title`.
+  Placeholders dos selects encurtados (`Set category…`→`Category…`, `Set
+  account…`→`Account…`) para caber ao lado dos botões numa tela de ~390px.
+- `S.bulkBar` passou de `flexWrap: "wrap"` para `"nowrap"`: a barra nunca
+  mais quebra linha. Os dois `<select>` ganharam `flex: "1 1 0", minWidth:
+  0` (absorvem toda a folga e encolhem antes de estourar a largura); os
+  dois botões-ícone (Apply/Delete) ganharam `flexShrink: 0` (nunca
+  encolhem). Novas entradas em `S`: `S.iconBtn(disabled)` (Apply — mesmas
+  cores de `S.exportBtn`, agora sem uso, mas deixado no objeto `S` por não
+  ter motivo funcional pra remover uma entrada de estilo genérica) e
+  `S.deleteIconBtn` (mesmas cores de `S.deleteSelectedBtn`), ambos com
+  padding `"9px 11px"` (~35px de alvo de toque).
+- Estado de confirmação do delete (`confirmDelete === true`): agora esconde
+  os dois selects e o botão Apply, deixando só "Delete N?" + "Yes" + "No" —
+  evita que a confirmação estoure a largura da barra em `nowrap`. Lógica de
+  `handleConfirmDelete`/`onDeleteSelected` inalterada, só o que é
+  renderizado mudou.
+- Badge de tipo (`Expense`/`Income`/`Transfer`) em `TxnTable` (linha da
+  tabela desktop) e `TxnAuditCard` (card mobile) agora mostra só a inicial
+  (`type.charAt(0)` — E/I/T, derivado do próprio valor, não hardcoded) com
+  `title={type}` pro nome completo aparecer no hover. Cores (`TYPE_COLOR`) e
+  `S.badge` inalterados. `TxnRow` (linha genérica reusada fora da tab Txns)
+  não tem esse badge — usa um círculo com a inicial da *categoria*, não do
+  tipo — então não foi tocado. O badge de status/proveniência
+  (`CategoryBadge`) do `EditModal` e da tab Import (`ImportTransactions`)
+  também não foi tocado — está fora do escopo desta feature.
+- Sem mudança de modelo de transação, contrato de API/Redis, ou das regras
+  de `isIncome`/`isTransfer`/`computeTotals`.
+
+Versão anterior: **v1.73.0** (PR #270, branch
+`claude/feature-workflow-badges-status-c4audy`, squash-merge `5da1712` em
+`main`) —
 remove o badge de status de classificação
 (`CategoryBadge`, a pill verde "OK"/tier) e o chip de filtro "Status" da tab
 **Transactions** (`TxnTable`, `TxnAuditCard` e o chip mobile em
@@ -2586,9 +2631,12 @@ Serve só para exibir "was X → you: Y" na UI da sugestão. `categoryManual`
 é setado em runtime pela UI, não pelo import:
 - **`true`** quando o usuário troca a categoria manualmente (`EditModal`,
   ou bulk "Set category" na tab Transactions).
-- **`false`** quando a transação vira `Transfer` (via `EditModal` ou bulk
-  "Mark as Transfer") — virar Transfer não conta como "correção de
-  categoria" para efeito de detecção.
+- **`false`** quando a transação vira `Transfer` (via `EditModal` ou, na tab
+  Transactions, selecionando `Transfer` no select de categoria da barra de
+  bulk-edit e aplicando — o botão dedicado "Mark as Transfer" existiu até a
+  v1.73.0 e foi removido na v1.74.0/PR #271 por ser redundante com esse
+  fluxo, que já produzia o mesmo patch) — virar Transfer não conta como
+  "correção de categoria" para efeito de detecção.
 - Ausente = a categoria nunca foi editada manualmente.
 
 **Desde a v1.16.0 (PR #124)**, `categoryManual`/`autoCategory` também são
@@ -3503,10 +3551,23 @@ shell de altura cheia (`#root` em `100lvh` + shell `height:100%`): só o
 
    **Seleção e edição em massa:** cada linha tem checkbox (sempre visível);
    "Select all" marca/desmarca a lista filtrada corrente. Com ao menos uma
-   seleção, aparece a **barra de bulk**: definir categoria, definir conta,
-   "Mark as Transfer" e "Delete (N)" com confirmação inline. Após qualquer
-   **Apply**, a seleção é limpa automaticamente. Tudo é client-side (uma
-   chamada `scheduleSave`, sem novo endpoint).
+   seleção, aparece a **barra de bulk**: definir categoria e/ou definir
+   conta, e deletar. **Desde a v1.74.0 (PR #271)**, essa barra (`S.bulkBar`)
+   cabe **numa única linha** (`flexWrap: "nowrap"`, selects com `flex: "1 1
+   0"`/`minWidth: 0`) — não quebra mais em mobile. O contador "N selected"
+   saiu (redundante com "Clear selection (N)" logo acima), assim como o
+   botão "Mark as Transfer" (redundante: escolher `Transfer` no select de
+   categoria e aplicar produz o mesmo patch). Os dois botões "Apply"
+   (categoria/conta) viraram **um único botão-ícone** (`Check`) que monta um
+   patch combinado numa única chamada a `applyBulk`; o **Delete** também
+   virou ícone-only (`Trash2`, com `title` dinâmico). Com a confirmação de
+   delete ativa, os selects/Apply somem e a barra mostra só "Delete N?
+   Yes/No". Após qualquer **Apply**, a seleção é limpa automaticamente. Tudo
+   é client-side (uma chamada `scheduleSave`, sem novo endpoint).
+   O **badge de tipo** (`Expense`/`Income`/`Transfer`) em cada linha, tanto
+   na tabela desktop (`TxnTable`) quanto no card mobile (`TxnAuditCard`),
+   mostra desde a v1.74.0 **só a inicial** (E/I/T), com o nome completo no
+   `title` (hover/long-press). Cores (`TYPE_COLOR`) inalteradas.
 4. **Import** — importação de CSV (papaparse) com **dois métodos**
    (`BANK_PROFILES`), mais o card de sync automático SimpleFin (ver abaixo).
    **Desde a v1.16.2 (PR #126)**, o seletor de método
@@ -5381,3 +5442,22 @@ riscos reais de perda de dados.
     (`categorySource`/`categoryConfidence`/`categoryReason` seguem nos
     dados) nem de contrato de API/Redis. Ver "Versão atual" no topo deste
     documento para o detalhamento completo.
+  - [x] **Barra de bulk-edit numa linha só + badge de tipo em inicial**
+    (v1.74.0, PR #271, draft, pendente de merge) — compacta a barra de
+    seleção em massa da tab Transactions (`S.bulkBar`) para caber numa
+    única linha em mobile (`flexWrap: "nowrap"`), removendo o contador "N
+    selected" redundante e o botão "Mark as Transfer" (selecionar
+    `Transfer` no select de categoria e aplicar já produzia o mesmo patch);
+    os dois botões "Apply" viraram um único botão-ícone que aplica
+    categoria e/ou conta numa única chamada, e o Delete virou ícone-only.
+    O badge de tipo (`Expense`/`Income`/`Transfer`) em `TxnTable`/
+    `TxnAuditCard` passou a mostrar só a inicial (E/I/T), com o nome
+    completo no `title`. Sem mudança de modelo de transação, API/Redis, ou
+    das regras de `isIncome`/`isTransfer`/`computeTotals`. Ver "Versão
+    atual" no topo deste documento para o detalhamento completo.
+  - [ ] **Limpeza: `S.exportBtn` órfão** — desde o v1.74.0/PR #271, nenhum
+    componente consome `S.exportBtn` (os dois botões "Apply" de texto e o
+    "Mark as Transfer" que o usavam saíram nessa versão; `S.iconBtn`
+    reaproveita as mesmas cores). Não quebra build/lint, mas é uma entrada
+    morta em `S` — remover (ou reaproveitar em algum botão futuro) numa
+    próxima rodada de limpeza.
