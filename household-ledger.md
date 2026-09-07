@@ -1,4 +1,4 @@
-# Household Ledger · v1.71.0
+# Household Ledger · v1.72.0
 
 Aplicativo mobile-first de controle financeiro doméstico. Registra
 transações da casa (despesas e receitas) por categoria e conta, com
@@ -31,7 +31,43 @@ O `feature-auditor` deve conferir, como parte da checklist de auditoria, que
 o diff inclui o bump nos dois arquivos antes de aprovar — se faltar, isso é
 motivo de reprovação (devolver ao coder), não um detalhe opcional.
 
-Versão atual: **v1.71.0** (PR #267, squash-merge) — a classificação automática (rule-based e
+Versão atual: **v1.72.0** (PR #269) — o filtro de conta do import
+(`importAcctFilter`, Import tab, existente desde a v1.62.0/PR #247 mas
+**desktop-only e puramente visual**) agora restringe de fato o que
+`confirm()` importa, não só o que é exibido na prévia. Antes, `confirm()`
+montava `toImport` a partir de `displayRows.filter(r => selected.has(r.id))`
+— filtrar por conta escondia linhas na tabela, mas o botão "Import"
+continuava importando todas as contas do lote selecionadas. Mudanças em
+`src/App.jsx`:
+- Novo predicado `matchesImportAccountScope(t)` —
+  `importAcctFilter.length === 0 || importAcctFilter.includes(t.account ||
+  "Unassigned")` (mesmo campo `account`/fallback `"Unassigned"` do
+  `acctFilter` da tab Transactions).
+- `confirm()` passou a filtrar por `selected.has(r.id) &&
+  matchesImportAccountScope(r)` antes de gravar no ledger.
+- `selectedCount` (antes `selected.size`) e `dupSelectedCount` viraram
+  `useMemo` sobre `dedupedRows` aplicando o mesmo escopo, então o label
+  "Import N transactions" do botão já bate com o que será de fato
+  importado.
+- Novo chip mobile `<HeaderFilter chip label="Account" .../>` — mesmo
+  padrão chip+Popover da tab Transactions — na toolbar compartilhada logo
+  após "Deselect all", condicionado a `!wide && importAcctOptions.length >
+  1`. Antes o filtro de conta só existia no `<thead>` da tabela desktop
+  (`if (wide)`); agora tem acesso equivalente no mobile.
+
+**Semântica preservada, importante para não "corrigir" por engano depois**:
+os demais filtros do preview de import (categoria, badge/status, data,
+`dupFilter`) continuam **exclusivamente visuais** — só o filtro de conta tem
+efeito sobre o import. `dupCount`/`reviewCount` seguem contando o lote
+inteiro; `selectAll`/`selectNone` seguem operando sobre `dedupedRows`
+inteiro (o corte por conta acontece só dentro de `confirm()`); linhas fora
+do escopo de conta permanecem marcadas em `selected` e reaparecem checadas
+se o usuário limpar o filtro. Filtro efêmero (`useState` local, resetado no
+`useEffect` de `dedupedRows` a cada novo parse/sync) — nada persistido em
+Redis/localStorage. Sem mudança de contrato de API/Redis ou de modelo de
+transação.
+
+Versão anterior: **v1.71.0** (PR #267, squash-merge) — a classificação automática (rule-based e
 merchant-memory) agora pode sugerir "Transfer" como categoria, o que antes
 era estruturalmente impossível: (1) `isMemoryTrainableRow` (`src/ledger.js`)
 não exclui mais linhas `Transfer` do treinamento da memória de comerciantes
@@ -3479,6 +3515,19 @@ shell de altura cheia (`#root` em `100lvh` + shell `height:100%`): só o
    só a visão desktop em tabela** — a visão mobile (cards) do preview de
    import não ganhou filtro de header nesta versão.
 
+   **Filtro de Account passa a restringir o import de verdade + chip mobile
+   (v1.72.0, PR #269)** — até aqui `importAcctFilter` era só visual (filtrava
+   a prévia, não o que `confirm()` gravava) e só existia no `<thead>`
+   desktop. Agora: (1) o botão "Import N transactions" só importa linhas
+   cujo `account` (fallback `"Unassigned"`) esteja no filtro selecionado —
+   `selectedCount`/`dupSelectedCount` já refletem esse escopo no label; (2)
+   um chip "Account" (mesmo padrão chip+Popover de `HeaderFilter` usado na
+   tab Transactions) aparece na toolbar mobile, logo após "Deselect all",
+   quando o lote tem mais de uma conta (`!wide && importAcctOptions.length >
+   1`). **Os demais filtros do preview (categoria, status, data) continuam
+   só visuais** — essa restrição real de import é exclusiva do filtro de
+   conta; não confundir com os outros ao dar manutenção aqui.
+
    **Filtro "Status" no header de Category (desktop, v1.70.0, PR #263)** —
    mesmo `categoryBadgeFilterKey`/`HeaderFilter` "Status" descrito na tab
    Transactions (item 3 acima), aplicado também à tabela de preview do
@@ -5140,6 +5189,11 @@ riscos reais de perda de dados.
     `sourceId` diferente passam pelo scoring normal. Testes novos em
     `src/ledger.test.js` cobrindo o caso positivo e a não-regressão do
     PR #51. Ver também item de UI abaixo (filtros de header no import).
+    Esse filtro de header nasceu desktop-only e puramente visual; **desde a
+    v1.72.0 (PR #269)** o filtro de Account passou a restringir de fato o
+    que é importado (não só o que a prévia mostra) e ganhou chip equivalente
+    no mobile — os demais filtros (categoria/status/data) continuam só
+    visuais. Ver "Versão atual" no topo deste documento.
   - [ ] UI de configuração de credencial SimpleFin na Settings — ainda
     hardcoded via env var `SIMPLEFIN_ACCESS_URL` (single-tenant).
   - [x] **Coluna "Source" (SimpleFin vs Credit Karma) na tabela
