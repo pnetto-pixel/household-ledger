@@ -707,7 +707,7 @@ function idleExpired() {
 // path, so the pending copy is discarded with a notice instead).
 
 // Single source for the version shown in the header and in diagnostics.
-const APP_VERSION = "v1.72.0";
+const APP_VERSION = "v1.73.0";
 
 const PENDING_SAVE_KEY = "household_pending_save";
 
@@ -5228,7 +5228,6 @@ function Transactions({ transactions, money, hideValues, isWide, onDelete, onUpd
   const [catFilter, setCatFilter] = useState([]);
   const [acctFilter, setAcctFilter] = useState([]);
   const [typeFilter, setTypeFilter] = useState([]);
-  const [badgeFilter, setBadgeFilter] = useState([]);
   const [query, setQuery] = useState("");
   const [year, setYear] = useState("All");
   const [month, setMonth] = useState("All");
@@ -5353,7 +5352,6 @@ function Transactions({ transactions, money, hideValues, isWide, onDelete, onUpd
       .filter((t) => (catFilter.length === 0 ? true : catFilter.includes(t.category)))
       .filter((t) => (acctFilter.length === 0 ? true : acctFilter.includes(t.account || "Unassigned")))
       .filter((t) => (typeFilter.length === 0 ? true : typeFilter.includes(txnType(t.category))))
-      .filter((t) => (badgeFilter.length === 0 ? true : badgeFilter.includes(categoryBadgeFilterKey(t))))
       .filter((t) => matchPeriod(t.date, year, month))
       .filter((t) => {
         // From/To filter by day on both platforms.
@@ -5379,7 +5377,7 @@ function Transactions({ transactions, money, hideValues, isWide, onDelete, onUpd
       // common (e.g. a batch import) where visible reordering reads as a bug.
       .sort((a, b) => (a.t.date < b.t.date ? 1 : a.t.date > b.t.date ? -1 : a.i - b.i))
       .map(({ t }) => t);
-  }, [transactions, catFilter, acctFilter, typeFilter, badgeFilter, query, year, month, from, to, dateYears, dateMonths, isWide]);
+  }, [transactions, catFilter, acctFilter, typeFilter, query, year, month, from, to, dateYears, dateMonths, isWide]);
 
   // Bulk version — respects the CURRENT filters (`filtered`, not just the
   // lazy-loaded `visible` window), same "acts on everything matching, not
@@ -5431,7 +5429,6 @@ function Transactions({ transactions, money, hideValues, isWide, onDelete, onUpd
     catFilter.length > 0 ||
     acctFilter.length > 0 ||
     typeFilter.length > 0 ||
-    badgeFilter.length > 0 ||
     query ||
     year !== "All" ||
     month !== "All" ||
@@ -5444,7 +5441,6 @@ function Transactions({ transactions, money, hideValues, isWide, onDelete, onUpd
     setCatFilter([]);
     setAcctFilter([]);
     setTypeFilter([]);
-    setBadgeFilter([]);
     setQuery("");
     setYear("All");
     setMonth("All");
@@ -5531,7 +5527,6 @@ function Transactions({ transactions, money, hideValues, isWide, onDelete, onUpd
           <HeaderFilter chip label="Type" value={typeFilter} options={["Income", "Expense", "Transfer"]} onChange={setTypeFilter} />
           <HeaderFilter chip label="Account" value={acctFilter} options={acctOptions} onChange={setAcctFilter} />
           <HeaderFilter chip label="Category" value={catFilter} options={catOptions} onChange={setCatFilter} />
-          <HeaderFilter chip label="Status" value={badgeFilter} options={CATEGORY_BADGE_FILTER_OPTIONS} onChange={setBadgeFilter} />
           <DateHeaderFilter chip years={years} dateYears={dateYears} setDateYears={setDateYears} dateMonths={dateMonths} setDateMonths={setDateMonths} from={from} setFrom={setFrom} to={to} setTo={setTo} />
         </div>
       )}
@@ -5657,8 +5652,6 @@ function Transactions({ transactions, money, hideValues, isWide, onDelete, onUpd
           setAcctFilter={setAcctFilter}
           catFilter={catFilter}
           setCatFilter={setCatFilter}
-          badgeFilter={badgeFilter}
-          setBadgeFilter={setBadgeFilter}
           acctOptions={acctOptions}
           catOptions={catOptions}
           years={years}
@@ -5939,7 +5932,7 @@ function DateHeaderFilter({ years, dateYears, setDateYears, dateMonths, setDateM
 // row selection for bulk actions.
 // ---------------------------------------------------------------------------
 
-function TxnTable({ rows, money, selectedIds, allSelected, onToggleSelect, onSelectAll, onInlineChange, onConfirmLearned, onEdit, onDelete, typeFilter, setTypeFilter, acctFilter, setAcctFilter, catFilter, setCatFilter, badgeFilter, setBadgeFilter, acctOptions, catOptions, years, dateYears, setDateYears, dateMonths, setDateMonths, from, setFrom, to, setTo }) {
+function TxnTable({ rows, money, selectedIds, allSelected, onToggleSelect, onSelectAll, onInlineChange, onConfirmLearned, onEdit, onDelete, typeFilter, setTypeFilter, acctFilter, setAcctFilter, catFilter, setCatFilter, acctOptions, catOptions, years, dateYears, setDateYears, dateMonths, setDateMonths, from, setFrom, to, setTo }) {
   return (
     <div style={{ ...S.card, padding: 0, overflow: "visible" }}>
       <table style={S.table}>
@@ -5959,10 +5952,7 @@ function TxnTable({ rows, money, selectedIds, allSelected, onToggleSelect, onSel
               <HeaderFilter label="Type" value={typeFilter} options={["Income", "Expense", "Transfer"]} onChange={setTypeFilter} />
             </th>
             <th style={S.stickyTh}>
-              <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
-                <HeaderFilter label="Category" value={catFilter} options={catOptions} onChange={setCatFilter} />
-                <HeaderFilter label="Status" value={badgeFilter} options={CATEGORY_BADGE_FILTER_OPTIONS} onChange={setBadgeFilter} />
-              </div>
+              <HeaderFilter label="Category" value={catFilter} options={catOptions} onChange={setCatFilter} />
             </th>
             <th style={{ ...S.stickyTh, textAlign: "right" }}>Amount</th>
             <th style={{ ...S.stickyTh, width: 70, textAlign: "right" }}></th>
@@ -6009,7 +5999,6 @@ function TxnTable({ rows, money, selectedIds, allSelected, onToggleSelect, onSel
                       <option key={c}>{c}</option>
                     ))}
                   </select>
-                  <CategoryBadge row={t} />
                   <ConfirmCategoryButton row={t} onConfirm={onConfirmLearned} />
                 </td>
                 <td style={{ ...S.td, textAlign: "right", color: amt.color, fontWeight: 600, whiteSpace: "nowrap" }}>
@@ -6238,7 +6227,6 @@ function TxnAuditCard({ t, money, selected, onToggleSelect, onInlineChange, onCo
               <option key={c}>{c}</option>
             ))}
           </select>
-          <CategoryBadge row={t} />
           <ConfirmCategoryButton row={t} onConfirm={onConfirmLearned} />
         </div>
       </div>

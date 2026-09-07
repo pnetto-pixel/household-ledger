@@ -1,4 +1,4 @@
-# Household Ledger · v1.72.0
+# Household Ledger · v1.73.0
 
 Aplicativo mobile-first de controle financeiro doméstico. Registra
 transações da casa (despesas e receitas) por categoria e conta, com
@@ -31,7 +31,38 @@ O `feature-auditor` deve conferir, como parte da checklist de auditoria, que
 o diff inclui o bump nos dois arquivos antes de aprovar — se faltar, isso é
 motivo de reprovação (devolver ao coder), não um detalhe opcional.
 
-Versão atual: **v1.72.0** (PR #269) — o filtro de conta do import
+Versão atual: **v1.73.0** — remove o badge de status de classificação
+(`CategoryBadge`, a pill verde "OK"/tier) e o chip de filtro "Status" da tab
+**Transactions** (`TxnTable`, `TxnAuditCard` e o chip mobile em
+`Transactions`). Pedido do usuário: a coluna "Category" da lista de
+transações estava poluída com o badge de proveniência (`rule`/`learned`/
+`confirmed`) além do select de categoria; o badge e o filtro correspondente
+ficam mantidos **apenas** na tab Import (`ImportTransactions`), onde ainda
+fazem sentido para revisar o lote antes de confirmar. Mudanças em
+`src/App.jsx`, todas dentro de `Transactions`/`TxnTable`/`TxnAuditCard`:
+- Removido `<CategoryBadge row={t} />` da célula de categoria em `TxnTable`
+  e `TxnAuditCard` — mantido ao lado `<ConfirmCategoryButton
+  row={t} onConfirm={onConfirmLearned} />` (ação funcional, não é badge).
+- Removido o chip mobile `<HeaderFilter chip label="Status" .../>` na
+  toolbar de `Transactions` e a coluna de filtro "Status" no `<thead>`
+  desktop de `TxnTable` (o filtro de Category e o de Status compartilhavam
+  a mesma `<th>`; removida só a segunda `HeaderFilter`, a coluna em si não
+  mudou — sem impacto de alinhamento no `<table>`, que não usa grid/colgroup
+  fixo).
+- Removido o estado `badgeFilter`/`setBadgeFilter` de `Transactions`, a
+  cláusula de filtro correspondente e sua entrada na dependency array do
+  `useMemo` de `filtered`, e as referências em `hasFilters`/`clearFilters`.
+  Removidas as props `badgeFilter`/`setBadgeFilter` de `<TxnTable>` e da
+  assinatura do componente.
+- `CategoryBadge`, `categoryBadge()`/`categoryBadgeFilterKey()` e
+  `CATEGORY_BADGE_FILTER_OPTIONS` continuam definidos e usados por
+  `ImportTransactions` (chip "Status" do import e badges na prévia) e pelo
+  `<CategoryBadge row={txn} />` do `EditModal` — não removidos.
+- Sem mudança de modelo de transação (`categorySource`/`categoryConfidence`/
+  `categoryReason` seguem nos dados, só o badge visual saiu desta tela) nem
+  de contrato de API/Redis.
+
+Versão anterior: **v1.72.0** (PR #269) — o filtro de conta do import
 (`importAcctFilter`, Import tab, existente desde a v1.62.0/PR #247 mas
 **desktop-only e puramente visual**) agora restringe de fato o que
 `confirm()` importa, não só o que é exibido na prévia. Antes, `confirm()`
