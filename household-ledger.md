@@ -31,12 +31,60 @@ O `feature-auditor` deve conferir, como parte da checklist de auditoria, que
 o diff inclui o bump nos dois arquivos antes de aprovar — se faltar, isso é
 motivo de reprovação (devolver ao coder), não um detalhe opcional.
 
-Versão atual: **v1.75.0** — Redesign de front-end (Txns, Header, Home,
-Trends, Import, Settings). Rodada 1 entregue: tab **Txns** no celular
-(linhas densas agrupadas por data, painel de filtros colapsável, chips de
-filtro removíveis, modo de seleção opt-in) e **Header/SaveIndicator** (o
-estado "saved" virou um ponto verde). As demais rodadas (Home, Trends,
-Import, Settings) entram sob a mesma versão.
+Versão atual: **v1.75.0** (PR #272, draft, branch
+`claude/app-review-improvements-kfl93d`, pendente de merge — auditoria em
+andamento) — redesign de front-end das 5 tabs, a partir de capturas reais e
+mockups aprovados pelo usuário. Só `src/App.jsx` mudou (mais este doc); nada
+em `api/*`, `lib/*`, contrato de API, modelo de transação ou agregações.
+Build e 127 testes passando. Decisão do usuário: a string de versão continua
+no header (não migrou para a tela About/Settings). Por tab:
+- **Header**: `SaveIndicator` — o estado "saved" virou um ponto verde 7px
+  (`S.savedDot`, com `title`/`aria-label` "Saved {hora}"); saving/unsaved/
+  error/offline continuam com texto. Título + versão do header inalterados.
+- **Txns (mobile)**: `TxnAuditCard` reescrito — avatar de categoria (novo
+  `CategoryAvatar({ cat, size })`, extraído da lista "By category" da Home)
+  + descrição 14px 1-linha + meta 11px `{categoria} · {conta}` + valor.
+  Saíram os dois `<select>` inline, o badge E/I/T e o `ConfirmCategoryButton`
+  da linha; entrou a pill âmbar "learned" (toque confirma). Edição de conta/
+  categoria no celular passa a ser só via `EditModal` ou bulk-edit. Linhas de
+  cada cabeçalho de data agrupadas num único card (`S.txnGroupCard`) com
+  hairline entre linhas. Controles: busca + botão de filtros (badge com nº
+  de filtros ativos) que abre painel colapsável com os 4 chips Type/Account/
+  Category/Date + "Clear all filters"; linha de chips removíveis por filtro
+  ativo + chip âmbar "✓ N learned"; resumo `{n} txns · {in} in · {out} out` +
+  botão "Select"/"Done". Modo de seleção (checkboxes, "Select all") agora é
+  opt-in — antes ficava sempre visível. Desktop (`TxnTable`) intocado (chips
+  removíveis e chip learned aparecem também lá).
+- **Home**: hero sem linhas LY quando não há transação no mesmo período do
+  ano anterior; Net/Income/Expenses do hero sem centavos (`moneyShort`).
+  `DailyPaceCard` perdeu a linha "Projected …"; o acumulado até hoje virou
+  rótulo do próprio marcador. Lista "By category" com pills M/M e Y/Y
+  reformuladas (Y/Y só aparece com dado do ano anterior) e valor + "avg"
+  ao lado. Removidos os 3 `StatCard` "All time" e o componente `StatCard`
+  (Trends já mostra totais do período). `AccountBalancesCard` sem contas
+  configuradas mostra só texto + botão-link "Set up in Settings", que abre
+  direto o sub-view SimpleFin da tab Settings.
+- **Trends**: barra de controles numa linha, com popover de período
+  (presets All/Last 3 years/YTD + slider de anos) no lugar do slider inline;
+  paleta semântica verde (#34d399)/vermelho (#f87171) para income/expenses
+  nos gráficos de barra; novo helper `bucketAxisProps` reduz o nº de ticks e
+  compacta o rótulo de ano em telas estreitas; `YearInReviewCard` trocou o
+  gráfico vertical de categorias por um ranking de barras horizontais
+  (top 10 + "Show more").
+- **Import**: segmented SimpleFin/Credit Karma/CSV numa linha só. Painel
+  SimpleFin virou card de status ("Last sync {relativo}", nº de contas e
+  novas desde o início do mês, botão "Sync now") + card "Pending review"
+  tocável com pill de contagem (some quando 0), no lugar do banner âmbar
+  antigo. Histórico "Recent syncs" não foi implementado (ver Roadmap).
+- **Settings**: `SettingsTab` reescrito como lista agrupada iOS (grupos
+  Categorization/Accounts/Planning/Data/About) com sub-views próprios
+  (botão "‹ Settings", `<main>` rola ao topo, troca de tab sempre volta à
+  lista). Novo `BareCardContext` faz o `CollapsibleCard` mais externo de
+  cada seção renderizar sem cabeçalho dentro do sub-view. Deep links
+  (aliases/ckmap/rules) preservados.
+- Fora de escopo desta versão: histórico "Recent syncs" no Import,
+  padronizar os toggles Expense/Income/Net dos cards da Trends em
+  `S.segmented`, e sidebar desktop acima de 900px — ver `## Roadmap`.
 
 Versão anterior: **v1.74.0** (PR #271, draft, branch
 `claude/feature-workflow-badges-status-c4audy`, pendente de merge) —
@@ -3312,11 +3360,32 @@ shell de altura cheia (`#root` em `100lvh` + shell `height:100%`): só o
    refresh manual (ícone `RefreshCw`) no header do card chama
    `refreshSfBalances({ force: true })`, ignorando o cache quando o usuário
    pede explicitamente.
-   Ao final da página, seção **"All Time"** com 3 StatCards (Income /
-   Expenses / Net) totais históricos (`usd0`, sem centavos, para caberem na
-   linha em telas estreitas).
    O bloco **"Recent" (transações recentes) foi removido** da Home
    (componente `TxnRow` permanece na aba Transactions).
+   **Desde a v1.75.0 (PR #272, pendente de merge)**: a seção **"All Time"**
+   com os 3 `StatCard` (Income/Expenses/Net) foi **removida** — o
+   componente `StatCard`, o memo `all` e `S.cardRow` saíram junto (a tab
+   Trends já mostra totais do período selecionado). No hero, as linhas
+   **LY** (year-over-year) só aparecem quando há transação no mesmo período
+   do ano anterior (`heroComparisons.hasYY`); Net/Income/Expenses do hero
+   passaram a exibir **sem centavos** (`moneyShort`). Novo indicador
+   `monthProgress` ("day N of M", 11px cinza) no canto superior direito do
+   hero quando o mês selecionado é o corrente. `DailyPaceCard` perdeu a
+   linha "Projected …"; o acumulado até hoje agora é o rótulo do próprio
+   marcador ("Today · $4.6K", que vira para a esquerda depois de 60% do
+   mês); a legenda de meses ("Sep"/"Aug") deixou de mostrar o ano. No bloco
+   "By category", cada linha ganhou um novo `CategoryAvatar({ cat, size })`
+   (extraído dessa mesma lista, reaproveitado também na linha compacta da
+   tab Transactions), a pill M/M perdeu o rótulo textual e a pill Y/Y só
+   aparece (com rótulo, junto da M/M) quando há dado do ano anterior — sem
+   comparação, nenhuma pill é exibida; à direita, valor 15px/700 + "avg
+   {valor}" 11px. Título da seção passou a "By Category" (antes "by
+   Category"). Os segmented controls (Expense/Income, List/Map) migraram de
+   `S.togglePill` para `S.segmented`/`S.segmentedBtn`. `AccountBalancesCard`
+   sem contas configuradas (estado `notConfigured`) agora mostra só o texto
+   "No SimpleFin accounts yet." + um botão-link "Set up in Settings" (prop
+   `onGoToSettings`, vinda de `App`) que abre direto o sub-view SimpleFin de
+   Settings — sem botão de refresh nem segmented nesse estado vazio.
 2. **Trends** (antiga Analyze, renomeada na v1.21.0/PR #143 — só o label
    mudou, ícone `TrendingUp` e id interno `"analyze"` mantidos) — a tab renderiza **somente `Charts`** (PR #104, v1.7.0): as
    sub-seções Trends ("Tendências mês a mês"), Budgets ("Orçamentos por
@@ -3482,6 +3551,35 @@ shell de altura cheia (`#root` em `100lvh` + shell `height:100%`): só o
    Respeita `hideValues` em todo valor exibido. `Transfer`/income excluídos
    (mesma lógica de `periodTxns`/`computeTotals`). Sem mudança de API/Redis/
    modelo de transação.
+   **Desde a v1.75.0 (PR #272, pendente de merge)**: a barra de controles do
+   topo virou uma única linha `[Category ▾] [período ▾] … [M Q H Y]`, com
+   fundo sticky translúcido `rgba(11,13,16,0.96)`. O chip de período abre um
+   **`Popover`** com os presets **All / Last 3 years / YTD** e o
+   `YearRangeSlider` embutido (o rótulo do chip mostra o preset ativo ou
+   "2023–2026"); o antigo switch `rangePresetsSwitch` fixo na tela e o
+   slider sempre visível inline (ver acima, PR #152–#154) saíram da tela
+   principal — a lógica de `applyYearRange`/`fromYear`/`toYear`/
+   `activePreset` não mudou, só a apresentação. `MonthlyBarCard` e "Income
+   vs Expenses" passaram a usar paleta semântica **income `#34d399`
+   (verde) / expenses `#f87171` (vermelho)** no lugar de `#06B6D4`/`#F97316`
+   (`DailyPaceCard` da Home mantém laranja); Net permanece `#0A84FF`. Novo
+   helper `bucketAxisProps(buckets, granularity, narrow)` limita o eixo X a
+   ~6 ticks em telas <900px, encurta o rótulo (sem "/YY") e imprime o ano
+   só uma vez ('26) no último tick visível daquele ano — aplicado em
+   "Income vs Expenses", `MonthlyBarCard`, `CategoryStackedBarCard` e
+   `CompositionEvolutionCard` (os três últimos ganharam prop `isWide`). O
+   card **`YearInReviewCard`** (Fase 7, ver Roadmap) trocou o gráfico
+   vertical de categorias (rótulos a 45°) por uma **lista HTML/CSS de
+   barras horizontais** (rótulo 84px / trilha 14px / valor 46px, cor via
+   `getCategoryColor`), mostrando o **top 10** (`YIR_TOP_N`) + botão "Show N
+   more"/"Show less"; título passou a "Expenses by category"/"Income by
+   category"; o agrupamento sintético "Other" saiu do ranking (só
+   apresentação, não afeta os totais/KPIs). Select de ano do card passou a
+   usar `S.chipSelect`. Pendência anotada pelo coder: os toggles
+   Expense/Income/Net **dentro** dos cards da Trends continuam em
+   `S.togglePill` (não migraram para `S.segmented` como os da Home — ver
+   Roadmap); com um único ano de dados os dois handles do `YearRangeSlider`
+   ainda se sobrepõem dentro do popover.
 3. **Transactions** — busca textual livre + **chips de filtro** (Type /
    Account / Category / Date) que abrem dropdowns via **portal** (`Popover`
    em `position: fixed` no `document.body`, ancorado por `getBoundingClientRect`
@@ -3575,6 +3673,34 @@ shell de altura cheia (`#root` em `100lvh` + shell `height:100%`): só o
    na tabela desktop (`TxnTable`) quanto no card mobile (`TxnAuditCard`),
    mostra desde a v1.74.0 **só a inicial** (E/I/T), com o nome completo no
    `title` (hover/long-press). Cores (`TYPE_COLOR`) inalteradas.
+   **Desde a v1.75.0 (PR #272, pendente de merge)**, no **mobile**,
+   `TxnAuditCard` foi reescrito para uma **linha compacta**: avatar de
+   categoria (novo `CategoryAvatar`, 32px) + descrição 14px em 1 linha
+   (ellipsis) + meta 11px `{categoria} · {conta}` (conta não mapeada exibe
+   "X (unmapped)"; a auditoria de origem `srcAccount` virou o `title` da
+   meta) + valor. Saíram da linha os dois `<select>` inline de
+   categoria/conta, o badge E/I/T e o `ConfirmCategoryButton` — a **edição
+   de conta/categoria no celular agora é só via `EditModal` (toque na
+   linha) ou bulk-edit**; entrou uma pill âmbar "learned" que, ao ser
+   tocada, confirma a classificação (`onConfirmLearned`) sem abrir o modal.
+   As linhas de cada cabeçalho de data (`formatDateHeader`) foram agrupadas
+   num único card visual (`S.txnGroupCard`) com hairline entre linhas, em
+   vez de cards soltos por linha. O swipe-to-reveal Edit/Delete foi mantido.
+   O **checkbox de seleção deixou de ser sempre visível no mobile**: agora é
+   **opt-in**, ligado por um botão "Select" no resumo (vira "Done"); só
+   nesse modo aparecem os checkboxes 20px e "Select all (N)" — no desktop
+   (`TxnTable`) o checkbox continua sempre visível, sem mudança. Os
+   controles do topo (mobile) ganharam um botão de filtros 44×44
+   (`SlidersHorizontal`) com badge azul do nº de filtros ativos, que abre um
+   **painel colapsável** com os 4 chips Type/Account/Category/Date + "Clear
+   all filters" (substitui a exibição permanente dos chips); abaixo, uma
+   **linha de chips removíveis** por filtro ativo (ex. "Sep 2026 ×", "3
+   accounts ×", "from → to ×") mais um chip âmbar "✓ N learned" (atalho para
+   `confirmAllVisibleLearned`) — esses chips removíveis e o chip learned
+   aparecem também no desktop. O resumo de texto virou `{n} txns · {in} in ·
+   {out} out` (`moneyShortK`, 1 casa decimal) ao lado do botão Select/Done;
+   `S.summaryBar` (pills coloridas ↑/↓/=) e a antiga linha "34 learned /
+   Confirm all visible learned" foram removidos do mobile.
 4. **Import** — importação de CSV (papaparse) com **dois métodos**
    (`BANK_PROFILES`), mais o card de sync automático SimpleFin (ver abaixo).
    **Desde a v1.16.2 (PR #126)**, o seletor de método
@@ -3787,6 +3913,32 @@ shell de altura cheia (`#root` em `100lvh` + shell `height:100%`): só o
    de correções manuais (`detectManualCategoryCorrections`) e o grupo
    "Manual category corrections" do painel **Suggested rules** na tab
    Settings, sem nenhuma escrita/endpoint novo.
+   **Desde a v1.75.0 (PR #272, pendente de merge)**: o seletor de método
+   virou um **segmented de 3 opções numa única linha** (`flex: 1` em cada
+   botão) — **SimpleFin** / **Credit Karma** / **CSV** — e a frase
+   explicativa que ficava abaixo do toggle do SimpleFin foi removida. O
+   painel do SimpleFin deixou de ser só o botão "Sync now" e virou um
+   **card de status**: tile 40×40 com ícone `RefreshCw` (`S.sfStatusTile`),
+   "Last sync {relativo}" ou "Not synced yet" (novo helper
+   `relativeSyncLabel(ts)`; o timestamp vem de
+   `readSfBalancesCache().fetchedAt` no mount, ou de `Date.now()` logo após
+   um sync manual — sem nova persistência), subtítulo "{n} accounts · {n}
+   new since {1º dia do mês corrente}" (conta transações `source === "sf"`
+   com data ≥ o 1º do mês) e o botão **"Sync now"** (`S.primaryBtn`, largura
+   total, abaixo do card em vez de dentro dele); o `fileName` exibido após
+   um sync vira uma linha de 12px dentro do card. O antigo **banner âmbar
+   "N transações pendentes de revisão" + botão "Review N pending"** (fila do
+   cron, v1.49.0/PR #215 — texto acima) foi **substituído** por um card-linha
+   tocável **"Pending review"** (`S.cardRowBtn`), com uma pill âmbar
+   (`S.sfPendingPill`) mostrando `sfPendingCount`, subtítulo "Possible
+   duplicates and unmapped accounts" e chevron; toque chama o mesmo
+   `loadSimpleFinPending` de antes (mesmo pipeline de prévia/dedup); o card
+   fica **oculto quando a fila tem 0 itens**, em vez de simplesmente não
+   renderizar o banner. Não há mudança na fila Redis
+   (`household:*:simplefin-pending`) nem no pipeline de dedup/confirmação —
+   só a apresentação do card. **Fora de escopo**: um histórico "Recent
+   syncs" foi cogitado na revisão de design mas não foi implementado (exige
+   persistência nova) — ver Roadmap.
 5. **Settings** (PR #128, v1.17.0) — 5ª tab, ícone `Settings` (cog), última
    posição na tab bar. Consolidação da antiga tab **Audit** (`AuditTab`, PR
    #107, v1.9.0) com o antigo modal **`SettingsModal`** (aberto pela
@@ -4054,11 +4206,63 @@ shell de altura cheia (`#root` em `100lvh` + shell `height:100%`): só o
    Com esta seção, o item "Auditoria de classificação de categorias" da
    Fase 5 fica **completo** — ver Roadmap.
 
+   **Desde a v1.75.0 (PR #272, pendente de merge)**: `SettingsTab` foi
+   **reescrito como uma lista agrupada estilo iOS**, no lugar da coluna
+   linear de cards descrita acima (a ordem/composição das seções acima
+   documenta o estado até a v1.74.0; as seções em si **não mudaram por
+   dentro**, só passaram a viver dentro de sub-views — exceções pontuais
+   listadas abaixo). A tab agora abre numa **lista de linhas** (novo
+   componente `SettingsRow`), agrupadas em 5 grupos:
+   - **Categorization** — Suggested rules (pill "N new" quando há
+     sugestões), Description rules (contagem), Category mapping, Account
+     aliases (os dois últimos voltaram a ser linhas separadas, não mais o
+     card fundido único da v1.63.0).
+   - **Accounts** — SimpleFin accounts (contagem + um ponto vermelho
+     `S.settingsRowDot` quando `settingsBadge > 0`, mesmo sinal que antes
+     era um `CollapsibleCard badge` + dot na `TabBar`), Accounts &
+     categories (contas + categorias).
+   - **Planning** — Monthly budgets (contagem, só quando há valor > 0).
+   - **Data** — Backup & restore, Daily snapshots.
+   - **About** — Version (`APP_VERSION`, a mesma string do header) e **Sign
+     out** em vermelho (`onLogout`).
+   Tocar numa linha abre um **sub-view** dela (estado local `view`: `'list'`
+   ou o id da linha), com um botão "‹ Settings" (`S.settingsBackBtn`, alvo
+   de toque 44px) + título de seção (`S.sectionTitle`) no topo; o `<main>`
+   rola para o topo a cada troca de view; trocar de tab sempre volta a lista
+   (o remount é forçado por `TabErrorBoundary key={tab}`, já existente).
+   Novo **`BareCardContext`** (React context, ao lado do já existente
+   `CollapsibleCard`) faz o `CollapsibleCard` mais **externo** de cada seção
+   renderizar **sem cabeçalho e sempre aberto** dentro do sub-view — os
+   `CollapsibleCard`s internos (aninhados) não são afetados, o contexto
+   reseta para os filhos. `CollapsibleCard` continua sendo usado com
+   cabeçalho normal em dois lugares fora da Settings: o "Column mapping" do
+   fluxo CSV do Import (item 4 acima) e dentro do `ManagedList`. Mudanças
+   pontuais de conteúdo, além da navegação: o estado vazio de **Suggested
+   rules** virou uma linha só ("Nothing to suggest yet.", em vez do parágrafo
+   explicativo mais longo descrito acima) e o texto de "Manual category
+   corrections" vazio virou "No repeated manual corrections yet."; a seção
+   de backup (`DataBackupSection`) perdeu o título inline redundante "Data &
+   Backup" e `SnapshotsSection` deixou de duplicar o `h3` dentro do
+   sub-view. **Deep links preservados**: `handleUseFragment` (Suggested
+   rules → Grupo A) abre o sub-view "aliases", `handleReviewToken` (Grupo B)
+   abre "ckmap", `handleCreateRule` (Grupo C) abre "rules" — mesmo
+   nonce/prefill de antes, só a navegação para chegar lá mudou. O botão
+   "Set up in Settings" do novo estado vazio do `AccountBalancesCard` (Home,
+   item 1 acima) usa um novo `goToSimplefinSettings` em `App` para abrir
+   direto o sub-view "SimpleFin accounts". Novas props de `App`:
+   `settingsInitialView`/`goToTab` (usado também por `TabBar`) e
+   `goToSimplefinSettings`; `SettingsTab` recebe `settingsBadge`,
+   `onLogout`, `initialView`.
+
 **Toggle do olho** no cabeçalho esconde/mostra todos os valores
 monetários globalmente (persistido em `localStorage`).
 
 **SaveIndicator** no cabeçalho exibe o estado do save: `saving`, `saved HH:MM`,
-`unsaved` ou `error`. O save usa debounce de 800 ms (`scheduleSave`), com
+`unsaved` ou `error`. **Desde a v1.75.0 (PR #272, pendente de merge)**, o
+estado `saved` deixou de mostrar o texto "saved HH:MM" e virou um **ponto
+verde de 7px** (`S.savedDot`, com `title`/`aria-label` "Saved {hora}" para
+acessibilidade) — `saving`/`unsaved`/`error`/offline continuam com texto,
+sem mudança. O save usa debounce de 800 ms (`scheduleSave`), com
 flush via `beforeunload`. Erros de save são rastreados em `saveError`
 separado do `error` geral.
 
@@ -5468,3 +5672,27 @@ riscos reais de perda de dados.
     reaproveita as mesmas cores). Não quebra build/lint, mas é uma entrada
     morta em `S` — remover (ou reaproveitar em algum botão futuro) numa
     próxima rodada de limpeza.
+- [x] **Redesign de front-end das 5 tabs** (v1.75.0, PR #272, draft, branch
+  `claude/app-review-improvements-kfl93d`, pendente de merge — auditoria em
+  andamento) — revisão de design a partir de capturas reais e mockups
+  aprovados pelo usuário, entregue em 3 rodadas, só `src/App.jsx` alterado.
+  Ver "Versão atual" no topo do documento e a seção UI (itens 1–5) para o
+  detalhamento completo por tab. Resumo:
+  - Header: `SaveIndicator` no estado "saved" virou um ponto verde.
+  - Txns (mobile): linha compacta com `CategoryAvatar`, modo de seleção
+    opt-in, painel de filtros colapsável + chips removíveis.
+  - Home: hero sem linha LY quando falta dado do ano anterior e sem
+    centavos; StatCards "All time" removidos.
+  - Trends: popover de período (presets + slider), paleta verde/vermelho
+    para income/expenses, `bucketAxisProps`, `YearInReviewCard` como
+    ranking horizontal.
+  - Import: card de status do SimpleFin + card "Pending review" no lugar
+    do banner âmbar antigo.
+  - Settings: lista agrupada iOS com sub-views (`SettingsRow`,
+    `BareCardContext`).
+  - [ ] Histórico "Recent syncs" no Import (exige persistência nova, não
+    implementado nesta versão).
+  - [ ] Padronizar os toggles Expense/Income/Net **dentro** dos cards da
+    Trends em `S.segmented` (hoje continuam em `S.togglePill`).
+  - [ ] Sidebar desktop acima de 900px, no lugar da tab bar inferior
+    (mencionado na revisão de design, não implementado).
