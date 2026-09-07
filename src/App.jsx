@@ -16,6 +16,7 @@ import {
   Settings,
   Plus,
   ChevronDown,
+  ChevronLeft,
   ChevronRight,
   ChevronUp,
   Check,
@@ -40,6 +41,7 @@ import {
   Coins,
   Tag,
   RefreshCw,
+  SlidersHorizontal,
 } from "lucide-react";
 import {
   ResponsiveContainer,
@@ -707,7 +709,7 @@ function idleExpired() {
 // path, so the pending copy is discarded with a notice instead).
 
 // Single source for the version shown in the header and in diagnostics.
-const APP_VERSION = "v1.74.0";
+const APP_VERSION = "v1.75.0";
 
 const PENDING_SAVE_KEY = "household_pending_save";
 
@@ -816,6 +818,20 @@ export default function App() {
   }, []); // mount only — boot-time purge of an expired session's password
   const [transactions, setTransactions] = useState([]);
   const [tab, setTab] = useState("home");
+  // Which Settings screen the tab opens on. The Settings tab is a grouped
+  // list with sub-views (v1.75.0) whose state lives inside SettingsTab and is
+  // reset by TabErrorBoundary's `key={tab}` remount; this lets Home's
+  // "Set up in Settings" link land straight on the SimpleFin accounts
+  // sub-view, while any normal TabBar tap goes back to the plain list.
+  const [settingsInitialView, setSettingsInitialView] = useState("list");
+  const goToTab = useCallback((next) => {
+    setSettingsInitialView("list");
+    setTab(next);
+  }, []);
+  const goToSimplefinSettings = useCallback(() => {
+    setSettingsInitialView("simplefin");
+    setTab("settings");
+  }, []);
   const [hideValues, setHideValues] = useState(
     () => localStorage.getItem("household_hide") === "1"
   );
@@ -2127,7 +2143,7 @@ export default function App() {
         {loading ? (
           <div style={S.center}>Loading…</div>
         ) : tab === "home" ? (
-          <Dashboard transactions={transactions} money={money} hideValues={hideValues} isWide={isWide} budgets={budgets} config={config} accountMap={accountMap} sfBalances={sfBalances} refreshSfBalances={refreshSfBalances} />
+          <Dashboard transactions={transactions} money={money} hideValues={hideValues} isWide={isWide} budgets={budgets} config={config} accountMap={accountMap} sfBalances={sfBalances} refreshSfBalances={refreshSfBalances} onGoToSettings={goToSimplefinSettings} />
         ) : tab === "transactions" ? (
           <Transactions
             transactions={transactions}
@@ -2196,6 +2212,9 @@ export default function App() {
             onRestoreTransactions={restoreTransactions}
             budgets={budgets}
             onSaveBudgets={saveBudgets}
+            settingsBadge={sfNewAccountsCount}
+            onLogout={logout}
+            initialView={settingsInitialView}
           />
         ) : (
           <Charts transactions={transactions} hideValues={hideValues} config={config} isWide={isWide} />
@@ -2203,7 +2222,7 @@ export default function App() {
         </TabErrorBoundary>
       </main>
 
-      <TabBar tab={tab} setTab={setTab} wide={isWide} settingsBadge={sfNewAccountsCount} />
+      <TabBar tab={tab} setTab={goToTab} wide={isWide} settingsBadge={sfNewAccountsCount} />
     </div>
   );
 }
@@ -2367,13 +2386,10 @@ function SaveIndicator({ saving, dirty, savedAt, saveError }) {
     );
   }
   if (savedAt && !dirty && !saving && !saveError) {
+    // Steady state: a quiet green dot instead of a "✓ saved 08:55 PM" string —
+    // the exact time stays available as the tooltip / accessible label.
     const timeStr = new Date(savedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-    return (
-      <span style={{ fontSize: 10, color: "#34d399", display: "flex", alignItems: "center", gap: 3 }}>
-        <span>✓</span>
-        <span>saved {timeStr}</span>
-      </span>
-    );
+    return <span role="img" title={`Saved ${timeStr}`} aria-label={`Saved ${timeStr}`} style={S.savedDot} />;
   }
   return null;
 }
@@ -2767,15 +2783,12 @@ function SingleCategoryFilter({ value, options, setValue, isWide }) {
 // Dashboard
 // ===========================================================================
 
-function Dashboard({ transactions, money, hideValues, isWide, budgets, config, accountMap, sfBalances, refreshSfBalances }) {
+function Dashboard({ transactions, money, hideValues, isWide, budgets, config, accountMap, sfBalances, refreshSfBalances, onGoToSettings }) {
   // Default the period to the current month.
   const [year, setYear] = useState(() => todayISO().slice(0, 4));
   const [month, setMonth] = useState(() => todayISO().slice(5, 7));
   const [catFilter, setCatFilter] = useState("All");
 
-  const all = useMemo(() => computeTotals(
-    catFilter === "All" ? transactions : transactions.filter((t) => t.category === catFilter)
-  ), [transactions, catFilter]);
   const years = useMemo(() => availableYears(transactions), [transactions]);
   // Bound the native month picker to the range of months with actual data.
   const monthRange = useMemo(() => {
@@ -2847,6 +2860,9 @@ function Dashboard({ transactions, money, hideValues, isWide, budgets, config, a
     const pctExp = (cur, base) => base === 0 ? null : ((-cur - (-base)) / Math.abs(base)) * 100;
     return {
       mm, yy,
+      // No transactions at all in the same period last year → the whole "LY"
+      // row is noise ($0 / —) and gets dropped from the hero (v1.75.0).
+      hasYY: yy.income !== 0 || yy.expenses !== 0,
       mmPctExp: pctExp(period.expenses, mm.expenses),
       yyPctExp: pctExp(period.expenses, yy.expenses),
       mmPctInc: pct(period.income, mm.income),
@@ -2855,6 +2871,17 @@ function Dashboard({ transactions, money, hideValues, isWide, budgets, config, a
       yyPctNet: pct(period.net, yy.net),
     };
   }, [transactions, year, month, period, catFilter, cutoffDay]);
+
+  // "day 7 of 30" note in the hero's top-right corner — only meaningful while
+  // the selected month is still running (the current one); a past month is
+  // complete, so the progress marker would be noise.
+  const monthProgress = useMemo(() => {
+    const today = todayISO();
+    if (year === "All" || month === "All") return null;
+    if (year !== today.slice(0, 4) || month !== today.slice(5, 7)) return null;
+    const daysInMonth = new Date(Number(year), Number(month), 0).getDate();
+    return `day ${Number(today.slice(8, 10))} of ${daysInMonth}`;
+  }, [year, month]);
 
   // Expenses by category for the selected period (up to cutoff day).
   const catExpenses = useMemo(() => {
@@ -2993,23 +3020,18 @@ function Dashboard({ transactions, money, hideValues, isWide, budgets, config, a
         previous: d <= daysInPrev ? prevRunning : null,
       });
     }
+    // Month name only ("Sep") — the "/26" suffix repeated on both legend
+    // entries was noise, since the two series are always adjacent months.
     const monthLabel = (key) => {
       const [y, m] = key.split("-").map(Number);
-      return new Date(y, m - 1, 1).toLocaleString("default", { month: "short" }) + "/" + String(y).slice(2);
+      return new Date(y, m - 1, 1).toLocaleString("default", { month: "short" });
     };
-    // End-of-month projection: extrapolate the current cumulative total by
-    // average daily pace so far. Only meaningful when viewing the current
-    // (partial) month — a past month is already complete.
     const isCurrentMonth = curMonthKey === todayMonth;
-    const projectedTotal =
-      isCurrentMonth && todayDay > 0 ? (curRunning / todayDay) * daysInCur : null;
     return {
       data,
       curLabel: monthLabel(curMonthKey),
       prevLabel: monthLabel(prevMonthKey),
       todayDay: isCurrentMonth ? todayDay : null,
-      projectedTotal,
-      prevTotal: prevRunning,
     };
   }, [transactions, year, month, catFilter, paceView]);
 
@@ -3044,16 +3066,21 @@ function Dashboard({ transactions, money, hideValues, isWide, budgets, config, a
           background: period.net >= 0 ? "rgba(52,211,153,0.13)" : "rgba(248,113,113,0.13)",
           borderRadius: "50%", filter: "blur(28px)", pointerEvents: "none",
         }} />
-        <div style={{ fontSize: 10, color: "#8b94a3", fontWeight: 600, letterSpacing: 0.8, textTransform: "uppercase", marginBottom: 6 }}>
-          {label}
+        <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 8, marginBottom: 6 }}>
+          <div style={{ fontSize: 10, color: "#8b94a3", fontWeight: 600, letterSpacing: 0.8, textTransform: "uppercase" }}>
+            {label}
+          </div>
+          {monthProgress && (
+            <div style={{ fontSize: 11, color: "#636366", whiteSpace: "nowrap" }}>{monthProgress}</div>
+          )}
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 20, marginBottom: 20 }}>
           <div style={{ fontSize: 40, fontWeight: 700, letterSpacing: -1.5, color: periodNetColor, lineHeight: 1.1 }}>
-            {money(period.net)}
+            {moneyShort(period.net)}
           </div>
           {heroComparisons && (
             <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-              {[["LM", heroComparisons.mm.net, heroComparisons.mmPctNet], ["LY", heroComparisons.yy.net, heroComparisons.yyPctNet]].map(([tag, refVal, p]) => {
+              {[["LM", heroComparisons.mm.net, heroComparisons.mmPctNet], ...(heroComparisons.hasYY ? [["LY", heroComparisons.yy.net, heroComparisons.yyPctNet]] : [])].map(([tag, refVal, p]) => {
                 const fmtPct = (v) => v == null ? null : `${v > 0 ? "+" : ""}${v.toFixed(0)}%`;
                 const pctColor = (v) => v == null ? "#6b7280" : v > 0 ? "#34d399" : "#f87171";
                 return (
@@ -3080,10 +3107,10 @@ function Dashboard({ transactions, money, hideValues, isWide, budgets, config, a
                 {i === 1 && <div style={{ width: 1, background: "rgba(255,255,255,0.06)", margin: "0 16px" }} />}
                 <div style={{ flex: 1 }}>
                   <div style={{ fontSize: 10, color: "#8b94a3", fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.5 }}>{lbl}</div>
-                  <div style={{ fontSize: 16, fontWeight: 700, color, marginTop: 3 }}>{money(val)}</div>
+                  <div style={{ fontSize: 16, fontWeight: 700, color, marginTop: 3 }}>{moneyShort(val)}</div>
                   {heroComparisons && (
                     <div style={{ marginTop: 6, display: "flex", flexDirection: "column", gap: 2 }}>
-                      {[["LM", mmVal, mmPct], ["LY", yyVal, yyPct]].map(([tag, refVal, p]) => (
+                      {[["LM", mmVal, mmPct], ...(heroComparisons.hasYY ? [["LY", yyVal, yyPct]] : [])].map(([tag, refVal, p]) => (
                         <div key={tag} style={{ display: "flex", alignItems: "center", gap: 4 }}>
                           <span style={{ fontSize: 9, color: "#6b7280", fontWeight: 600, minWidth: 14 }}>{tag}</span>
                           <span style={{ fontSize: 10, color: "#6b7280" }}>{hideValues ? "•••••" : usd0.format(refVal || 0)}</span>
@@ -3105,12 +3132,12 @@ function Dashboard({ transactions, money, hideValues, isWide, budgets, config, a
       {year !== "All" && month !== "All" && (
         <>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-            <h3 style={S.sectionTitle}>{label} — by Category</h3>
-            <div style={{ display: "flex", gap: 4 }}>
-              <button onClick={() => setCatView("list")} style={S.togglePill(catView === "list")}>
+            <h3 style={S.sectionTitle}>By Category</h3>
+            <div style={S.segmented}>
+              <button onClick={() => setCatView("list")} style={S.segmentedBtn(catView === "list")}>
                 List
               </button>
-              <button onClick={() => setCatView("map")} style={S.togglePill(catView === "map")}>
+              <button onClick={() => setCatView("map")} style={S.segmentedBtn(catView === "map")}>
                 Map
               </button>
             </div>
@@ -3122,7 +3149,6 @@ function Dashboard({ transactions, money, hideValues, isWide, budgets, config, a
           ) : (
             <div style={{ ...S.card, padding: "8px 0" }}>
               {catExpenses.map(([cat, total], idx) => {
-                const dotColor = getCategoryColor(cat);
                 const changes = catChanges[cat] || { mm: null, yy: null };
                 return (
                   <div key={cat} style={{
@@ -3133,33 +3159,32 @@ function Dashboard({ transactions, money, hideValues, isWide, budgets, config, a
                     borderBottom: idx < catExpenses.length - 1 ? "1px solid #1a1f26" : "none",
                   }}>
                     {/* Category avatar */}
-                    <div style={{
-                      width: 34, height: 34, borderRadius: 10, flexShrink: 0,
-                      background: `linear-gradient(135deg, rgba(255,255,255,0.25), rgba(255,255,255,0) 60%), linear-gradient(135deg, ${dotColor} 0%, ${dotColor}99 100%)`,
-                      display: "grid", placeItems: "center",
-                      boxShadow: `0 2px 8px ${dotColor}59, inset 0 1px 1px rgba(255,255,255,0.3)`,
-                    }}>
-                      {React.createElement(catIcon(cat), { size: 16, color: "#fff" })}
-                    </div>
-                    {/* Name + badges */}
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontSize: 14, color: "#e5e7eb", fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    <CategoryAvatar cat={cat} size={34} />
+                    {/* Name + variation pills, on one line (v1.75.0) */}
+                    <div style={{ flex: 1, minWidth: 0, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                      <span style={{ fontSize: 15, color: "#e5e7eb", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                         {cat}
-                      </div>
-                      <div style={{ display: "flex", gap: 5, marginTop: 4, flexWrap: "wrap" }}>
-                        <ChangeBadge label="M/M" pct={changes.mm} hideValues={hideValues} />
-                        <ChangeBadge label="Y/Y" pct={changes.yy} hideValues={hideValues} />
-                        <AnomalyBadge total={total} avg12m={changes.avg12m} hideValues={hideValues} />
-                      </div>
+                      </span>
+                      {/* M/M is the default comparison, so its pill carries no
+                          label; the Y/Y pill only shows up when there IS data
+                          for the same period a year back, and is labelled so
+                          the two can't be confused. With neither comparison
+                          available the row shows no pill at all instead of a
+                          bare "—". */}
+                      {changes.mm != null && (
+                        <ChangeBadge label={changes.yy == null ? "" : "M/M"} pct={changes.mm} hideValues={hideValues} />
+                      )}
+                      {changes.yy != null && <ChangeBadge label="Y/Y" pct={changes.yy} hideValues={hideValues} />}
+                      <AnomalyBadge total={total} avg12m={changes.avg12m} hideValues={hideValues} />
                     </div>
                     {/* Amount + reference totals */}
                     <div style={{ textAlign: "right", whiteSpace: "nowrap" }}>
-                      <div style={{ fontWeight: 700, fontSize: 14, color: total < 0 ? "#f87171" : "#34d399" }}>
+                      <div style={{ fontWeight: 700, fontSize: 15, color: total < 0 ? "#f87171" : "#34d399" }}>
                         {moneyShort(total)}
                       </div>
                       {changes.avg12m != null && (
-                        <div style={{ fontSize: 10, color: "#6b7280", marginTop: 2, textAlign: "right" }}>
-                          avg 12m {moneyShort(changes.avg12m)}
+                        <div style={{ fontSize: 11, color: "#636366", marginTop: 2, textAlign: "right" }}>
+                          avg {moneyShort(Math.abs(changes.avg12m))}
                         </div>
                       )}
                     </div>
@@ -3171,7 +3196,7 @@ function Dashboard({ transactions, money, hideValues, isWide, budgets, config, a
         </>
       )}
 
-      <AccountBalancesCard money={money} hideValues={hideValues} accountTypeOverrides={config?.accountTypeOverrides} accountMap={accountMap} sfBalances={sfBalances} refreshSfBalances={refreshSfBalances} />
+      <AccountBalancesCard money={money} hideValues={hideValues} accountTypeOverrides={config?.accountTypeOverrides} accountMap={accountMap} sfBalances={sfBalances} refreshSfBalances={refreshSfBalances} onGoToSettings={onGoToSettings} />
 
       {/* Budgets — bullet bars for the selected month (set in Settings) */}
       {year !== "All" && month !== "All" && (
@@ -3185,14 +3210,6 @@ function Dashboard({ transactions, money, hideValues, isWide, budgets, config, a
           hideValues={hideValues}
         />
       )}
-
-      {/* All Time chips — moved to end of page */}
-      <h3 style={S.sectionTitle}>All Time</h3>
-      <div style={S.cardRow}>
-        <StatCard label="Income" value={moneyShort(all.income)} accent="#34d399" small />
-        <StatCard label="Expenses" value={moneyShort(all.expenses)} accent="#f87171" small />
-        <StatCard label="Net" value={moneyShort(all.net)} accent={all.net >= 0 ? "#34d399" : "#f87171"} small />
-      </div>
     </div>
   );
 }
@@ -3206,7 +3223,7 @@ function Dashboard({ transactions, money, hideValues, isWide, budgets, config, a
 // re-hitting GET /api/simplefin-sync every time the user came back to Home.
 // The manual refresh button bypasses the 5-min sessionStorage cache
 // (loadSfBalances/readSfBalancesCache above) with `{ force: true }`.
-function AccountBalancesCard({ money, hideValues, accountTypeOverrides, accountMap, sfBalances, refreshSfBalances }) {
+function AccountBalancesCard({ money, hideValues, accountTypeOverrides, accountMap, sfBalances, refreshSfBalances, onGoToSettings }) {
   const state = sfBalances;
   const [view, setView] = useState("credit"); // "credit" | "accounts"
   const [refreshing, setRefreshing] = useState(false);
@@ -3330,6 +3347,33 @@ function AccountBalancesCard({ money, hideValues, accountTypeOverrides, accountM
     );
   };
 
+  // Nothing linked yet: a refresh button and a Credit Cards / Accounts
+  // switch over an empty list are dead controls — show the setup pointer
+  // only (v1.75.0). Still gated on a settled fetch so the card doesn't
+  // flash "not set up" while the first request is in flight.
+  const notLinked =
+    (state.status === "ready" && state.accountBalances.length === 0) ||
+    (state.status === "error" && state.notConfigured);
+
+  if (notLinked) {
+    return (
+      <div style={S.col}>
+        <h3 style={{ ...S.sectionTitle, marginBottom: 0 }}>Account Balances</h3>
+        <div style={{ ...S.card, padding: "18px 16px", textAlign: "center" }}>
+          <div style={{ fontSize: 14, color: "#8b94a3" }}>No SimpleFin accounts yet.</div>
+          {onGoToSettings && (
+            <button
+              onClick={onGoToSettings}
+              style={{ ...S.linkBtn, fontSize: 13, marginTop: 8, minHeight: 44, padding: "0 8px" }}
+            >
+              Set up in Settings
+            </button>
+          )}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div style={S.col}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
@@ -3386,17 +3430,6 @@ function AccountBalancesCard({ money, hideValues, accountTypeOverrides, accountM
           )}
         </div>
       )}
-    </div>
-  );
-}
-
-function StatCard({ label, value, accent, small }) {
-  return (
-    <div style={{ ...S.card, flex: 1, minWidth: 0, padding: 12, borderLeft: `3px solid ${accent || "#0A84FF"}`, paddingLeft: 12 }}>
-      <div style={{ color: "#8b94a3", fontSize: 10, fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.4 }}>{label}</div>
-      <div style={{ color: accent || "#e5e7eb", fontWeight: 700, fontSize: small ? 16 : 26, marginTop: 3, letterSpacing: -0.5, whiteSpace: "nowrap" }}>
-        {value}
-      </div>
     </div>
   );
 }
@@ -3736,6 +3769,8 @@ function AnomalyBadge({ total, avg12m, hideValues }) {
 // Inline badge showing M/M or Y/Y percentage change for an expense category.
 // For expenses: a rise in spending is bad (red), a drop is good (green).
 // pct = null means no comparison data; pct = 0 is a real 0 % change.
+// An empty `label` renders the bare percentage (Home "By category", where
+// M/M is the implicit default comparison).
 function ChangeBadge({ label, pct, hideValues }) {
   if (hideValues) return null;
   const noData = pct === null || pct === undefined;
@@ -3753,7 +3788,8 @@ function ChangeBadge({ label, pct, hideValues }) {
     : pct < 0
     ? "rgba(52,211,153,0.1)"
     : "rgba(139,148,163,0.1)";
-  const text = noData ? `${label} —` : `${label} ${pct > 0 ? "+" : ""}${Math.round(pct)}%`;
+  const prefix = label ? `${label} ` : "";
+  const text = noData ? `${prefix}—` : `${prefix}${pct > 0 ? "+" : ""}${Math.round(pct)}%`;
   return (
     <span style={{
       display: "inline-flex",
@@ -3776,13 +3812,14 @@ function ChangeBadge({ label, pct, hideValues }) {
 // MonthlyBarCard — Income or Expense bars per bucket, with toggle
 // ===========================================================================
 
-function MonthlyBarCard({ byBucket, hideValues, fmtK, fmtKTooltip, fmtBucketLabel, granularity }) {
+function MonthlyBarCard({ byBucket, hideValues, fmtK, fmtKTooltip, fmtBucketLabel, granularity, isWide }) {
   const [view, setView] = useState("expense");
 
   const isInc = view === "income";
   const isNet = view === "net";
   const dataKey = isNet ? "net" : isInc ? "income" : "expenses";
-  const barColor = isNet ? "#34d399" : isInc ? "#06B6D4" : "#F97316";
+  // Semantic palette (v1.75.0): income green, expenses red, net blue.
+  const barColor = isNet ? "#0A84FF" : isInc ? "#34d399" : "#f87171";
   const cardTitle = isNet ? "Net" : isInc ? "Income" : "Expense";
   const axisFmt = isNet ? (fmtKTooltip || fmtK) : fmtK;
 
@@ -3856,7 +3893,7 @@ function MonthlyBarCard({ byBucket, hideValues, fmtK, fmtKTooltip, fmtBucketLabe
           <ResponsiveContainer width="100%" height="100%">
             <ComposedChart data={chartData} margin={{ top: 24, right: 16, left: 0, bottom: 0 }}>
               <CartesianGrid vertical={false} stroke="rgba(255,255,255,0.05)" />
-              <XAxis dataKey="bucket" tick={{ fill: "#6b7280", fontSize: 10 }} tickLine={false} axisLine={false} tickFormatter={fmtBucketLabel} />
+              <XAxis dataKey="bucket" tick={{ fill: "#6b7280", fontSize: 10 }} tickLine={false} axisLine={false} {...bucketAxisProps(chartData.map((r) => r.bucket), granularity, !isWide)} />
               <YAxis tick={{ fill: "#6b7280", fontSize: 10 }} tickLine={false} axisLine={false} tickFormatter={axisFmt} width={56} />
               {!hideValues && (
                 <Tooltip
@@ -3865,7 +3902,7 @@ function MonthlyBarCard({ byBucket, hideValues, fmtK, fmtKTooltip, fmtBucketLabe
                   content={<ChartTooltip fmtValue={fmtKTooltip || fmtK} formatLabel={fmtBucketLabel} />}
                 />
               )}
-              <Bar dataKey={dataKey} name={isNet ? "Net" : isInc ? "Income" : "Expenses"} fill={barColor} radius={[4, 4, 0, 0]} activeBar={{ fill: barColor, opacity: 0.75 }}>
+              <Bar dataKey={dataKey} name={isNet ? "Net" : isInc ? "Income" : "Expenses"} fill={barColor} radius={[4, 4, 0, 0]} activeBar={isNet ? { opacity: 0.75 } : { fill: barColor, opacity: 0.75 }}>
                 {isNet &&
                   chartData.map((row, i) => (
                     <Cell key={`net-cell-${i}`} fill={row.net >= 0 ? "#34d399" : "#f87171"} />
@@ -3920,6 +3957,35 @@ function MonthlyBarCard({ byBucket, hideValues, fmtK, fmtKTooltip, fmtBucketLabe
 // ---------------------------------------------------------------------------
 
 // bucketKey / bucketLabel now live in src/ledger.js (imported above).
+
+// X-axis tick config for the bucketed Trends charts. On a phone, a monthly
+// axis printed as "Feb/26Mar/26Apr/26…" collides into a gray smear, so on
+// narrow viewports we (a) thin the ticks out to at most ~6 and (b) drop the
+// repeated "/YY" suffix, printing the year once — on the last visible tick
+// of each year, which doubles as the boundary marker between years.
+// Returns props to spread onto <XAxis>; wide viewports keep the full labels.
+function bucketAxisProps(buckets, granularity, narrow) {
+  if (!narrow || granularity === "Y" || buckets.length === 0) {
+    return { interval: "preserveStartEnd", tickFormatter: bucketLabel };
+  }
+  const step = Math.max(1, Math.ceil(buckets.length / 6));
+  const yearMark = new Map(); // year → index of its last visible tick
+  const idxOf = new Map();
+  buckets.forEach((bk, i) => {
+    idxOf.set(bk, i);
+    if (i % step !== 0) return;
+    yearMark.set(String(bk).slice(0, 4), i);
+  });
+  return {
+    interval: step - 1,
+    tickFormatter: (bk) => {
+      const year = String(bk).slice(0, 4);
+      const label = String(bucketLabel(bk)).split("/")[0];
+      if (yearMark.get(year) === idxOf.get(bk)) return `${label} '${year.slice(2)}`;
+      return label;
+    },
+  };
+}
 
 // ===========================================================================
 // ChartTooltip — shared tooltip for every Trends chart: sorts series highest
@@ -3991,32 +4057,34 @@ function DailyPaceCard({ paceData, hideValues, fmtK, paceView, setPaceView }) {
   }, []);
 
   if (!paceData || paceData.data.length === 0) return null;
-  const { data, curLabel, prevLabel, todayDay, projectedTotal, prevTotal } = paceData;
+  const { data, curLabel, prevLabel, todayDay } = paceData;
   const isInc = paceView === "income";
   const curColor = isInc ? "#06B6D4" : "#F97316";
-  // Projection vs last month: for expenses, tracking higher is bad (red);
-  // for income, higher is good (green).
-  const projColor =
-    projectedTotal == null || !prevTotal
-      ? "#8b94a3"
-      : (projectedTotal > prevTotal) === isInc
-      ? "#34d399"
-      : "#f87171";
+  // Cumulative total at the "Today" marker — replaces the old end-of-month
+  // projection line, which took a full row for a guess (v1.75.0).
+  const todayTotal =
+    todayDay == null ? null : data.find((d) => d.day === todayDay)?.current ?? null;
+  const todayLabel =
+    todayTotal != null && !hideValues ? `Today · ${fmtK(todayTotal)}` : "Today";
+  // Keep the (now wider) label inside the plot area: it sits to the right of
+  // the marker for most of the month, and flips to its left near month end.
+  const todayLabelPos =
+    todayDay != null && todayDay / data.length > 0.6 ? "insideTopRight" : "insideTopLeft";
 
   return (
     <>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
         <h3 style={S.sectionTitle}>Daily Spending Pace</h3>
-        <div style={{ display: "flex", gap: 4 }}>
+        <div style={S.segmented}>
           <button
             onClick={() => setPaceView("expense")}
-            style={S.togglePill(paceView === "expense")}
+            style={S.segmentedBtn(paceView === "expense")}
           >
             Expense
           </button>
           <button
             onClick={() => setPaceView("income")}
-            style={S.togglePill(paceView === "income")}
+            style={S.segmentedBtn(paceView === "income")}
           >
             Income
           </button>
@@ -4034,13 +4102,6 @@ function DailyPaceCard({ paceData, hideValues, fmtK, paceView, setPaceView }) {
             {prevLabel}
           </span>
         </div>
-        {projectedTotal != null && !hideValues && (
-          <div style={{ textAlign: "center", fontSize: 11, color: "#8b94a3", paddingTop: 6 }}>
-            Projected {curLabel}:{" "}
-            <span style={{ fontWeight: 700, color: projColor }}>{fmtK(projectedTotal)}</span>
-            {prevTotal > 0 && <> · {prevLabel}: {fmtK(prevTotal)}</>}
-          </div>
-        )}
         <div style={{ height: 220 }}>
           {ready && (
           <ResponsiveContainer width="100%" height="100%">
@@ -4085,7 +4146,7 @@ function DailyPaceCard({ paceData, hideValues, fmtK, paceView, setPaceView }) {
                   x={todayDay}
                   stroke="rgba(255,255,255,0.18)"
                   strokeDasharray="3 3"
-                  label={{ value: "Today", fill: "#6b7280", fontSize: 9, position: "insideTopRight" }}
+                  label={{ value: todayLabel, fill: "#8b94a3", fontSize: 10, position: todayLabelPos }}
                 />
               )}
               <Area
@@ -4122,7 +4183,7 @@ function DailyPaceCard({ paceData, hideValues, fmtK, paceView, setPaceView }) {
 // CategoryStackedBarCard — stacked bar chart of expenses by category
 // ===========================================================================
 
-function CategoryStackedBarCard({ scoped, granularity, hideValues, fmtK, fmtKFull }) {
+function CategoryStackedBarCard({ scoped, granularity, hideValues, fmtK, fmtKFull, isWide }) {
   const [mode, setMode] = useState("expense");
 
   const { rows, cats } = useMemo(() => {
@@ -4197,10 +4258,10 @@ function CategoryStackedBarCard({ scoped, granularity, hideValues, fmtK, fmtKFul
             <CartesianGrid vertical={false} stroke="rgba(255,255,255,0.05)" />
             <XAxis
               dataKey="bucket"
-              tickFormatter={bk => bucketLabel(bk)}
               tick={{ fill: "#6b7280", fontSize: 10 }}
               tickLine={false}
               axisLine={false}
+              {...bucketAxisProps(rows.map((r) => r.bucket), granularity, !isWide)}
             />
             <YAxis
               tickFormatter={hideValues ? () => "" : fmtK}
@@ -4271,7 +4332,7 @@ function CategoryStackedBarCard({ scoped, granularity, hideValues, fmtK, fmtKFul
 // of the bucket (highest to lowest), not raw dollar amounts.
 // ===========================================================================
 
-function CompositionEvolutionCard({ scoped, granularity, hideValues }) {
+function CompositionEvolutionCard({ scoped, granularity, hideValues, isWide }) {
   const [mode, setMode] = useState("expense");
 
   const { rows, cats } = useMemo(() => {
@@ -4341,10 +4402,10 @@ function CompositionEvolutionCard({ scoped, granularity, hideValues }) {
             <CartesianGrid vertical={false} stroke="rgba(255,255,255,0.05)" />
             <XAxis
               dataKey="bucket"
-              tickFormatter={(bk) => bucketLabel(bk)}
               tick={{ fill: "#6b7280", fontSize: 10 }}
               tickLine={false}
               axisLine={false}
+              {...bucketAxisProps(rows.map((r) => r.bucket), granularity, !isWide)}
             />
             <YAxis
               tickFormatter={(v) => (hideValues ? "" : `${Math.round(v * 100)}%`)}
@@ -4706,6 +4767,12 @@ function Charts({ transactions, hideValues, config, isWide }) {
 
   const [granularity, setGranularity] = useState("M");
 
+  // Year-range picker: a single chip in the controls bar opens a popover with
+  // the presets + the drag slider (v1.75.0), instead of spending a whole row
+  // on an always-visible segmented control and track.
+  const [rangeOpen, setRangeOpen] = useState(false);
+  const rangeAnchorRef = useRef(null);
+
   // Category filter: multi-select across expense + income categories (Transfer
   // is never a selectable option — it's always excluded from charts). Empty
   // array = no filter applied (all categories), matching prior behavior.
@@ -4746,7 +4813,7 @@ function Charts({ transactions, hideValues, config, isWide }) {
 
   const rangePresets = [
     { v: "all", l: "All", from: oldestYear, to: newestYear },
-    { v: "l3y", l: "L3Y", from: l3yFrom, to: currentYear },
+    { v: "l3y", l: "Last 3 years", from: l3yFrom, to: currentYear },
     { v: "ytd", l: "YTD", from: currentYear, to: currentYear },
   ];
   const activePreset = rangePresets.find((p) => p.from === fromYearEff && p.to === toYearEff)?.v;
@@ -4839,22 +4906,12 @@ function Charts({ transactions, hideValues, config, isWide }) {
   );
 
   const granularitySwitch = (
-    <div style={{ display: "flex", gap: 2, background: "#0f1216", border: "1px solid #232a33", borderRadius: 10, padding: 3 }}>
+    <div style={S.segmented}>
       {GRANULARITIES.map(({ v, l }) => (
         <button
           key={v}
           onClick={() => setGranularity(v)}
-          style={{
-            background: granularity === v ? "#0A84FF" : "transparent",
-            border: "none",
-            color: granularity === v ? "#fff" : "#8b94a3",
-            borderRadius: 7,
-            padding: "3px 10px",
-            fontSize: 12,
-            fontWeight: granularity === v ? 700 : 400,
-            cursor: "pointer",
-            transition: "background 0.15s, color 0.15s",
-          }}
+          style={{ ...S.segmentedBtn(granularity === v), padding: "5px 9px" }}
         >
           {l}
         </button>
@@ -4862,40 +4919,60 @@ function Charts({ transactions, hideValues, config, isWide }) {
     </div>
   );
 
-  const rangePresetsSwitch = (
-    <div style={S.segmented}>
-      {rangePresets.map(({ v, l, from, to }) => (
-        <button
-          key={v}
-          onClick={() => applyYearRange(from, to)}
-          style={S.segmentedBtn(activePreset === v)}
-        >
-          {l}
-        </button>
-      ))}
-    </div>
-  );
+  // Chip label mirrors the active choice: a preset name when the range still
+  // matches one, otherwise the literal span the slider was dragged to.
+  const periodChipLabel =
+    activePreset === "all"
+      ? "All years"
+      : activePreset === "l3y"
+      ? "Last 3 years"
+      : activePreset === "ytd"
+      ? "YTD"
+      : fromYearEff && toYearEff && fromYearEff !== toYearEff
+      ? `${fromYearEff}–${toYearEff}`
+      : fromYearEff || toYearEff || "All years";
 
-  const yearRangeSlider = (
-    <YearRangeSlider
-      years={yearOptsAsc}
-      fromYear={fromYearEff}
-      toYear={toYearEff}
-      onFromYear={handleFromYear}
-      onToYear={handleToYear}
-      trackStyle={isWide ? { margin: "18px 0 8px", flexGrow: 0, flex: "0 1 260px" } : undefined}
-    />
+  const periodChip = (
+    <div ref={rangeAnchorRef} style={{ position: "relative" }}>
+      <button
+        onClick={() => setRangeOpen((o) => !o)}
+        style={{ ...S.chipBtn(true), padding: "7px 11px" }}
+        title="Filter by year range"
+      >
+        <span>{periodChipLabel}</span>
+        <span style={{ fontSize: 9, opacity: 0.7 }}>▼</span>
+      </button>
+      <Popover open={rangeOpen} setOpen={setRangeOpen} anchorRef={rangeAnchorRef} style={{ minWidth: 264, padding: 12 }}>
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+          {rangePresets.map(({ v, l, from, to }) => (
+            <button
+              key={v}
+              onClick={() => applyYearRange(from, to)}
+              style={{ ...S.chipBtn(activePreset === v), padding: "6px 12px", fontSize: 12 }}
+            >
+              {l}
+            </button>
+          ))}
+        </div>
+        <YearRangeSlider
+          years={yearOptsAsc}
+          fromYear={fromYearEff}
+          toYear={toYearEff}
+          onFromYear={handleFromYear}
+          onToYear={handleToYear}
+          trackStyle={{ margin: "26px 0 8px", maxWidth: "none", flex: "none" }}
+        />
+      </Popover>
+    </div>
   );
 
   return (
     <div style={S.col}>
-      {/* Trends controls: category filter, range presets, year-range slider,
-          and the M/Q/H/Y granularity switch. Sticky to the top of <main> so
+      {/* Trends controls, one row on every width (v1.75.0): category chip,
+          year-range chip (presets + slider live in its popover) and the
+          compact M/Q/H/Y granularity switch. Sticky to the top of <main> so
           the filters stay reachable while scrolling through the cards below
-          (same sticky-against-the-scroll-parent pattern as importActionsBar).
-          Desktop packs everything into a single row to save vertical space;
-          mobile splits it into two rows (category + granularity on top,
-          presets + slider below) since it's too tight for one line there. */}
+          (same sticky-against-the-scroll-parent pattern as importActionsBar). */}
       <div
         style={{
           position: "sticky",
@@ -4914,34 +4991,20 @@ function Charts({ transactions, hideValues, config, isWide }) {
           paddingRight: 16,
           paddingTop: 16,
           paddingBottom: 12,
-          background: "rgba(11,13,16,0.92)",
+          background: "rgba(11,13,16,0.96)",
           backdropFilter: "blur(20px) saturate(180%)",
           WebkitBackdropFilter: "blur(20px) saturate(180%)",
           borderBottom: "1px solid rgba(255,255,255,0.08)",
           display: "flex",
-          flexDirection: "column",
-          gap: 10,
+          alignItems: "center",
+          gap: 8,
+          flexWrap: "wrap",
+          rowGap: 8,
         }}
       >
-        {isWide ? (
-          <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-            {categoryChip}
-            {rangePresetsSwitch}
-            {yearRangeSlider}
-            <div style={{ marginLeft: "auto" }}>{granularitySwitch}</div>
-          </div>
-        ) : (
-          <>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
-              {categoryChip}
-              {granularitySwitch}
-            </div>
-            <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-              {rangePresetsSwitch}
-              {yearRangeSlider}
-            </div>
-          </>
-        )}
+        {categoryChip}
+        {periodChip}
+        <div style={{ marginLeft: "auto", flexShrink: 0 }}>{granularitySwitch}</div>
       </div>
 
       {scoped.length === 0 ? <Empty>No data for {rangeLabel}.</Empty> : null}
@@ -4951,11 +5014,11 @@ function Charts({ transactions, hideValues, config, isWide }) {
           <h3 style={{ ...S.sectionTitle, margin: 0 }}>Income vs Expenses</h3>
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
             <span style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 10, color: "#6b7280" }}>
-              <span style={{ display: "inline-block", width: 10, height: 10, borderRadius: 2, background: "#06B6D4" }} />
+              <span style={{ display: "inline-block", width: 10, height: 10, borderRadius: 2, background: "#34d399" }} />
               Income
             </span>
             <span style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 10, color: "#6b7280" }}>
-              <span style={{ display: "inline-block", width: 10, height: 10, borderRadius: 2, background: "#F97316" }} />
+              <span style={{ display: "inline-block", width: 10, height: 10, borderRadius: 2, background: "#f87171" }} />
               Expenses
             </span>
           </div>
@@ -4967,7 +5030,7 @@ function Charts({ transactions, hideValues, config, isWide }) {
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={byBucket} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
                 <CartesianGrid vertical={false} stroke="rgba(255,255,255,0.05)" />
-                <XAxis dataKey="bucket" tick={{ fill: "#6b7280", fontSize: 10 }} tickLine={false} axisLine={false} tickFormatter={bucketLabel} />
+                <XAxis dataKey="bucket" tick={{ fill: "#6b7280", fontSize: 10 }} tickLine={false} axisLine={false} {...bucketAxisProps(byBucket.map((r) => r.bucket), granularity, !isWide)} />
                 <YAxis tick={{ fill: "#6b7280", fontSize: 10 }} tickLine={false} axisLine={false} tickFormatter={fmtK} width={56} />
                 {!hideValues && (
                   <Tooltip
@@ -4976,8 +5039,8 @@ function Charts({ transactions, hideValues, config, isWide }) {
                     content={<ChartTooltip fmtValue={fmtKFull} formatLabel={(v) => bucketLabel(v)} />}
                   />
                 )}
-                <Bar dataKey="income" name="Income" fill="#06B6D4" radius={[4, 4, 0, 0]} activeBar={{ fill: "#06B6D4", opacity: 0.75 }} />
-                <Bar dataKey="expenses" name="Expenses" fill="#F97316" radius={[4, 4, 0, 0]} activeBar={{ fill: "#F97316", opacity: 0.75 }} />
+                <Bar dataKey="income" name="Income" fill="#34d399" radius={[4, 4, 0, 0]} activeBar={{ fill: "#34d399", opacity: 0.75 }} />
+                <Bar dataKey="expenses" name="Expenses" fill="#f87171" radius={[4, 4, 0, 0]} activeBar={{ fill: "#f87171", opacity: 0.75 }} />
               </BarChart>
             </ResponsiveContainer>
           )}
@@ -4991,6 +5054,7 @@ function Charts({ transactions, hideValues, config, isWide }) {
         fmtKTooltip={fmtKFull}
         fmtBucketLabel={bucketLabel}
         granularity={granularity}
+        isWide={isWide}
       />
 
       <CategoryStackedBarCard
@@ -4999,6 +5063,7 @@ function Charts({ transactions, hideValues, config, isWide }) {
         hideValues={hideValues}
         fmtK={fmtK}
         fmtKFull={fmtKFull}
+        isWide={isWide}
       />
 
       <MonthlyAvgByCategoryCard
@@ -5012,6 +5077,7 @@ function Charts({ transactions, hideValues, config, isWide }) {
         scoped={scoped}
         granularity={granularity}
         hideValues={hideValues}
+        isWide={isWide}
       />
 
       <YearInReviewCard
@@ -5029,18 +5095,25 @@ function Charts({ transactions, hideValues, config, isWide }) {
 // ===========================================================================
 // YearInReviewCard — annual summary: KPIs vs previous year (YTD-aligned when
 // the selected year is the current one — see cutoffMD below) + a per-category
-// breakdown bar chart with an Expense/Income toggle. Ignores the masthead
+// horizontal ranking with an Expense/Income toggle. Ignores the masthead
 // year-range/granularity scope on purpose — it has its own year selector
 // (default: latest year with data).
 // ===========================================================================
 
+// How many category rows the ranking shows before "Show N more".
+const YIR_TOP_N = 10;
+
 function YearInReviewCard({ transactions, years, hideValues, fmtKFull }) {
   const [yr, setYr] = useState(() => years[0] || "");
   const [view, setView] = useState("expense");
+  const [expanded, setExpanded] = useState(false);
   // Keep the selection valid when data changes (e.g. first import).
   useEffect(() => {
     if (!years.includes(yr)) setYr(years[0] || "");
   }, [years, yr]);
+  // A long expanded list shouldn't stay expanded when the ranking underneath
+  // it changes to a different year / side of the ledger.
+  useEffect(() => { setExpanded(false); }, [yr, view]);
 
   const review = useMemo(() => {
     if (!yr) return null;
@@ -5065,21 +5138,20 @@ function YearInReviewCard({ transactions, years, hideValues, fmtKFull }) {
 
     // Per-category totals for the selected year, split by income/expense so
     // the toggle can show either side without mixing scales. Sorted by
-    // magnitude descending; tail beyond 9 grouped as "Other".
+    // magnitude descending — the full list; the ranking below shows the top
+    // 10 and folds the rest behind "Show N more" (v1.75.0, replacing the old
+    // "everything past #9 lumped into Other" bucket, which collided with the
+    // real "Other" category).
     const buildBars = (predicate) => {
       const map = new Map();
       for (const t of curYearTxns) {
         if (isTransfer(t.category) || !predicate(t.category)) continue;
         map.set(t.category, (map.get(t.category) || 0) + (Number(t.amount) || 0));
       }
-      const sorted = [...map.entries()]
+      return [...map.entries()]
         .filter(([, v]) => v !== 0)
-        .sort((a, b) => Math.abs(b[1]) - Math.abs(a[1]));
-      const head = sorted.slice(0, 9);
-      const tailSum = sorted.slice(9).reduce((a, [, v]) => a + v, 0);
-      const bars = head.map(([name, value]) => ({ name, value: Math.abs(value), fill: getCategoryColor(name) }));
-      if (sorted.length > 9) bars.push({ name: "Other", value: Math.abs(tailSum), fill: getCategoryColor("Other") });
-      return bars;
+        .sort((a, b) => Math.abs(b[1]) - Math.abs(a[1]))
+        .map(([name, value]) => ({ name, value: Math.abs(value), fill: getCategoryColor(name) }));
     };
 
     return {
@@ -5100,14 +5172,28 @@ function YearInReviewCard({ transactions, years, hideValues, fmtKFull }) {
     { lbl: "Net", val: cur.net, p: prev ? pct(curForCompare.net, prev.net) : null, color: cur.net >= 0 ? "#34d399" : "#f87171", higherIsGood: true },
   ];
   const bars = view === "income" ? incomeBars : expenseBars;
+  const maxBar = bars.length ? bars[0].value : 0;
+  const visibleBars = expanded ? bars : bars.slice(0, YIR_TOP_N);
+  const hiddenCount = bars.length - visibleBars.length;
 
   return (
     <div style={{ ...S.card, padding: 0, overflow: "hidden" }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 16px 0", flexWrap: "wrap", gap: 8 }}>
-        <h3 style={{ ...S.sectionTitle, margin: 0 }}>Year in Review</h3>
-        <div style={{ display: "flex", gap: 4 }}>
-          <button onClick={() => setView("expense")} style={S.togglePill(view === "expense")}>Expense</button>
-          <button onClick={() => setView("income")} style={S.togglePill(view === "income")}>Income</button>
+        <h3 style={{ ...S.sectionTitle, margin: 0 }}>
+          {view === "income" ? "Income" : "Expenses"} by category
+        </h3>
+        <div style={{ position: "relative", display: "inline-flex", alignItems: "center" }}>
+          <select
+            value={yr}
+            onChange={(e) => setYr(e.target.value)}
+            aria-label="Year"
+            style={{ ...S.chipSelect(false), padding: "3px 24px 3px 9px", fontSize: 11 }}
+          >
+            {years.map((y) => (
+              <option key={y} value={y}>{y}</option>
+            ))}
+          </select>
+          <span style={S.chipSelectArrow}>▼</span>
         </div>
       </div>
       <div style={{ display: "flex", gap: 8, padding: "12px 16px 0" }}>
@@ -5125,59 +5211,51 @@ function YearInReviewCard({ transactions, years, hideValues, fmtKFull }) {
           </div>
         ))}
       </div>
-      <div style={{ display: "flex", justifyContent: "flex-end", gap: 4, padding: "10px 16px 0" }}>
-        <select value={yr} onChange={(e) => setYr(e.target.value)} style={{ ...S.select, flex: "0 0 auto", width: "auto", padding: "6px 10px", colorScheme: "dark" }}>
-          {years.map((y) => (
-            <option key={y} value={y}>{y}</option>
+      <div style={{ display: "flex", justifyContent: "flex-end", padding: "10px 16px 0" }}>
+        <div style={S.segmented}>
+          <button onClick={() => setView("expense")} style={S.segmentedBtn(view === "expense")}>Expense</button>
+          <button onClick={() => setView("income")} style={S.segmentedBtn(view === "income")}>Income</button>
+        </div>
+      </div>
+      {/* Horizontal ranking — plain HTML/CSS bars (v1.75.0). recharts' vertical
+          bars needed 45°-rotated labels to fit a phone and still overlapped;
+          a label / track / value row reads at any width. */}
+      {bars.length === 0 ? (
+        <Empty>No {view} categories for {yr}.</Empty>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 9, padding: "12px 16px 14px" }}>
+          {visibleBars.map(({ name, value, fill }) => (
+            <div key={name} style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 12 }}>
+              <span
+                title={name}
+                style={{ width: 84, flexShrink: 0, color: "#cbd5e1", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}
+              >
+                {name}
+              </span>
+              <div style={{ flex: 1, minWidth: 0, height: 14, borderRadius: 4, background: "rgba(255,255,255,0.05)", overflow: "hidden" }}>
+                <div
+                  style={{
+                    width: `${maxBar > 0 ? Math.max(2, (value / maxBar) * 100) : 0}%`,
+                    height: "100%",
+                    borderRadius: 4,
+                    background: fill,
+                  }}
+                />
+              </div>
+              <span style={{ width: 46, flexShrink: 0, textAlign: "right", color: "#8b94a3", fontVariantNumeric: "tabular-nums" }}>
+                {hideValues ? "•••" : fmtKFull(value)}
+              </span>
+            </div>
           ))}
-        </select>
-      </div>
-      <div style={{ height: 280 }}>
-        {bars.length === 0 ? (
-          <Empty>No {view} categories for {yr}.</Empty>
-        ) : (
-          <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={bars} margin={{ top: 16, right: 16, left: 0, bottom: 40 }}>
-              <CartesianGrid vertical={false} stroke="rgba(255,255,255,0.05)" />
-              <XAxis
-                dataKey="name"
-                tick={{ fill: "#6b7280", fontSize: 9 }}
-                tickLine={false}
-                axisLine={false}
-                interval={0}
-                angle={-38}
-                textAnchor="end"
-              />
-              <YAxis tick={{ fill: "#6b7280", fontSize: 10 }} tickLine={false} axisLine={false} tickFormatter={fmtKFull} width={56} />
-              {!hideValues && (
-                <Tooltip
-                  cursor={false}
-                  formatter={(v) => [fmtKFull(v), "Amount"]}
-                  contentStyle={{ background: "#161a20", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 14, fontSize: 12, boxShadow: "0 8px 24px rgba(0,0,0,0.4)" }}
-                  itemStyle={{ color: "#e5e7eb" }}
-                  labelStyle={{ color: "#8b94a3" }}
-                />
-              )}
-              <Bar dataKey="value" isAnimationActive={false} radius={[3, 3, 0, 0]}>
-                {bars.map((r, i) => (
-                  <Cell key={`bar-${i}`} fill={r.fill} />
-                ))}
-                <LabelList
-                  dataKey="value"
-                  position="top"
-                  content={({ x, y, width, value }) =>
-                    hideValues || !value ? null : (
-                      <text x={x + width / 2} y={y - 4} textAnchor="middle" fill="#6b7280" fontSize={10}>
-                        {fmtKFull(value)}
-                      </text>
-                    )
-                  }
-                />
-              </Bar>
-            </BarChart>
-          </ResponsiveContainer>
-        )}
-      </div>
+          {(hiddenCount > 0 || expanded) && (
+            <div style={{ textAlign: "center", marginTop: 3 }}>
+              <button onClick={() => setExpanded((v) => !v)} style={{ ...S.linkBtn, padding: "8px 12px" }}>
+                {expanded ? "Show less" : `Show ${hiddenCount} more`}
+              </button>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -5220,6 +5298,25 @@ function getCategoryColor(cat) {
   return CATEGORY_COLOR_MAP[cat] || catDotColor(cat);
 }
 
+// Rounded category tile (colored gradient + line-art icon), shared by the
+// Home "By category" list and every mobile transaction row so both read as
+// the same object. `size` drives the icon size proportionally.
+function CategoryAvatar({ cat, size = 32 }) {
+  const color = getCategoryColor(cat);
+  return (
+    <div
+      style={{
+        width: size, height: size, borderRadius: 10, flexShrink: 0,
+        background: `linear-gradient(135deg, rgba(255,255,255,0.25), rgba(255,255,255,0) 60%), linear-gradient(135deg, ${color} 0%, ${color}99 100%)`,
+        display: "grid", placeItems: "center",
+        boxShadow: `0 2px 8px ${color}59, inset 0 1px 1px rgba(255,255,255,0.3)`,
+      }}
+    >
+      {React.createElement(catIcon(cat), { size: Math.round(size * 0.47), color: "#fff" })}
+    </div>
+  );
+}
+
 // ===========================================================================
 // Transactions list
 // ===========================================================================
@@ -5234,9 +5331,13 @@ function Transactions({ transactions, money, hideValues, isWide, onDelete, onUpd
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
   const [editing, setEditing] = useState(null);
+  // Mobile: collapsible filter panel + opt-in multi-select mode.
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const [selectMode, setSelectMode] = useState(false);
 
-  // Bulk-select state. Rows are always selectable via their checkbox on both
-  // platforms; the bulk-edit bar appears once anything is selected.
+  // Bulk-select state. Desktop rows always carry a checkbox; on mobile they
+  // only appear once `selectMode` is on ("Select" in the summary row). The
+  // bulk-edit bar appears as soon as anything is selected, either way.
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [bulkCat, setBulkCat] = useState("");
@@ -5471,11 +5572,8 @@ function Transactions({ transactions, money, hideValues, isWide, onDelete, onUpd
     return groups;
   }, [visible]);
 
-  const net = summary.income + summary.expenses;
-
-  // Abbreviated money format for the audit summary bar when the full
-  // format doesn't fit on one line, e.g. "$1.23K" / "-$1.23K". Respects
-  // the hideValues eye toggle the same way `money` does.
+  // Abbreviated money format for the one-line audit summary, e.g. "$6.4K" /
+  // "-$1.2M". Respects the hideValues eye toggle the same way `money` does.
   const moneyShortK = useCallback(
     (n) => {
       if (hideValues) return "•••••";
@@ -5483,80 +5581,157 @@ function Transactions({ transactions, money, hideValues, isWide, onDelete, onUpd
       const sign = v < 0 ? "-" : "";
       const abs = Math.abs(v);
       if (abs < 1000) return `${sign}$${Math.round(abs)}`;
-      return `${sign}$${(abs / 1000).toFixed(2)}K`;
+      if (abs < 1000000) return `${sign}$${(abs / 1000).toFixed(1)}K`;
+      return `${sign}$${(abs / 1000000).toFixed(1)}M`;
     },
     [hideValues]
   );
 
-  // Audit summary bar: once any of income/expenses/net reaches 8 digits
-  // (i.e. >= $100,000.00 with its 2 decimals), the full money format is
-  // long enough to push the 4 pills onto 2 lines on mobile. Switch all 3
-  // monetary values to the abbreviated `moneyShortK` format together
-  // (tudo-ou-nada) — a fixed digit threshold, not a measured one, since
-  // measuring the rendered width proved unreliable across devices.
-  const useShortFormat =
-    Math.abs(summary.income) >= 100000 ||
-    Math.abs(summary.expenses) >= 100000 ||
-    Math.abs(net) >= 100000;
+  // One removable chip per ACTIVE filter group (type / account / category /
+  // date). Also drives the numeric badge on the filter-panel button — the
+  // free-text query isn't counted (it's already visible in the search box).
+  const activeFilterChips = useMemo(() => {
+    const chips = [];
+    const many = (arr, noun) => (arr.length === 1 ? arr[0] : `${arr.length} ${noun}`);
+    if (typeFilter.length) chips.push({ key: "type", label: many(typeFilter, "types"), clear: () => setTypeFilter([]) });
+    if (acctFilter.length) chips.push({ key: "acct", label: many(acctFilter, "accounts"), clear: () => setAcctFilter([]) });
+    if (catFilter.length) chips.push({ key: "cat", label: many(catFilter, "categories"), clear: () => setCatFilter([]) });
+    const dateActive =
+      dateMonths.length > 0 || dateYears.length > 0 || !!from || !!to || year !== "All" || month !== "All";
+    if (dateActive) {
+      let label;
+      if (dateMonths.length === 1) {
+        label = new Date(`${dateMonths[0]}-01T00:00:00`).toLocaleDateString("en-US", { month: "short", year: "numeric" });
+      } else if (dateYears.length === 1 && dateMonths.length === 12) {
+        label = String(dateYears[0]);
+      } else if (dateMonths.length > 1) {
+        label = `${dateMonths.length} months`;
+      } else if (from || to) {
+        label = `${from || "…"} → ${to || "…"}`;
+      } else {
+        label = periodLabel(year, month);
+      }
+      chips.push({
+        key: "date",
+        label,
+        clear: () => { setDateMonths([]); setDateYears([]); setFrom(""); setTo(""); setYear("All"); setMonth("All"); },
+      });
+    }
+    return chips;
+  }, [typeFilter, acctFilter, catFilter, dateMonths, dateYears, from, to, year, month]);
+
+  // Select mode (mobile): checkboxes stay hidden until the user opts in via
+  // the "Select" button; leaving the mode also drops the current selection.
+  const toggleSelectMode = () => {
+    if (selectMode) {
+      setSelectMode(false);
+      setSelectedIds(new Set());
+    } else {
+      setSelectMode(true);
+    }
+  };
 
   return (
     <div style={S.txnTab}>
       {/* Fixed controls (capped at half the height, scroll internally if
           taller) over a list that owns the rest of the space and scrolls. */}
       <div style={S.txnControls}>
-      {/* Search box */}
-      <div style={S.searchWrap}>
-        <Search size={16} color="#8b94a3" />
-        <input
-          type="text"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="Search description, category, account…"
-          style={S.searchInput}
-        />
-        {query ? (
-          <button onClick={() => setQuery("")} style={S.deleteBtn} title="Clear search">
-            <X size={15} />
-          </button>
-        ) : null}
+      {/* Search box + filter panel toggle */}
+      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        <div style={{ ...S.searchWrap, flex: 1, minWidth: 0 }}>
+          <Search size={16} color="#8b94a3" />
+          <input
+            type="text"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search"
+            style={S.searchInput}
+          />
+          {query ? (
+            <button onClick={() => setQuery("")} style={S.deleteBtn} title="Clear search">
+              <X size={15} />
+            </button>
+          ) : null}
+        </div>
+        {!isWide && (
+          <div style={{ position: "relative", flexShrink: 0 }}>
+            <button
+              onClick={() => setFiltersOpen((o) => !o)}
+              style={S.filterToggleBtn(filtersOpen || activeFilterChips.length > 0)}
+              title="Filters"
+              aria-label="Filters"
+              aria-expanded={filtersOpen}
+            >
+              <SlidersHorizontal size={18} />
+            </button>
+            {activeFilterChips.length > 0 ? (
+              <span style={S.filterCountBadge}>{activeFilterChips.length}</span>
+            ) : null}
+          </div>
+        )}
       </div>
 
-      {/* Filter chips — mobile only (desktop uses column-header filters in the table) */}
-      {!isWide && (
-        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-          <HeaderFilter chip label="Type" value={typeFilter} options={["Income", "Expense", "Transfer"]} onChange={setTypeFilter} />
-          <HeaderFilter chip label="Account" value={acctFilter} options={acctOptions} onChange={setAcctFilter} />
-          <HeaderFilter chip label="Category" value={catFilter} options={catOptions} onChange={setCatFilter} />
-          <DateHeaderFilter chip years={years} dateYears={dateYears} setDateYears={setDateYears} dateMonths={dateMonths} setDateMonths={setDateMonths} from={from} setFrom={setFrom} to={to} setTo={setTo} />
+      {/* Collapsible filter panel — mobile only (desktop uses the
+          column-header filters inside the table) */}
+      {!isWide && filtersOpen && (
+        <div style={S.txnFilterPanel}>
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+            <HeaderFilter chip label="Type" value={typeFilter} options={["Income", "Expense", "Transfer"]} onChange={setTypeFilter} />
+            <HeaderFilter chip label="Account" value={acctFilter} options={acctOptions} onChange={setAcctFilter} />
+            <HeaderFilter chip label="Category" value={catFilter} options={catOptions} onChange={setCatFilter} />
+            <DateHeaderFilter chip years={years} dateYears={dateYears} setDateYears={setDateYears} dateMonths={dateMonths} setDateMonths={setDateMonths} from={from} setFrom={setFrom} to={to} setTo={setTo} />
+          </div>
+          {hasFilters ? (
+            <button onClick={clearFilters} style={{ ...S.linkBtn, alignSelf: "flex-start" }}>
+              Clear all filters
+            </button>
+          ) : null}
         </div>
       )}
 
-      {/* Audit summary — colored pills */}
-      <div style={S.summaryBar}>
-        <span style={{ fontSize: 11, color: "#636366" }}>{filtered.length} txns</span>
-        <span style={{ fontSize: 11, color: "#34d399", background: "rgba(52,211,153,0.1)", borderRadius: 6, padding: "2px 8px" }}>↑ {useShortFormat ? moneyShortK(summary.income) : money(summary.income)}</span>
-        <span style={{ fontSize: 11, color: summary.expenses < 0 ? "#f87171" : "#34d399", background: summary.expenses < 0 ? "rgba(248,113,113,0.1)" : "rgba(52,211,153,0.1)", borderRadius: 6, padding: "2px 8px" }}>{summary.expenses < 0 ? `↓ ${useShortFormat ? moneyShortK(Math.abs(summary.expenses)) : money(Math.abs(summary.expenses))}` : `↑ ${useShortFormat ? moneyShortK(Math.abs(summary.expenses)) : money(Math.abs(summary.expenses))}`}</span>
-        <span style={{ fontSize: 11, color: net >= 0 ? "#34d399" : "#f87171", background: "rgba(255,255,255,0.05)", borderRadius: 6, padding: "2px 8px" }}>= {useShortFormat ? moneyShortK(net) : money(net)}</span>
-      </div>
-
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-        <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-          {hasFilters ? (
-            <button onClick={clearFilters} style={S.linkBtn}>
-              Clear filters
+      {/* Active filters as removable chips + the "confirm all learned" chip */}
+      {(activeFilterChips.length > 0 || learnedCount > 0) && (
+        <div style={S.txnChipsRow}>
+          {activeFilterChips.map((c) => (
+            <button key={c.key} onClick={c.clear} style={S.txnActiveChip} title={`Clear ${c.label}`}>
+              <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", maxWidth: 150 }}>{c.label}</span>
+              <X size={12} style={{ opacity: 0.7, flexShrink: 0 }} />
             </button>
-          ) : null}
-          {selectedIds.size > 0 ? (
-            <button onClick={() => setSelectedIds(new Set())} style={S.linkBtn}>
-              Clear selection ({selectedIds.size})
-            </button>
-          ) : null}
+          ))}
           {learnedCount > 0 ? (
-            <>
-              <span style={{ fontSize: 12, color: "#fbbf24" }}>{learnedCount} learned</span>
-              <button onClick={confirmAllVisibleLearned} style={S.linkBtn}>Confirm all visible learned</button>
-            </>
+            <button onClick={confirmAllVisibleLearned} style={S.txnLearnedChip} title="Confirm all visible learned categories">
+              <Check size={13} />
+              {learnedCount} learned
+            </button>
           ) : null}
+        </div>
+      )}
+
+      {/* Audit summary — plain text line + select-mode toggle */}
+      <div style={S.txnSummaryRow}>
+        <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+          {filtered.length} txn{filtered.length !== 1 ? "s" : ""} ·{" "}
+          <span style={{ color: "#34d399" }}>{moneyShortK(summary.income)}</span> in ·{" "}
+          <span style={{ color: summary.expenses > 0 ? "#34d399" : "#f87171" }}>{moneyShortK(Math.abs(summary.expenses))}</span> out
+        </span>
+        <div style={{ display: "flex", alignItems: "center", gap: 12, flexShrink: 0 }}>
+          {isWide && hasFilters ? (
+            <button onClick={clearFilters} style={S.linkBtn}>Clear filters</button>
+          ) : null}
+          {isWide ? (
+            selectedIds.size > 0 ? (
+              <button onClick={() => setSelectedIds(new Set())} style={S.linkBtn}>
+                Clear selection ({selectedIds.size})
+              </button>
+            ) : null
+          ) : (
+            <button
+              onClick={toggleSelectMode}
+              style={{ ...S.linkBtn, fontSize: 13, fontWeight: 600, padding: "8px 2px 8px 10px" }}
+            >
+              {selectMode ? "Done" : "Select"}
+            </button>
+          )}
         </div>
       </div>
 
@@ -5612,10 +5787,11 @@ function Transactions({ transactions, money, hideValues, isWide, onDelete, onUpd
         </div>
       )}
 
-      {/* Mobile select-all helper (desktop uses the table header checkbox) */}
-      {!isWide && filtered.length > 0 && (
-        <label style={{ display: "flex", alignItems: "center", gap: 6, cursor: "pointer", fontSize: 13, color: "#cbd5e1" }}>
-          <input type="checkbox" checked={allSelected} onChange={(e) => handleSelectAll(filtered, e.target.checked)} style={S.checkbox} />
+      {/* Mobile select-all helper — only while select mode is on
+          (desktop uses the table header checkbox) */}
+      {!isWide && selectMode && filtered.length > 0 && (
+        <label style={{ display: "flex", alignItems: "center", gap: 8, cursor: "pointer", fontSize: 13, color: "#cbd5e1" }}>
+          <input type="checkbox" checked={allSelected} onChange={(e) => handleSelectAll(filtered, e.target.checked)} style={S.checkboxLg} />
           Select all ({filtered.length})
         </label>
       )}
@@ -5664,19 +5840,22 @@ function Transactions({ transactions, money, hideValues, isWide, onDelete, onUpd
                   {txns.length} txn{txns.length !== 1 ? "s" : ""}
                 </span>
               </div>
-              {txns.map((t) => (
-                <TxnAuditCard
-                  key={t.id}
-                  t={t}
-                  money={money}
-                  selected={selectedIds.has(t.id)}
-                  onToggleSelect={toggleRowSelect}
-                  onInlineChange={handleInlineChange}
-                  onConfirmLearned={confirmLearned}
-                  onEdit={setEditing}
-                  onDelete={onDelete}
-                />
-              ))}
+              <div style={S.txnGroupCard}>
+                {txns.map((t, i) => (
+                  <TxnAuditCard
+                    key={t.id}
+                    t={t}
+                    money={money}
+                    first={i === 0}
+                    selected={selectedIds.has(t.id)}
+                    selectMode={selectMode}
+                    onToggleSelect={toggleRowSelect}
+                    onConfirmLearned={confirmLearned}
+                    onEdit={setEditing}
+                    onDelete={onDelete}
+                  />
+                ))}
+              </div>
             </React.Fragment>
           ))}
         </div>
@@ -6091,23 +6270,31 @@ function TxnRow({ t, money, onDelete, onEdit, selectMode = false, selected = fal
   );
 }
 
-// Mobile audit card — the desktop table row's info, stacked for narrow
-// screens, with inline-editable Account/Category, a Type badge, CK orig and a
-// selection checkbox.
-// Width of the action rail revealed by swiping the card left (two chips).
+// Mobile transaction row — a compact, dense line (category avatar,
+// description, "{category} · {account}" meta, signed amount) that lives
+// inside a per-date group container (see S.txnGroupCard). Account/category
+// editing happens in the EditModal (tap the row) or via bulk-edit; the row
+// itself only surfaces an amber "learned" pill to confirm an auto-assigned
+// category in place.
+// Width of the action rail revealed by swiping the row left (two chips).
 const SWIPE_ACTION_WIDTH = 132;
 
-function TxnAuditCard({ t, money, selected, onToggleSelect, onInlineChange, onConfirmLearned, onEdit, onDelete }) {
-  const type = txnType(t.category);
+function TxnAuditCard({ t, money, selected, selectMode, onToggleSelect, onConfirmLearned, onEdit, onDelete, first }) {
   const amt = amountDisplay(t);
+  const mappedAccount = ACCOUNTS.includes(t.account);
+  const accountLabel = t.account ? (mappedAccount ? t.account : `${t.account} (unmapped)`) : "—";
 
-  // Swipe-to-reveal: drag the card left to expose Edit/Delete chips. Tracks a
-  // horizontal-only gesture so taps on the inner selects/checkbox still work.
+  // Swipe-to-reveal: drag the row left to expose Edit/Delete chips. Tracks a
+  // horizontal-only gesture so vertical scrolling still works.
   const [dx, setDx] = useState(0);
   const [open, setOpen] = useState(false);
   const start = useRef(null);
+  // Set when a gesture actually moved the row, so the synthetic click that
+  // follows touchend doesn't also open the edit modal / toggle selection.
+  const swiped = useRef(false);
 
   const onTouchStart = (e) => {
+    swiped.current = false;
     start.current = { x: e.touches[0].clientX, y: e.touches[0].clientY, base: open ? -SWIPE_ACTION_WIDTH : 0, horiz: null };
   };
   const onTouchMove = (e) => {
@@ -6123,6 +6310,7 @@ function TxnAuditCard({ t, money, selected, onToggleSelect, onInlineChange, onCo
     if (!start.current.horiz) return;
     let next = start.current.base + ddx;
     next = Math.max(-SWIPE_ACTION_WIDTH, Math.min(0, next)); // clamp to [-width, 0]
+    if (next !== start.current.base) swiped.current = true;
     setDx(next);
   };
   const onTouchEnd = () => {
@@ -6136,9 +6324,18 @@ function TxnAuditCard({ t, money, selected, onToggleSelect, onInlineChange, onCo
   const translate = start.current ? dx : open ? -SWIPE_ACTION_WIDTH : 0;
   const closeRail = () => { setOpen(false); setDx(0); };
 
+  // Tap: toggles selection in select mode, otherwise opens the edit modal.
+  // A tap while the action rail is open just closes the rail.
+  const handleClick = () => {
+    if (swiped.current) { swiped.current = false; return; }
+    if (open) { closeRail(); return; }
+    if (selectMode) onToggleSelect(t.id);
+    else onEdit(t);
+  };
+
   return (
-    <div style={{ position: "relative", borderRadius: 14, overflow: "hidden" }}>
-      {/* Action rail behind the card */}
+    <div style={{ position: "relative", overflow: "hidden", borderTop: first ? "none" : "1px solid rgba(255,255,255,0.06)" }}>
+      {/* Action rail behind the row */}
       <div style={{ position: "absolute", inset: 0, display: "flex", justifyContent: "flex-end" }}>
         <button
           onClick={() => { closeRail(); onEdit(t); }}
@@ -6160,64 +6357,50 @@ function TxnAuditCard({ t, money, selected, onToggleSelect, onInlineChange, onCo
         ) : null}
       </div>
 
-      {/* Foreground card (slides over the rail) */}
+      {/* Foreground row (slides over the rail) */}
       <div
         onTouchStart={onTouchStart}
         onTouchMove={onTouchMove}
         onTouchEnd={onTouchEnd}
+        onClick={handleClick}
         style={{
-          ...S.txnRow,
-          flexDirection: "column",
-          alignItems: "stretch",
-          gap: 10,
+          ...S.txnCompactRow,
           background: selected ? "#1a1f2e" : "#161a20",
-          outline: selected ? "1px solid #3b82f6" : undefined,
           transform: `translateX(${translate}px)`,
           transition: start.current ? "none" : "transform 0.2s ease",
-          position: "relative",
         }}
       >
-        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <input type="checkbox" checked={selected} onChange={() => onToggleSelect(t.id)} style={S.checkbox} />
-          <div style={{ minWidth: 0, flex: 1 }}>
-            <div style={{ fontSize: 14, color: "#e5e7eb", overflowWrap: "anywhere", lineHeight: 1.35 }}>
-              {t.description || t.category}
-            </div>
-            {t.srcAccount && !ACCOUNTS.includes(t.account) ? (
-              <div style={{ fontSize: 11, color: "#8b94a3", marginTop: 2 }}>
-                src: {t.srcAccount}
-              </div>
+        {selectMode ? (
+          <input
+            type="checkbox"
+            checked={selected}
+            onChange={() => onToggleSelect(t.id)}
+            onClick={(e) => e.stopPropagation()}
+            style={S.checkboxLg}
+          />
+        ) : null}
+        <CategoryAvatar cat={t.category} size={32} />
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={S.txnCompactDesc}>{t.description || t.category}</div>
+          <div style={S.txnCompactMeta} title={t.srcAccount && !mappedAccount ? `src: ${t.srcAccount}` : undefined}>
+            <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>
+              {t.category || "Uncategorized"}
+              {t.account || !mappedAccount ? ` · ${accountLabel}` : ""}
+            </span>
+            {t.categorySource === "learned" ? (
+              <button
+                type="button"
+                onClick={(e) => { e.stopPropagation(); onConfirmLearned(t.id); }}
+                title="Confirm this category — helps the memory learn with more confidence"
+                style={S.learnedPill}
+              >
+                learned
+              </button>
             ) : null}
           </div>
-          <span style={{ color: amt.color, fontWeight: 600, fontSize: 14, whiteSpace: "nowrap" }}>
-            {amt.sign}{money(amt.value)}
-          </span>
         </div>
-
-        <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-          <span title={type} style={{ ...S.badge, color: TYPE_COLOR[type], borderColor: TYPE_COLOR[type] }}>{type.charAt(0)}</span>
-          <select
-            value={ACCOUNTS.includes(t.account) ? t.account : ""}
-            onChange={(e) => onInlineChange(t, { account: e.target.value })}
-            style={{ ...S.cellSelect, flex: "1 1 140px", maxWidth: "none" }}
-          >
-            {!ACCOUNTS.includes(t.account) && (
-              <option value="">{t.account ? `${t.account} (unmapped)` : "—"}</option>
-            )}
-            {ACCOUNTS.map((a) => (
-              <option key={a}>{a}</option>
-            ))}
-          </select>
-          <select
-            value={CATEGORIES.includes(t.category) ? t.category : "Other"}
-            onChange={(e) => onInlineChange(t, { category: e.target.value })}
-            style={{ ...S.cellSelect, flex: "1 1 120px", maxWidth: "none" }}
-          >
-            {CATEGORIES.map((c) => (
-              <option key={c}>{c}</option>
-            ))}
-          </select>
-          <ConfirmCategoryButton row={t} onConfirm={onConfirmLearned} />
+        <div style={{ fontSize: 14, fontWeight: 600, whiteSpace: "nowrap", color: amt.color }}>
+          {amt.sign}{money(amt.value)}
         </div>
       </div>
     </div>
@@ -6380,6 +6563,18 @@ function EditModal({ txn, onClose, onSave }) {
   );
 }
 
+// Settings sections (SuggestedRulesSection, DescriptionRulesSection, …) each
+// wrap themselves in a CollapsibleCard. Since v1.75.0 the Settings tab is an
+// iOS-style grouped list whose sub-views already own the header ("‹ Settings"
+// + section title), so that one level of chrome is redundant there. This
+// context strips it without touching the section components: SettingsTab
+// renders a sub-view inside <BareCardContext.Provider value={true}> and the
+// outermost CollapsibleCard renders as a plain, always-open container. It
+// resets to false for its own children, so any nested collapsible (and every
+// CollapsibleCard outside Settings, e.g. the Import column mapping) keeps its
+// normal collapse behaviour.
+const BareCardContext = React.createContext(false);
+
 // A titled card with a chevron header that collapses its body.
 // `id` lets other sections scroll a specific card into view (e.g. the
 // "Suggested rules" audit panel jumping to "Account aliases"/"Category
@@ -6388,9 +6583,17 @@ function EditModal({ txn, onClose, onSave }) {
 // same "jump here and show the field" flows without any new global state.
 function CollapsibleCard({ title, badge, defaultOpen = false, icon: Icon, children, id, openSignal }) {
   const [open, setOpen] = useState(defaultOpen);
+  const bare = React.useContext(BareCardContext);
   useEffect(() => {
     if (openSignal) setOpen(true);
   }, [openSignal]);
+  if (bare) {
+    return (
+      <div id={id}>
+        <BareCardContext.Provider value={false}>{children}</BareCardContext.Provider>
+      </div>
+    );
+  }
   return (
     <div id={id} style={{
       marginBottom: 10,
@@ -7211,22 +7414,15 @@ function SuggestedRulesSection({ suggestedFragments, suggestedTokens, suggestedC
 
   return (
     <CollapsibleCard title="Suggested rules" badge={total > 0 ? total : undefined} defaultOpen>
+      {total === 0 ? (
+        <div style={{ fontSize: 13, color: "#8b94a3" }}>Nothing to suggest yet.</div>
+      ) : (
+      <>
       <div style={{ fontSize: 12, color: "#8b94a3", margin: "0 0 10px", lineHeight: 1.5 }}>
-        {total === 0 ? (
-          <>
-            Nothing to suggest yet — this is normal, not an error. This panel
-            fills in automatically as you import more transactions and correct
-            categories manually, once a pattern repeats enough to be worth
-            turning into a rule.
-          </>
-        ) : (
-          <>
-            Patterns detected in your current transactions that repeat often
-            enough to be worth turning into a rule. Nothing here is saved
-            automatically — each action jumps to the matching section below so
-            you can pick the destination and save yourself.
-          </>
-        )}
+        Patterns detected in your current transactions that repeat often
+        enough to be worth turning into a rule. Nothing here is saved
+        automatically — each action opens the matching section so you can
+        pick the destination and save yourself.
       </div>
 
       <div style={{ fontSize: 12, color: "#cbd5e1", fontWeight: 600, margin: "4px 0 6px" }}>
@@ -7317,12 +7513,7 @@ function SuggestedRulesSection({ suggestedFragments, suggestedTokens, suggestedC
         Manual category corrections
       </div>
       {corrections.length === 0 ? (
-        <div style={{ fontSize: 12, color: "#8b94a3" }}>
-          No repeated manual corrections yet. This group only lists category
-          corrections you make manually (via Edit or bulk selection) from now
-          on, grouped once they repeat — so it's expected to be empty right
-          after this update.
-        </div>
+        <div style={{ fontSize: 12, color: "#8b94a3" }}>No repeated manual corrections yet.</div>
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
           {corrections.map((c) => (
@@ -7409,6 +7600,8 @@ function SuggestedRulesSection({ suggestedFragments, suggestedTokens, suggestedC
             </div>
           ))}
         </div>
+      )}
+      </>
       )}
     </CollapsibleCard>
   );
@@ -7576,6 +7769,39 @@ function BudgetsSection({ budgets, expenseCategories, onSave }) {
   );
 }
 
+// One tappable row of the grouped Settings list (iOS-style): title on the
+// left, optional count/pill on the right, chevron. `dot` draws the same
+// "new SimpleFin accounts" indicator the TabBar badge uses.
+function SettingsRow({ label, value, pill, dot, danger, chevron = true, first, onClick }) {
+  const interactive = typeof onClick === "function";
+  const Tag = interactive ? "button" : "div";
+  return (
+    <Tag
+      {...(interactive ? { type: "button", onClick } : {})}
+      style={{
+        ...S.settingsRow,
+        ...(first ? null : S.settingsRowSep),
+        cursor: interactive ? "pointer" : "default",
+      }}
+    >
+      <span style={{ ...S.settingsRowLabel, color: danger ? "#f87171" : "#e5e7eb" }}>{label}</span>
+      {dot ? <span style={S.settingsRowDot} /> : null}
+      <span style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 8 }}>
+        {pill ? <span style={S.settingsRowPill}>{pill}</span> : null}
+        {value != null ? <span style={S.settingsRowValue}>{value}</span> : null}
+        {chevron && interactive ? <ChevronRight size={16} color="#636366" /> : null}
+      </span>
+    </Tag>
+  );
+}
+
+// The Settings tab is an iOS-style grouped list (v1.75.0): every section lives
+// behind a row that opens a full sub-view inside <main>, instead of the old
+// stack of 7 collapsible cards. `settingsView` is local UI state only — the
+// tab is remounted by TabErrorBoundary's `key={tab}`, so leaving and coming
+// back always lands on the list again. The section components themselves are
+// unchanged; BareCardContext strips their own CollapsibleCard chrome while
+// they render inside a sub-view.
 function SettingsTab({
   transactions, accountMap, accountAliases, onSaveAccountAliases,
   dismissedSuggestions, onDismissSuggestion,
@@ -7589,6 +7815,7 @@ function SettingsTab({
   onReorderAccounts, onReorderCategories,
   onRestoreTransactions,
   budgets, onSaveBudgets,
+  settingsBadge = 0, onLogout, initialView = "list",
 }) {
   const usage = useMemo(() => {
     const acc = {}, cat = {};
@@ -7615,23 +7842,43 @@ function SettingsTab({
     () => detectOtherDescriptionFragments(transactions, categoryDescriptionRules),
     [transactions, categoryDescriptionRules]
   );
+  // Same dismissal filter SuggestedRulesSection applies internally — repeated
+  // here (and only here) so the list row can show a "N new" pill without
+  // opening the section.
+  const suggestedTotal = useMemo(() => {
+    const dismissed = new Set(dismissedSuggestions || []);
+    return (
+      suggestedFragments.filter((f) => !dismissed.has(`frag:${f.fragment}`)).length +
+      suggestedTokens.filter((t) => !dismissed.has(`tok:${t.token}`)).length +
+      (suggestedCorrections || []).filter((c) => !dismissed.has(`manual:${c.key}`)).length +
+      (suggestedOtherFragments || []).filter((c) => !dismissed.has(`otherdesc:${c.key}`)).length
+    );
+  }, [dismissedSuggestions, suggestedFragments, suggestedTokens, suggestedCorrections, suggestedOtherFragments]);
 
   // Pre-fill/highlight signals for the "Account aliases"/"Category mapping"/
   // "Description rules" sections below, set by the "Use this fragment"/"Review
   // this token"/"Create rule from this" buttons. Never written anywhere —
-  // purely local UI state driving a scroll + a pre-filled/highlighted field the
-  // user still has to act on and save.
+  // purely local UI state driving a pre-filled/highlighted field the user
+  // still has to act on and save. Each one now also navigates to the matching
+  // sub-view (it used to scrollIntoView + force the collapsible open).
   const [aliasPrefill, setAliasPrefill] = useState(null);
   const [categoryHighlight, setCategoryHighlight] = useState(null);
   const [rulePrefill, setRulePrefill] = useState(null);
 
+  const [view, setView] = useState(initialView || "list");
+  // Sub-views open at the top: <main> is the only scroll parent, and it keeps
+  // whatever offset the list was left at otherwise.
+  useEffect(() => {
+    document.querySelector("main")?.scrollTo?.({ top: 0 });
+  }, [view]);
+
   const handleUseFragment = (fragment) => {
     setAliasPrefill({ fragment, nonce: Date.now() });
-    document.getElementById("account-aliases-section")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    setView("aliases");
   };
   const handleReviewToken = (token) => {
     setCategoryHighlight({ token, nonce: Date.now() });
-    document.getElementById("category-mapping-section")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    setView("ckmap");
   };
   const handleCreateRule = (correction) => {
     setRulePrefill({
@@ -7640,111 +7887,216 @@ function SettingsTab({
       destinationCategory: correction.destinationCategory,
       nonce: Date.now(),
     });
-    document.getElementById("description-rules-section")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    setView("rules");
   };
+
+  const sfAccountCount = (sfBalances?.accountBalances || []).length;
+  const budgetCount = Object.values(budgets || {}).filter((v) => Number(v) > 0).length;
+  const catalogCount =
+    config.accounts.length + config.expenseCategories.length + config.incomeCategories.length;
+
+  const groups = [
+    {
+      title: "Categorization",
+      rows: [
+        { id: "suggested", label: "Suggested rules", pill: suggestedTotal > 0 ? `${suggestedTotal} new` : null },
+        { id: "rules", label: "Description rules", value: (categoryDescriptionRules || []).length || null },
+        { id: "ckmap", label: "Category mapping" },
+        { id: "aliases", label: "Account aliases" },
+      ],
+    },
+    {
+      title: "Accounts",
+      rows: [
+        { id: "simplefin", label: "SimpleFin accounts", value: sfAccountCount || null, dot: settingsBadge > 0 },
+        { id: "catalog", label: "Accounts & categories", value: catalogCount },
+      ],
+    },
+    { title: "Planning", rows: [{ id: "budgets", label: "Monthly budgets", value: budgetCount || null }] },
+    {
+      title: "Data",
+      rows: [
+        { id: "backup", label: "Backup & restore" },
+        { id: "snapshots", label: "Daily snapshots" },
+      ],
+    },
+  ];
+
+  const SUB_VIEW_TITLES = {
+    suggested: "Suggested rules",
+    rules: "Description rules",
+    ckmap: "Category mapping",
+    aliases: "Account aliases",
+    simplefin: "SimpleFin accounts",
+    catalog: "Accounts & categories",
+    budgets: "Monthly budgets",
+    backup: "Backup & restore",
+    snapshots: "Daily snapshots",
+  };
+
+  const renderSubView = () => {
+    switch (view) {
+      case "suggested":
+        return (
+          <SuggestedRulesSection
+            suggestedFragments={suggestedFragments}
+            suggestedTokens={suggestedTokens}
+            suggestedCorrections={suggestedCorrections}
+            suggestedOtherFragments={suggestedOtherFragments}
+            dismissedSuggestions={dismissedSuggestions}
+            onDismissSuggestion={onDismissSuggestion}
+            onUseFragment={handleUseFragment}
+            onReviewToken={handleReviewToken}
+            onCreateRule={handleCreateRule}
+          />
+        );
+      case "rules":
+        return (
+          <DescriptionRulesSection
+            rules={categoryDescriptionRules}
+            onSave={onSaveCategoryDescriptionRules}
+            config={config}
+            prefill={rulePrefill}
+            transactions={transactions}
+          />
+        );
+      case "ckmap":
+        return (
+          <CkCategoryMapSection
+            transactions={transactions}
+            map={ckCategoryMap}
+            onSave={onSaveCkCategoryMap}
+            config={config}
+            highlightToken={categoryHighlight}
+          />
+        );
+      case "aliases":
+        return (
+          <AccountAliasesSection
+            transactions={transactions}
+            accountMap={accountMap}
+            aliases={accountAliases}
+            onSave={onSaveAccountAliases}
+            prefillFragment={aliasPrefill}
+          />
+        );
+      case "simplefin":
+        return (
+          <SimplefinAccountsSection
+            sfBalances={sfBalances}
+            transactions={transactions}
+            accountMap={accountMap}
+            config={config}
+            money={money}
+            onSetMapping={onSetSimplefinMapping}
+            onSetType={onSetSimplefinType}
+            onSetIgnored={onSetSimplefinIgnored}
+            onRemoveLegacyPatterns={onRemoveSimplefinLegacyPatterns}
+          />
+        );
+      case "catalog":
+        return (
+          <>
+            <ManagedList
+              bare
+              title="Accounts"
+              items={config.accounts}
+              usage={usage.acc}
+              onAdd={onAddAccount}
+              onRename={onRenameAccount}
+              onDelete={onDeleteAccount}
+              onReorder={onReorderAccounts}
+            />
+            <div style={{ borderTop: "1px solid #2a313c", margin: "14px 0" }} />
+            <ManagedList
+              bare
+              title="Expense categories"
+              items={config.expenseCategories}
+              usage={usage.cat}
+              onAdd={(n) => onAddCategory("expense", n)}
+              onRename={onRenameCategory}
+              onDelete={onDeleteCategory}
+              onReorder={(names) => onReorderCategories("expense", names)}
+            />
+            <div style={{ borderTop: "1px solid #2a313c", margin: "14px 0" }} />
+            <ManagedList
+              bare
+              title="Income categories"
+              items={config.incomeCategories}
+              usage={usage.cat}
+              onAdd={(n) => onAddCategory("income", n)}
+              onRename={onRenameCategory}
+              onDelete={onDeleteCategory}
+              onReorder={(names) => onReorderCategories("income", names)}
+            />
+          </>
+        );
+      case "budgets":
+        return (
+          <BudgetsSection
+            budgets={budgets}
+            expenseCategories={config.expenseCategories}
+            onSave={onSaveBudgets}
+          />
+        );
+      case "backup":
+        return <DataBackupSection transactions={transactions} onRestore={onRestoreTransactions} />;
+      case "snapshots":
+        return <SnapshotsSection onRestore={onRestoreTransactions} />;
+      default:
+        return null;
+    }
+  };
+
+  if (view !== "list") {
+    return (
+      <div style={S.col}>
+        <button type="button" onClick={() => setView("list")} style={S.settingsBackBtn}>
+          <ChevronLeft size={18} color="#0A84FF" />
+          <span>Settings</span>
+        </button>
+        {/* SnapshotsSection, AccountAliasesSection and CkCategoryMapSection
+            render their own heading (title + count), so they would otherwise
+            show two stacked titles. */}
+        {view === "snapshots" || view === "aliases" || view === "ckmap" ? null : (
+          <h3 style={S.sectionTitle}>{SUB_VIEW_TITLES[view] || "Settings"}</h3>
+        )}
+        <BareCardContext.Provider value={true}>{renderSubView()}</BareCardContext.Provider>
+      </div>
+    );
+  }
 
   return (
     <div style={S.col}>
-      <h3 style={S.sectionTitle}>Settings</h3>
-      <SuggestedRulesSection
-        suggestedFragments={suggestedFragments}
-        suggestedTokens={suggestedTokens}
-        suggestedCorrections={suggestedCorrections}
-        suggestedOtherFragments={suggestedOtherFragments}
-        dismissedSuggestions={dismissedSuggestions}
-        onDismissSuggestion={onDismissSuggestion}
-        onUseFragment={handleUseFragment}
-        onReviewToken={handleReviewToken}
-        onCreateRule={handleCreateRule}
-      />
-      <DescriptionRulesSection
-        rules={categoryDescriptionRules}
-        onSave={onSaveCategoryDescriptionRules}
-        config={config}
-        prefill={rulePrefill}
-        transactions={transactions}
-      />
-      <CollapsibleCard
-        title="Account aliases & Category mapping"
-        openSignal={(aliasPrefill && aliasPrefill.nonce) || (categoryHighlight && categoryHighlight.nonce)}
-      >
-        <AccountAliasesSection
-          transactions={transactions}
-          accountMap={accountMap}
-          aliases={accountAliases}
-          onSave={onSaveAccountAliases}
-          prefillFragment={aliasPrefill}
-        />
-        <div style={{ borderTop: "1px solid #2a313c", margin: "14px 0" }} />
-        <CkCategoryMapSection
-          transactions={transactions}
-          map={ckCategoryMap}
-          onSave={onSaveCkCategoryMap}
-          config={config}
-          highlightToken={categoryHighlight}
-        />
-      </CollapsibleCard>
-      <SimplefinAccountsSection
-        sfBalances={sfBalances}
-        transactions={transactions}
-        accountMap={accountMap}
-        config={config}
-        money={money}
-        onSetMapping={onSetSimplefinMapping}
-        onSetType={onSetSimplefinType}
-        onSetIgnored={onSetSimplefinIgnored}
-        onRemoveLegacyPatterns={onRemoveSimplefinLegacyPatterns}
-      />
-      <BudgetsSection
-        budgets={budgets}
-        expenseCategories={config.expenseCategories}
-        onSave={onSaveBudgets}
-      />
-      <CollapsibleCard
-        title="Accounts & Categories"
-        badge={config.accounts.length + config.expenseCategories.length + config.incomeCategories.length}
-      >
-        <ManagedList
-          bare
-          title="Accounts"
-          items={config.accounts}
-          usage={usage.acc}
-          onAdd={onAddAccount}
-          onRename={onRenameAccount}
-          onDelete={onDeleteAccount}
-          onReorder={onReorderAccounts}
-        />
-        <div style={{ borderTop: "1px solid #2a313c", margin: "14px 0" }} />
-        <ManagedList
-          bare
-          title="Expense categories"
-          items={config.expenseCategories}
-          usage={usage.cat}
-          onAdd={(n) => onAddCategory("expense", n)}
-          onRename={onRenameCategory}
-          onDelete={onDeleteCategory}
-          onReorder={(names) => onReorderCategories("expense", names)}
-        />
-        <div style={{ borderTop: "1px solid #2a313c", margin: "14px 0" }} />
-        <ManagedList
-          bare
-          title="Income categories"
-          items={config.incomeCategories}
-          usage={usage.cat}
-          onAdd={(n) => onAddCategory("income", n)}
-          onRename={onRenameCategory}
-          onDelete={onDeleteCategory}
-          onReorder={(names) => onReorderCategories("income", names)}
-        />
-      </CollapsibleCard>
-      <CollapsibleCard title="Data Management">
-        <DataBackupSection transactions={transactions} onRestore={onRestoreTransactions} />
-        <div style={{ borderTop: "1px solid #2a313c", margin: "14px 0" }} />
-        <SnapshotsSection onRestore={onRestoreTransactions} />
-      </CollapsibleCard>
+      {groups.map((g) => (
+        <div key={g.title}>
+          <h3 style={{ ...S.sectionTitle, marginBottom: 8 }}>{g.title}</h3>
+          <div style={S.settingsGroup}>
+            {g.rows.map((r, i) => (
+              <SettingsRow
+                key={r.id}
+                label={r.label}
+                value={r.value}
+                pill={r.pill}
+                dot={r.dot}
+                first={i === 0}
+                onClick={() => setView(r.id)}
+              />
+            ))}
+          </div>
+        </div>
+      ))}
+      <div>
+        <h3 style={{ ...S.sectionTitle, marginBottom: 8 }}>About</h3>
+        <div style={S.settingsGroup}>
+          <SettingsRow label="Version" value={APP_VERSION} chevron={false} first />
+          <SettingsRow label="Sign out" danger chevron={false} onClick={onLogout} />
+        </div>
+      </div>
     </div>
   );
 }
+
 
 // Local, client-side backup of the transaction ledger — downloads a JSON
 // snapshot of everything currently in memory (the same array that feeds
@@ -7813,7 +8165,8 @@ function DataBackupSection({ transactions, onRestore }) {
 
   return (
     <div>
-      <div style={{ ...S.sectionTitle, margin: "0 0 4px", fontSize: 13, fontWeight: 600 }}>Data & Backup</div>
+      {/* No inline title: this section now owns a whole Settings sub-view
+          ("Backup & restore"), which already renders the heading. */}
       <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
         <button type="button" style={S.primaryBtn} onClick={handleBackup}>
           Backup transactions
@@ -8508,6 +8861,19 @@ function buildRow(raw, mapping, profile, accountMap, merchantMemory) {
 // The "uncertain" (review) band's side-by-side compare + confirm button —
 // shared between the desktop table and mobile card layouts of the import
 // preview (ImportTransactions) so the two don't drift out of sync.
+// "today, 8:55 PM" / "yesterday, 7:10 AM" / "Sep 4, 7:10 AM" — the relative
+// timestamp on the Import tab's SimpleFin status card.
+function relativeSyncLabel(ts) {
+  const d = new Date(ts);
+  const time = d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  const iso = localISO(d);
+  if (iso === todayISO()) return `today, ${time}`;
+  const yesterday = new Date();
+  yesterday.setDate(yesterday.getDate() - 1);
+  if (iso === localISO(yesterday)) return `yesterday, ${time}`;
+  return `${d.toLocaleDateString("en-US", { month: "short", day: "numeric" })}, ${time}`;
+}
+
 function ImportDupReviewPanel({ t, match, fmtMoney, hideValues, confirmed, onConfirm }) {
   return (
     <div onClick={(e) => e.stopPropagation()}>
@@ -8698,6 +9064,34 @@ function ImportTransactions({
   // surface "N pending" and let the user pull them into this same preview
   // pipeline instead of (or in addition to) a manual "Sync now".
   const [sfPendingCount, setSfPendingCount] = useState(0);
+
+  // "Last sync" status shown above the Sync now button (v1.75.0). Deliberately
+  // derived from what the client already knows — the sessionStorage SimpleFin
+  // balances cache (written by every loadSfBalances call and by this tab's own
+  // sync via onSfSynced) — instead of a new persisted field or endpoint. When
+  // this session has never seen a sync, the card says "Not synced yet".
+  const [sfStatus, setSfStatus] = useState(() => {
+    const cached = readSfBalancesCache();
+    return { at: cached?.fetchedAt || null, accounts: (cached?.accountBalances || []).length };
+  });
+  // "N new since {1st of the current month}": SimpleFin-sourced rows already in
+  // the ledger, dated this month. Pure client-side count over `transactions`.
+  const sfNewThisMonth = useMemo(() => {
+    const now = new Date();
+    const first = localISO(new Date(now.getFullYear(), now.getMonth(), 1));
+    return transactions.filter((t) => t.source === "sf" && !isTransfer(t.category) && (t.date || "") >= first).length;
+  }, [transactions]);
+  const sfStatusSubtitle = useMemo(() => {
+    const parts = [];
+    if (sfStatus.accounts > 0) parts.push(`${sfStatus.accounts} account${sfStatus.accounts === 1 ? "" : "s"}`);
+    if (sfNewThisMonth > 0) {
+      const now = new Date();
+      const firstLabel = new Date(now.getFullYear(), now.getMonth(), 1)
+        .toLocaleDateString("en-US", { month: "short", day: "numeric" });
+      parts.push(`${sfNewThisMonth} new since ${firstLabel}`);
+    }
+    return parts.length ? parts.join(" · ") : "Pull the latest transactions from SimpleFin";
+  }, [sfStatus.accounts, sfNewThisMonth]);
 
   const refreshSfPendingCount = async () => {
     try {
@@ -9098,7 +9492,9 @@ function ImportTransactions({
   };
 
   const methods = [
-    { id: "sf", title: "SimpleFin (auto)", desc: "Pulls transactions from SimpleFin on demand — complements, doesn't replace, the CSV/Credit Karma import." },
+    // No description for SimpleFin: the status card right below already says
+    // everything the old explanatory line did (v1.75.0).
+    { id: "sf", title: "SimpleFin", desc: "" },
     { id: "ck", title: "Credit Karma", desc: "Daily export — auto-mapped, sign preserved." },
     { id: "csv", title: "CSV", desc: "Manual mapping — for backfilling old history." },
   ];
@@ -9152,6 +9548,10 @@ function ImportTransactions({
       // from, so a manual sync surfaces a brand-new account immediately
       // instead of waiting out the cache's TTL.
       onSfSynced?.(data.accountBalances);
+      setSfStatus((prev) => ({
+        at: Date.now(),
+        accounts: Array.isArray(data.accountBalances) ? data.accountBalances.length : prev.accounts,
+      }));
     } catch (err) {
       setError(`Could not reach the sync endpoint: ${err.message}`);
       setSfRows([]);
@@ -9203,59 +9603,67 @@ function ImportTransactions({
             <button
               key={m.id}
               onClick={() => selectMethod(m.id)}
-              style={{ ...S.segmentedBtn(method === m.id), flex: 1, padding: "8px 16px", minHeight: 36, fontSize: 13 }}
+              style={{ ...S.segmentedBtn(method === m.id), flex: 1, padding: "9px 0", minHeight: 40, fontSize: 14, textAlign: "center", whiteSpace: "nowrap" }}
             >
               {m.title}
             </button>
           ))}
         </div>
-        <div style={{ fontSize: 11, color: "#8b94a3", marginTop: 6, lineHeight: 1.35 }}>
-          {methods.find((m) => m.id === method)?.desc}
-        </div>
+        {methods.find((m) => m.id === method)?.desc ? (
+          <div style={{ fontSize: 11, color: "#8b94a3", marginTop: 6, lineHeight: 1.35 }}>
+            {methods.find((m) => m.id === method)?.desc}
+          </div>
+        ) : null}
       </div>
 
-      {/* SimpleFin: no file to drag, so this is a slim control bar, not the
-          CSV dropzone below — the big dashed drop target only makes sense
-          where there's something to drop. */}
+      {/* SimpleFin: no file to drag, so this is a status card + a full-width
+          "Sync now" CTA, not the CSV dropzone below — the big dashed drop
+          target only makes sense where there's something to drop. */}
       {method === "sf" ? (
-        <div style={{ display: "flex", flexDirection: "column", gap: 8, padding: "10px 14px", borderRadius: 12, background: "#12161c", border: "1px solid #1e2530" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-            <RefreshCw size={16} color="#8b94a3" style={{ flexShrink: 0 }} />
-            <span style={{ fontSize: 13, color: "#cbd5e1", overflowWrap: "anywhere", flex: 1, minWidth: 160 }}>
-              {fileName || "Pull the latest transactions from SimpleFin"}
-            </span>
-            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-              {sfPendingCount > 0 ? (
-                <button
-                  onClick={loadSimpleFinPending}
-                  disabled={sfLoading}
-                  style={{ ...S.primaryBtn, opacity: sfLoading ? 0.6 : 1, cursor: sfLoading ? "not-allowed" : "pointer", padding: "7px 16px", minHeight: 32, fontSize: 13 }}
-                >
-                  {sfLoading ? "Loading…" : `Review ${sfPendingCount} pending`}
-                </button>
-              ) : null}
-              <button
-                onClick={syncSimpleFin}
-                disabled={sfLoading}
-                style={{
-                  ...(sfPendingCount > 0 ? S.secondaryBtn : S.primaryBtn),
-                  opacity: sfLoading ? 0.6 : 1,
-                  cursor: sfLoading ? "not-allowed" : "pointer",
-                  padding: "7px 16px",
-                  minHeight: 32,
-                  fontSize: 13,
-                }}
-              >
-                {sfLoading ? "Syncing…" : "Sync now"}
-              </button>
+        <>
+          <div style={{ ...S.card, display: "flex", flexDirection: "column", gap: 12 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+              <span style={S.sfStatusTile}><RefreshCw size={18} color="#93c5fd" /></span>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 15, fontWeight: 600, color: "#e5e7eb", overflowWrap: "anywhere" }}>
+                  {sfStatus.at ? `Last sync ${relativeSyncLabel(sfStatus.at)}` : "Not synced yet"}
+                </div>
+                <div style={{ fontSize: 12, color: "#8b94a3", marginTop: 2, overflowWrap: "anywhere" }}>
+                  {sfStatusSubtitle}
+                </div>
+              </div>
             </div>
+            <button
+              onClick={syncSimpleFin}
+              disabled={sfLoading}
+              style={{ ...S.primaryBtn, opacity: sfLoading ? 0.6 : 1, cursor: sfLoading ? "not-allowed" : "pointer" }}
+            >
+              {sfLoading ? "Syncing…" : "Sync now"}
+            </button>
+            {fileName ? (
+              <div style={{ fontSize: 12, color: "#8b94a3", overflowWrap: "anywhere" }}>{fileName}</div>
+            ) : null}
           </div>
           {sfPendingCount > 0 ? (
-            <div style={{ fontSize: 12, color: "#fbbf24", background: "#241d0f", border: "1px solid #4a3a12", borderRadius: 10, padding: "6px 10px", lineHeight: 1.4 }}>
-              {sfPendingCount} transaction{sfPendingCount === 1 ? "" : "s"} from SimpleFin (daily auto-sync) pending review.
-            </div>
+            <button
+              type="button"
+              onClick={loadSimpleFinPending}
+              disabled={sfLoading}
+              style={{ ...S.cardRowBtn, opacity: sfLoading ? 0.6 : 1, cursor: sfLoading ? "not-allowed" : "pointer" }}
+            >
+              <span style={{ flex: 1, minWidth: 0 }}>
+                <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <span style={{ fontSize: 15, fontWeight: 600, color: "#e5e7eb" }}>Pending review</span>
+                  <span style={S.sfPendingPill}>{sfPendingCount}</span>
+                </span>
+                <span style={{ display: "block", fontSize: 12, color: "#8b94a3", marginTop: 2 }}>
+                  {sfLoading ? "Loading…" : "Possible duplicates and unmapped accounts"}
+                </span>
+              </span>
+              <ChevronRight size={18} color="#636366" />
+            </button>
           ) : null}
-        </div>
+        </>
       ) : (
         <label
           onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
@@ -10027,7 +10435,6 @@ const S = {
   txnListScroll: {
     paddingTop: 10,
   },
-  cardRow: { display: "flex", gap: 8 },
   card: {
     background: "rgba(22,26,32,0.7)",
     border: "1px solid rgba(255,255,255,0.08)",
@@ -10038,6 +10445,99 @@ const S = {
     boxShadow: "0 2px 12px rgba(0,0,0,0.28)",
   },
   sectionTitle: { margin: "4px 0 0", fontSize: 10, color: "#8b94a3", fontWeight: 700, textTransform: "uppercase", letterSpacing: 1 },
+  // --- Settings tab: iOS-style grouped list + sub-view chrome (v1.75.0) ---
+  // One card per group, rows separated by hairlines instead of one card per
+  // section (the old CollapsibleCard stack).
+  settingsGroup: {
+    background: "rgba(22,26,32,0.7)",
+    border: "1px solid rgba(255,255,255,0.08)",
+    borderRadius: 14,
+    overflow: "hidden",
+    backdropFilter: "blur(16px) saturate(160%)",
+    WebkitBackdropFilter: "blur(16px) saturate(160%)",
+    boxShadow: "0 2px 12px rgba(0,0,0,0.28)",
+  },
+  settingsRow: {
+    display: "flex",
+    alignItems: "center",
+    gap: 8,
+    width: "100%",
+    minHeight: 44,
+    padding: "13px 16px",
+    background: "transparent",
+    border: "none",
+    textAlign: "left",
+    boxSizing: "border-box",
+  },
+  settingsRowSep: { borderTop: "1px solid rgba(255,255,255,0.06)" },
+  settingsRowLabel: { fontSize: 15, color: "#e5e7eb", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
+  settingsRowValue: { fontSize: 14, color: "#8b94a3", fontVariantNumeric: "tabular-nums" },
+  settingsRowPill: {
+    fontSize: 11,
+    fontWeight: 700,
+    color: "#0A84FF",
+    background: "rgba(10,132,255,0.16)",
+    borderRadius: 999,
+    padding: "2px 8px",
+    whiteSpace: "nowrap",
+  },
+  // Same colour as tabBadgeDot: this is the row the TabBar's "new SimpleFin
+  // accounts" badge is pointing at.
+  settingsRowDot: {
+    width: 7,
+    height: 7,
+    borderRadius: "50%",
+    background: "#f87171",
+    flexShrink: 0,
+  },
+  settingsBackBtn: {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 2,
+    alignSelf: "flex-start",
+    minHeight: 44,
+    padding: "0 8px 0 0",
+    background: "transparent",
+    border: "none",
+    color: "#0A84FF",
+    fontSize: 15,
+    cursor: "pointer",
+  },
+  // --- Import tab: SimpleFin status card (v1.75.0) ---
+  sfStatusTile: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    background: "rgba(10,132,255,0.16)",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    flexShrink: 0,
+  },
+  sfPendingPill: {
+    fontSize: 11,
+    fontWeight: 700,
+    color: "#fbbf24",
+    background: "rgba(251,191,36,0.14)",
+    borderRadius: 999,
+    padding: "2px 8px",
+    whiteSpace: "nowrap",
+  },
+  // Tappable card-row (Import's "Pending review"): title + subtitle + chevron.
+  cardRowBtn: {
+    display: "flex",
+    alignItems: "center",
+    gap: 12,
+    width: "100%",
+    minHeight: 44,
+    padding: "12px 16px",
+    background: "rgba(22,26,32,0.7)",
+    border: "1px solid rgba(255,255,255,0.08)",
+    borderRadius: 14,
+    textAlign: "left",
+    cursor: "pointer",
+    boxSizing: "border-box",
+  },
   list: { display: "flex", flexDirection: "column", gap: 8 },
   txnRow: {
     display: "flex",
@@ -10492,6 +10992,13 @@ const S = {
     cursor: "pointer",
     flexShrink: 0,
   },
+  checkboxLg: {
+    width: 20,
+    height: 20,
+    accentColor: "#3b82f6",
+    cursor: "pointer",
+    flexShrink: 0,
+  },
   // Audit / table view
   filterBar: {
     display: "flex",
@@ -10499,20 +11006,149 @@ const S = {
     flexWrap: "wrap",
     alignItems: "center",
   },
-  summaryBar: {
+  // Transactions tab (mobile) — one-line text summary, removable filter
+  // chips, collapsible filter panel and the dense grouped row list.
+  txnSummaryRow: {
     display: "flex",
-    gap: 8,
-    flexWrap: "nowrap",
-    overflow: "hidden",
     alignItems: "center",
+    justifyContent: "space-between",
+    gap: 8,
     minWidth: 0,
     fontSize: 12,
-    padding: "6px 10px",
+    color: "#8b94a3",
+    padding: "0 2px",
+  },
+  txnChipsRow: {
+    display: "flex",
+    gap: 6,
+    flexWrap: "nowrap",
+    overflowX: "auto",
+    scrollbarWidth: "none",
+    WebkitOverflowScrolling: "touch",
+    paddingBottom: 2,
+  },
+  txnActiveChip: {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 5,
+    flexShrink: 0,
+    maxWidth: 190,
+    background: "rgba(30,58,95,0.75)",
+    border: "1px solid #3b82f6",
+    color: "#93c5fd",
+    borderRadius: 999,
+    padding: "5px 11px",
+    fontSize: 12,
+    fontWeight: 600,
+    cursor: "pointer",
+  },
+  txnLearnedChip: {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 5,
+    flexShrink: 0,
+    background: "rgba(251,191,36,0.08)",
+    border: "1px solid rgba(251,191,36,0.5)",
+    color: "#fbbf24",
+    borderRadius: 999,
+    padding: "5px 11px",
+    fontSize: 12,
+    fontWeight: 600,
+    cursor: "pointer",
+  },
+  txnFilterPanel: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 8,
+    padding: 10,
     background: "rgba(22,26,32,0.7)",
     border: "1px solid rgba(255,255,255,0.08)",
     borderRadius: 14,
-    backdropFilter: "blur(16px) saturate(160%)",
-    WebkitBackdropFilter: "blur(16px) saturate(160%)",
+  },
+  filterToggleBtn: (active) => ({
+    width: 44,
+    height: 44,
+    borderRadius: 12,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    background: active ? "rgba(30,58,95,0.75)" : "rgba(15,18,22,0.92)",
+    border: active ? "1px solid #3b82f6" : "1px solid rgba(255,255,255,0.08)",
+    color: active ? "#93c5fd" : "#8b94a3",
+    cursor: "pointer",
+    flexShrink: 0,
+  }),
+  filterCountBadge: {
+    position: "absolute",
+    top: -6,
+    right: -6,
+    minWidth: 18,
+    height: 18,
+    borderRadius: 999,
+    background: "#0A84FF",
+    color: "#fff",
+    fontSize: 11,
+    fontWeight: 700,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: "0 5px",
+    pointerEvents: "none",
+  },
+  // One container per date group; rows are separated by a hairline instead
+  // of each being its own card (density — see v1.75.0 redesign).
+  txnGroupCard: {
+    background: "#161a20",
+    border: "1px solid #1e2530",
+    borderRadius: 14,
+    overflow: "hidden",
+  },
+  txnCompactRow: {
+    display: "flex",
+    alignItems: "center",
+    gap: 12,
+    padding: "10px 12px",
+    position: "relative",
+    cursor: "pointer",
+  },
+  txnCompactDesc: {
+    fontSize: 14,
+    color: "#e5e7eb",
+    lineHeight: 1.35,
+    whiteSpace: "nowrap",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+  },
+  txnCompactMeta: {
+    display: "flex",
+    alignItems: "center",
+    gap: 6,
+    marginTop: 2,
+    fontSize: 11,
+    color: "#8b94a3",
+    whiteSpace: "nowrap",
+    overflow: "hidden",
+  },
+  learnedPill: {
+    flexShrink: 0,
+    fontSize: 10,
+    fontWeight: 600,
+    lineHeight: 1.4,
+    color: "#fbbf24",
+    background: "rgba(251,191,36,0.14)",
+    border: "none",
+    borderRadius: 999,
+    padding: "2px 7px",
+    cursor: "pointer",
+  },
+  savedDot: {
+    display: "inline-block",
+    width: 7,
+    height: 7,
+    borderRadius: 999,
+    background: "#34d399",
+    boxShadow: "0 0 6px rgba(52,211,153,0.6)",
+    flexShrink: 0,
   },
   swipeAction: {
     border: "none",
@@ -10719,7 +11355,7 @@ const S = {
     border: "none",
     color: active ? "#fff" : "#8b94a3",
     borderRadius: 7,
-    padding: "3px 10px",
+    padding: "5px 11px",
     fontSize: 12,
     fontWeight: active ? 700 : 400,
     cursor: "pointer",
