@@ -31,7 +31,9 @@ O `feature-auditor` deve conferir, como parte da checklist de auditoria, que
 o diff inclui o bump nos dois arquivos antes de aprovar — se faltar, isso é
 motivo de reprovação (devolver ao coder), não um detalhe opcional.
 
-Versão atual: **v1.73.0** — remove o badge de status de classificação
+Versão atual: **v1.73.0** (PR #270, branch
+`claude/feature-workflow-badges-status-c4audy`, draft — aguardando merge) —
+remove o badge de status de classificação
 (`CategoryBadge`, a pill verde "OK"/tier) e o chip de filtro "Status" da tab
 **Transactions** (`TxnTable`, `TxnAuditCard` e o chip mobile em
 `Transactions`). Pedido do usuário: a coluna "Category" da lista de
@@ -3459,15 +3461,24 @@ shell de altura cheia (`#root` em `100lvh` + shell `height:100%`): só o
    mais as travas de `height:100%`/`maxHeight:50%`/scroll interno, que ficavam
    estranhas no layout full-screen).
 
-   **Desde a v1.70.0 (PR #263)**, o header da coluna Category (desktop) ganhou
-   um segundo `HeaderFilter` **"Status"** ao lado do filtro de categoria já
-   existente, filtrando por proveniência do badge (`Rule` / `Confirmed` /
+   **Desde a v1.70.0 (PR #263) até a v1.72.0**, o header da coluna Category
+   (desktop) tinha um segundo `HeaderFilter` **"Status"** ao lado do filtro de
+   categoria, filtrando por proveniência do badge (`Rule` / `Confirmed` /
    `Learned – High` / `Learned – Medium` / `Learned – Low` / `Uncategorized`)
-   via `categoryBadgeFilterKey(row)`, reaplicando os mesmos thresholds de tier
-   do `categoryBadge()`. Os próprios badges (`categoryBadge()`) ficaram mais
-   compactos nessa versão — no máximo 4 caracteres (`RULE`, `OK`, `L100`/
-   `L067`/`L013`; o `?` de `Uncategorized` ficou como estava, por decisão do
-   usuário).
+   via `categoryBadgeFilterKey(row)`; a própria célula de categoria também
+   exibia o badge (`categoryBadge()`, no máximo 4 caracteres — `RULE`, `OK`,
+   `L100`/`L067`/`L013`, `?` para `Uncategorized`) ao lado do select.
+   **Desde a v1.73.0 (PR #270)**, esse badge e esse filtro "Status" **foram
+   removidos da tab Transactions** (pedido do usuário — a coluna Category
+   ficava poluída): saíram `<CategoryBadge row={t} />` de `TxnTable`/
+   `TxnAuditCard`, o chip mobile "Status" e o estado `badgeFilter` de
+   `Transactions`. O badge/filtro **continuam existindo, mas só na tab
+   Import** (`ImportTransactions`, ver item 4 abaixo) — lá ainda fazem
+   sentido para revisar o lote antes de confirmar. `ConfirmCategoryButton`
+   (ação de promover `learned` → `confirmed`) permanece na tab Transactions,
+   ao lado do select de categoria; não é um badge, é um botão funcional.
+   `categorySource`/`categoryConfidence`/`categoryReason` seguem no modelo de
+   transação — só a exibição saiu desta tela.
    No mobile, **swipe da linha para a esquerda** revela os chips **Edit** (abre
    `EditModal`) e **Delete** (`TxnAuditCard`). O **botão de export CSV foi
    removido**. O botão JSON já tinha saído (PR #14).
@@ -3563,7 +3574,11 @@ shell de altura cheia (`#root` em `100lvh` + shell `height:100%`): só o
    mesmo `categoryBadgeFilterKey`/`HeaderFilter` "Status" descrito na tab
    Transactions (item 3 acima), aplicado também à tabela de preview do
    Import; sem equivalente na visão mobile (cards), pelo mesmo motivo do
-   item anterior. Nessa mesma versão, o botão **Confirm** deixou de perder
+   item anterior. **Desde a v1.73.0 (PR #270)**, esse filtro (e o badge
+   `CategoryBadge` na célula de categoria) foi removido da tab Transactions
+   — **este filtro/badge do Import é o único que resta no app**, mantido de
+   propósito para revisar o lote antes de confirmar. Nessa mesma versão
+   (v1.70.0), o botão **Confirm** deixou de perder
    confirmações silenciosamente: `confirmedRows` era um estado local
    resetado a cada novo `dedupedRows` (novo sync), descartando confirmações
    já dadas mas ainda não importadas. Agora `syncSimpleFin`/
@@ -5355,3 +5370,14 @@ riscos reais de perda de dados.
     `allowTransferOverride`/`providerPattern` continuam existindo, sem
     mudança de escopo — servem só para *tirar* uma linha de dentro de
     Transfer, nunca para entrar nela (isso nunca precisou desse mecanismo).
+  - [x] **Badge de status + filtro "Status" removidos da tab Transactions**
+    (v1.73.0, PR #270) — pedido do usuário: a coluna Category da lista de
+    transações estava poluída com o badge de proveniência (`CategoryBadge`)
+    além do select de categoria. Removidos `<CategoryBadge row={t} />` de
+    `TxnTable`/`TxnAuditCard`, o chip mobile/`HeaderFilter` "Status" e o
+    estado `badgeFilter` de `Transactions`. Badge e filtro **ficam mantidos
+    apenas na tab Import** (`ImportTransactions`), onde ainda servem para
+    revisar o lote antes de confirmar; sem mudança de modelo de transação
+    (`categorySource`/`categoryConfidence`/`categoryReason` seguem nos
+    dados) nem de contrato de API/Redis. Ver "Versão atual" no topo deste
+    documento para o detalhamento completo.
