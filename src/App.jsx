@@ -16,6 +16,7 @@ import {
   Settings,
   Plus,
   ChevronDown,
+  ChevronLeft,
   ChevronRight,
   ChevronUp,
   Check,
@@ -817,6 +818,20 @@ export default function App() {
   }, []); // mount only — boot-time purge of an expired session's password
   const [transactions, setTransactions] = useState([]);
   const [tab, setTab] = useState("home");
+  // Which Settings screen the tab opens on. The Settings tab is a grouped
+  // list with sub-views (v1.75.0) whose state lives inside SettingsTab and is
+  // reset by TabErrorBoundary's `key={tab}` remount; this lets Home's
+  // "Set up in Settings" link land straight on the SimpleFin accounts
+  // sub-view, while any normal TabBar tap goes back to the plain list.
+  const [settingsInitialView, setSettingsInitialView] = useState("list");
+  const goToTab = useCallback((next) => {
+    setSettingsInitialView("list");
+    setTab(next);
+  }, []);
+  const goToSimplefinSettings = useCallback(() => {
+    setSettingsInitialView("simplefin");
+    setTab("settings");
+  }, []);
   const [hideValues, setHideValues] = useState(
     () => localStorage.getItem("household_hide") === "1"
   );
@@ -2128,7 +2143,7 @@ export default function App() {
         {loading ? (
           <div style={S.center}>Loading…</div>
         ) : tab === "home" ? (
-          <Dashboard transactions={transactions} money={money} hideValues={hideValues} isWide={isWide} budgets={budgets} config={config} accountMap={accountMap} sfBalances={sfBalances} refreshSfBalances={refreshSfBalances} onGoToSettings={() => setTab("settings")} />
+          <Dashboard transactions={transactions} money={money} hideValues={hideValues} isWide={isWide} budgets={budgets} config={config} accountMap={accountMap} sfBalances={sfBalances} refreshSfBalances={refreshSfBalances} onGoToSettings={goToSimplefinSettings} />
         ) : tab === "transactions" ? (
           <Transactions
             transactions={transactions}
@@ -2197,6 +2212,9 @@ export default function App() {
             onRestoreTransactions={restoreTransactions}
             budgets={budgets}
             onSaveBudgets={saveBudgets}
+            settingsBadge={sfNewAccountsCount}
+            onLogout={logout}
+            initialView={settingsInitialView}
           />
         ) : (
           <Charts transactions={transactions} hideValues={hideValues} config={config} isWide={isWide} />
@@ -2204,7 +2222,7 @@ export default function App() {
         </TabErrorBoundary>
       </main>
 
-      <TabBar tab={tab} setTab={setTab} wide={isWide} settingsBadge={sfNewAccountsCount} />
+      <TabBar tab={tab} setTab={goToTab} wide={isWide} settingsBadge={sfNewAccountsCount} />
     </div>
   );
 }
@@ -6544,6 +6562,18 @@ function EditModal({ txn, onClose, onSave }) {
   );
 }
 
+// Settings sections (SuggestedRulesSection, DescriptionRulesSection, …) each
+// wrap themselves in a CollapsibleCard. Since v1.75.0 the Settings tab is an
+// iOS-style grouped list whose sub-views already own the header ("‹ Settings"
+// + section title), so that one level of chrome is redundant there. This
+// context strips it without touching the section components: SettingsTab
+// renders a sub-view inside <BareCardContext.Provider value={true}> and the
+// outermost CollapsibleCard renders as a plain, always-open container. It
+// resets to false for its own children, so any nested collapsible (and every
+// CollapsibleCard outside Settings, e.g. the Import column mapping) keeps its
+// normal collapse behaviour.
+const BareCardContext = React.createContext(false);
+
 // A titled card with a chevron header that collapses its body.
 // `id` lets other sections scroll a specific card into view (e.g. the
 // "Suggested rules" audit panel jumping to "Account aliases"/"Category
@@ -6552,9 +6582,17 @@ function EditModal({ txn, onClose, onSave }) {
 // same "jump here and show the field" flows without any new global state.
 function CollapsibleCard({ title, badge, defaultOpen = false, icon: Icon, children, id, openSignal }) {
   const [open, setOpen] = useState(defaultOpen);
+  const bare = React.useContext(BareCardContext);
   useEffect(() => {
     if (openSignal) setOpen(true);
   }, [openSignal]);
+  if (bare) {
+    return (
+      <div id={id}>
+        <BareCardContext.Provider value={false}>{children}</BareCardContext.Provider>
+      </div>
+    );
+  }
   return (
     <div id={id} style={{
       marginBottom: 10,
@@ -7375,22 +7413,15 @@ function SuggestedRulesSection({ suggestedFragments, suggestedTokens, suggestedC
 
   return (
     <CollapsibleCard title="Suggested rules" badge={total > 0 ? total : undefined} defaultOpen>
+      {total === 0 ? (
+        <div style={{ fontSize: 13, color: "#8b94a3" }}>Nothing to suggest yet.</div>
+      ) : (
+      <>
       <div style={{ fontSize: 12, color: "#8b94a3", margin: "0 0 10px", lineHeight: 1.5 }}>
-        {total === 0 ? (
-          <>
-            Nothing to suggest yet — this is normal, not an error. This panel
-            fills in automatically as you import more transactions and correct
-            categories manually, once a pattern repeats enough to be worth
-            turning into a rule.
-          </>
-        ) : (
-          <>
-            Patterns detected in your current transactions that repeat often
-            enough to be worth turning into a rule. Nothing here is saved
-            automatically — each action jumps to the matching section below so
-            you can pick the destination and save yourself.
-          </>
-        )}
+        Patterns detected in your current transactions that repeat often
+        enough to be worth turning into a rule. Nothing here is saved
+        automatically — each action opens the matching section so you can
+        pick the destination and save yourself.
       </div>
 
       <div style={{ fontSize: 12, color: "#cbd5e1", fontWeight: 600, margin: "4px 0 6px" }}>
@@ -7481,12 +7512,7 @@ function SuggestedRulesSection({ suggestedFragments, suggestedTokens, suggestedC
         Manual category corrections
       </div>
       {corrections.length === 0 ? (
-        <div style={{ fontSize: 12, color: "#8b94a3" }}>
-          No repeated manual corrections yet. This group only lists category
-          corrections you make manually (via Edit or bulk selection) from now
-          on, grouped once they repeat — so it's expected to be empty right
-          after this update.
-        </div>
+        <div style={{ fontSize: 12, color: "#8b94a3" }}>No repeated manual corrections yet.</div>
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
           {corrections.map((c) => (
@@ -7573,6 +7599,8 @@ function SuggestedRulesSection({ suggestedFragments, suggestedTokens, suggestedC
             </div>
           ))}
         </div>
+      )}
+      </>
       )}
     </CollapsibleCard>
   );
@@ -7740,6 +7768,39 @@ function BudgetsSection({ budgets, expenseCategories, onSave }) {
   );
 }
 
+// One tappable row of the grouped Settings list (iOS-style): title on the
+// left, optional count/pill on the right, chevron. `dot` draws the same
+// "new SimpleFin accounts" indicator the TabBar badge uses.
+function SettingsRow({ label, value, pill, dot, danger, chevron = true, first, onClick }) {
+  const interactive = typeof onClick === "function";
+  const Tag = interactive ? "button" : "div";
+  return (
+    <Tag
+      {...(interactive ? { type: "button", onClick } : {})}
+      style={{
+        ...S.settingsRow,
+        ...(first ? null : S.settingsRowSep),
+        cursor: interactive ? "pointer" : "default",
+      }}
+    >
+      <span style={{ ...S.settingsRowLabel, color: danger ? "#f87171" : "#e5e7eb" }}>{label}</span>
+      {dot ? <span style={S.settingsRowDot} /> : null}
+      <span style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 8 }}>
+        {pill ? <span style={S.settingsRowPill}>{pill}</span> : null}
+        {value != null ? <span style={S.settingsRowValue}>{value}</span> : null}
+        {chevron && interactive ? <ChevronRight size={16} color="#636366" /> : null}
+      </span>
+    </Tag>
+  );
+}
+
+// The Settings tab is an iOS-style grouped list (v1.75.0): every section lives
+// behind a row that opens a full sub-view inside <main>, instead of the old
+// stack of 7 collapsible cards. `settingsView` is local UI state only — the
+// tab is remounted by TabErrorBoundary's `key={tab}`, so leaving and coming
+// back always lands on the list again. The section components themselves are
+// unchanged; BareCardContext strips their own CollapsibleCard chrome while
+// they render inside a sub-view.
 function SettingsTab({
   transactions, accountMap, accountAliases, onSaveAccountAliases,
   dismissedSuggestions, onDismissSuggestion,
@@ -7753,6 +7814,7 @@ function SettingsTab({
   onReorderAccounts, onReorderCategories,
   onRestoreTransactions,
   budgets, onSaveBudgets,
+  settingsBadge = 0, onLogout, initialView = "list",
 }) {
   const usage = useMemo(() => {
     const acc = {}, cat = {};
@@ -7779,23 +7841,43 @@ function SettingsTab({
     () => detectOtherDescriptionFragments(transactions, categoryDescriptionRules),
     [transactions, categoryDescriptionRules]
   );
+  // Same dismissal filter SuggestedRulesSection applies internally — repeated
+  // here (and only here) so the list row can show a "N new" pill without
+  // opening the section.
+  const suggestedTotal = useMemo(() => {
+    const dismissed = new Set(dismissedSuggestions || []);
+    return (
+      suggestedFragments.filter((f) => !dismissed.has(`frag:${f.fragment}`)).length +
+      suggestedTokens.filter((t) => !dismissed.has(`tok:${t.token}`)).length +
+      (suggestedCorrections || []).filter((c) => !dismissed.has(`manual:${c.key}`)).length +
+      (suggestedOtherFragments || []).filter((c) => !dismissed.has(`otherdesc:${c.key}`)).length
+    );
+  }, [dismissedSuggestions, suggestedFragments, suggestedTokens, suggestedCorrections, suggestedOtherFragments]);
 
   // Pre-fill/highlight signals for the "Account aliases"/"Category mapping"/
   // "Description rules" sections below, set by the "Use this fragment"/"Review
   // this token"/"Create rule from this" buttons. Never written anywhere —
-  // purely local UI state driving a scroll + a pre-filled/highlighted field the
-  // user still has to act on and save.
+  // purely local UI state driving a pre-filled/highlighted field the user
+  // still has to act on and save. Each one now also navigates to the matching
+  // sub-view (it used to scrollIntoView + force the collapsible open).
   const [aliasPrefill, setAliasPrefill] = useState(null);
   const [categoryHighlight, setCategoryHighlight] = useState(null);
   const [rulePrefill, setRulePrefill] = useState(null);
 
+  const [view, setView] = useState(initialView || "list");
+  // Sub-views open at the top: <main> is the only scroll parent, and it keeps
+  // whatever offset the list was left at otherwise.
+  useEffect(() => {
+    document.querySelector("main")?.scrollTo?.({ top: 0 });
+  }, [view]);
+
   const handleUseFragment = (fragment) => {
     setAliasPrefill({ fragment, nonce: Date.now() });
-    document.getElementById("account-aliases-section")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    setView("aliases");
   };
   const handleReviewToken = (token) => {
     setCategoryHighlight({ token, nonce: Date.now() });
-    document.getElementById("category-mapping-section")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    setView("ckmap");
   };
   const handleCreateRule = (correction) => {
     setRulePrefill({
@@ -7804,111 +7886,215 @@ function SettingsTab({
       destinationCategory: correction.destinationCategory,
       nonce: Date.now(),
     });
-    document.getElementById("description-rules-section")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    setView("rules");
   };
+
+  const sfAccountCount = (sfBalances?.accountBalances || []).length;
+  const budgetCount = Object.values(budgets || {}).filter((v) => Number(v) > 0).length;
+  const catalogCount =
+    config.accounts.length + config.expenseCategories.length + config.incomeCategories.length;
+
+  const groups = [
+    {
+      title: "Categorization",
+      rows: [
+        { id: "suggested", label: "Suggested rules", pill: suggestedTotal > 0 ? `${suggestedTotal} new` : null },
+        { id: "rules", label: "Description rules", value: (categoryDescriptionRules || []).length || null },
+        { id: "ckmap", label: "Category mapping" },
+        { id: "aliases", label: "Account aliases" },
+      ],
+    },
+    {
+      title: "Accounts",
+      rows: [
+        { id: "simplefin", label: "SimpleFin accounts", value: sfAccountCount || null, dot: settingsBadge > 0 },
+        { id: "catalog", label: "Accounts & categories", value: catalogCount },
+      ],
+    },
+    { title: "Planning", rows: [{ id: "budgets", label: "Monthly budgets", value: budgetCount || null }] },
+    {
+      title: "Data",
+      rows: [
+        { id: "backup", label: "Backup & restore" },
+        { id: "snapshots", label: "Daily snapshots" },
+      ],
+    },
+  ];
+
+  const SUB_VIEW_TITLES = {
+    suggested: "Suggested rules",
+    rules: "Description rules",
+    ckmap: "Category mapping",
+    aliases: "Account aliases",
+    simplefin: "SimpleFin accounts",
+    catalog: "Accounts & categories",
+    budgets: "Monthly budgets",
+    backup: "Backup & restore",
+    snapshots: "Daily snapshots",
+  };
+
+  const renderSubView = () => {
+    switch (view) {
+      case "suggested":
+        return (
+          <SuggestedRulesSection
+            suggestedFragments={suggestedFragments}
+            suggestedTokens={suggestedTokens}
+            suggestedCorrections={suggestedCorrections}
+            suggestedOtherFragments={suggestedOtherFragments}
+            dismissedSuggestions={dismissedSuggestions}
+            onDismissSuggestion={onDismissSuggestion}
+            onUseFragment={handleUseFragment}
+            onReviewToken={handleReviewToken}
+            onCreateRule={handleCreateRule}
+          />
+        );
+      case "rules":
+        return (
+          <DescriptionRulesSection
+            rules={categoryDescriptionRules}
+            onSave={onSaveCategoryDescriptionRules}
+            config={config}
+            prefill={rulePrefill}
+            transactions={transactions}
+          />
+        );
+      case "ckmap":
+        return (
+          <CkCategoryMapSection
+            transactions={transactions}
+            map={ckCategoryMap}
+            onSave={onSaveCkCategoryMap}
+            config={config}
+            highlightToken={categoryHighlight}
+          />
+        );
+      case "aliases":
+        return (
+          <AccountAliasesSection
+            transactions={transactions}
+            accountMap={accountMap}
+            aliases={accountAliases}
+            onSave={onSaveAccountAliases}
+            prefillFragment={aliasPrefill}
+          />
+        );
+      case "simplefin":
+        return (
+          <SimplefinAccountsSection
+            sfBalances={sfBalances}
+            transactions={transactions}
+            accountMap={accountMap}
+            config={config}
+            money={money}
+            onSetMapping={onSetSimplefinMapping}
+            onSetType={onSetSimplefinType}
+            onSetIgnored={onSetSimplefinIgnored}
+            onRemoveLegacyPatterns={onRemoveSimplefinLegacyPatterns}
+          />
+        );
+      case "catalog":
+        return (
+          <>
+            <ManagedList
+              bare
+              title="Accounts"
+              items={config.accounts}
+              usage={usage.acc}
+              onAdd={onAddAccount}
+              onRename={onRenameAccount}
+              onDelete={onDeleteAccount}
+              onReorder={onReorderAccounts}
+            />
+            <div style={{ borderTop: "1px solid #2a313c", margin: "14px 0" }} />
+            <ManagedList
+              bare
+              title="Expense categories"
+              items={config.expenseCategories}
+              usage={usage.cat}
+              onAdd={(n) => onAddCategory("expense", n)}
+              onRename={onRenameCategory}
+              onDelete={onDeleteCategory}
+              onReorder={(names) => onReorderCategories("expense", names)}
+            />
+            <div style={{ borderTop: "1px solid #2a313c", margin: "14px 0" }} />
+            <ManagedList
+              bare
+              title="Income categories"
+              items={config.incomeCategories}
+              usage={usage.cat}
+              onAdd={(n) => onAddCategory("income", n)}
+              onRename={onRenameCategory}
+              onDelete={onDeleteCategory}
+              onReorder={(names) => onReorderCategories("income", names)}
+            />
+          </>
+        );
+      case "budgets":
+        return (
+          <BudgetsSection
+            budgets={budgets}
+            expenseCategories={config.expenseCategories}
+            onSave={onSaveBudgets}
+          />
+        );
+      case "backup":
+        return <DataBackupSection transactions={transactions} onRestore={onRestoreTransactions} />;
+      case "snapshots":
+        return <SnapshotsSection onRestore={onRestoreTransactions} />;
+      default:
+        return null;
+    }
+  };
+
+  if (view !== "list") {
+    return (
+      <div style={S.col}>
+        <button type="button" onClick={() => setView("list")} style={S.settingsBackBtn}>
+          <ChevronLeft size={18} color="#0A84FF" />
+          <span>Settings</span>
+        </button>
+        {/* SnapshotsSection renders its own heading (title + count), so it
+            would otherwise show two stacked titles. */}
+        {view === "snapshots" ? null : (
+          <h3 style={S.sectionTitle}>{SUB_VIEW_TITLES[view] || "Settings"}</h3>
+        )}
+        <BareCardContext.Provider value={true}>{renderSubView()}</BareCardContext.Provider>
+      </div>
+    );
+  }
 
   return (
     <div style={S.col}>
-      <h3 style={S.sectionTitle}>Settings</h3>
-      <SuggestedRulesSection
-        suggestedFragments={suggestedFragments}
-        suggestedTokens={suggestedTokens}
-        suggestedCorrections={suggestedCorrections}
-        suggestedOtherFragments={suggestedOtherFragments}
-        dismissedSuggestions={dismissedSuggestions}
-        onDismissSuggestion={onDismissSuggestion}
-        onUseFragment={handleUseFragment}
-        onReviewToken={handleReviewToken}
-        onCreateRule={handleCreateRule}
-      />
-      <DescriptionRulesSection
-        rules={categoryDescriptionRules}
-        onSave={onSaveCategoryDescriptionRules}
-        config={config}
-        prefill={rulePrefill}
-        transactions={transactions}
-      />
-      <CollapsibleCard
-        title="Account aliases & Category mapping"
-        openSignal={(aliasPrefill && aliasPrefill.nonce) || (categoryHighlight && categoryHighlight.nonce)}
-      >
-        <AccountAliasesSection
-          transactions={transactions}
-          accountMap={accountMap}
-          aliases={accountAliases}
-          onSave={onSaveAccountAliases}
-          prefillFragment={aliasPrefill}
-        />
-        <div style={{ borderTop: "1px solid #2a313c", margin: "14px 0" }} />
-        <CkCategoryMapSection
-          transactions={transactions}
-          map={ckCategoryMap}
-          onSave={onSaveCkCategoryMap}
-          config={config}
-          highlightToken={categoryHighlight}
-        />
-      </CollapsibleCard>
-      <SimplefinAccountsSection
-        sfBalances={sfBalances}
-        transactions={transactions}
-        accountMap={accountMap}
-        config={config}
-        money={money}
-        onSetMapping={onSetSimplefinMapping}
-        onSetType={onSetSimplefinType}
-        onSetIgnored={onSetSimplefinIgnored}
-        onRemoveLegacyPatterns={onRemoveSimplefinLegacyPatterns}
-      />
-      <BudgetsSection
-        budgets={budgets}
-        expenseCategories={config.expenseCategories}
-        onSave={onSaveBudgets}
-      />
-      <CollapsibleCard
-        title="Accounts & Categories"
-        badge={config.accounts.length + config.expenseCategories.length + config.incomeCategories.length}
-      >
-        <ManagedList
-          bare
-          title="Accounts"
-          items={config.accounts}
-          usage={usage.acc}
-          onAdd={onAddAccount}
-          onRename={onRenameAccount}
-          onDelete={onDeleteAccount}
-          onReorder={onReorderAccounts}
-        />
-        <div style={{ borderTop: "1px solid #2a313c", margin: "14px 0" }} />
-        <ManagedList
-          bare
-          title="Expense categories"
-          items={config.expenseCategories}
-          usage={usage.cat}
-          onAdd={(n) => onAddCategory("expense", n)}
-          onRename={onRenameCategory}
-          onDelete={onDeleteCategory}
-          onReorder={(names) => onReorderCategories("expense", names)}
-        />
-        <div style={{ borderTop: "1px solid #2a313c", margin: "14px 0" }} />
-        <ManagedList
-          bare
-          title="Income categories"
-          items={config.incomeCategories}
-          usage={usage.cat}
-          onAdd={(n) => onAddCategory("income", n)}
-          onRename={onRenameCategory}
-          onDelete={onDeleteCategory}
-          onReorder={(names) => onReorderCategories("income", names)}
-        />
-      </CollapsibleCard>
-      <CollapsibleCard title="Data Management">
-        <DataBackupSection transactions={transactions} onRestore={onRestoreTransactions} />
-        <div style={{ borderTop: "1px solid #2a313c", margin: "14px 0" }} />
-        <SnapshotsSection onRestore={onRestoreTransactions} />
-      </CollapsibleCard>
+      {groups.map((g) => (
+        <div key={g.title}>
+          <h3 style={{ ...S.sectionTitle, marginBottom: 8 }}>{g.title}</h3>
+          <div style={S.settingsGroup}>
+            {g.rows.map((r, i) => (
+              <SettingsRow
+                key={r.id}
+                label={r.label}
+                value={r.value}
+                pill={r.pill}
+                dot={r.dot}
+                first={i === 0}
+                onClick={() => setView(r.id)}
+              />
+            ))}
+          </div>
+        </div>
+      ))}
+      <div>
+        <h3 style={{ ...S.sectionTitle, marginBottom: 8 }}>About</h3>
+        <div style={S.settingsGroup}>
+          <SettingsRow label="Version" value={APP_VERSION} chevron={false} first />
+          <SettingsRow label="Sign out" danger chevron={false} onClick={onLogout} />
+        </div>
+      </div>
     </div>
   );
 }
+
 
 // Local, client-side backup of the transaction ledger — downloads a JSON
 // snapshot of everything currently in memory (the same array that feeds
@@ -7977,7 +8163,8 @@ function DataBackupSection({ transactions, onRestore }) {
 
   return (
     <div>
-      <div style={{ ...S.sectionTitle, margin: "0 0 4px", fontSize: 13, fontWeight: 600 }}>Data & Backup</div>
+      {/* No inline title: this section now owns a whole Settings sub-view
+          ("Backup & restore"), which already renders the heading. */}
       <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
         <button type="button" style={S.primaryBtn} onClick={handleBackup}>
           Backup transactions
@@ -8672,6 +8859,19 @@ function buildRow(raw, mapping, profile, accountMap, merchantMemory) {
 // The "uncertain" (review) band's side-by-side compare + confirm button —
 // shared between the desktop table and mobile card layouts of the import
 // preview (ImportTransactions) so the two don't drift out of sync.
+// "today, 8:55 PM" / "yesterday, 7:10 AM" / "Sep 4, 7:10 AM" — the relative
+// timestamp on the Import tab's SimpleFin status card.
+function relativeSyncLabel(ts) {
+  const d = new Date(ts);
+  const time = d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  const iso = localISO(d);
+  if (iso === todayISO()) return `today, ${time}`;
+  const yesterday = new Date();
+  yesterday.setDate(yesterday.getDate() - 1);
+  if (iso === localISO(yesterday)) return `yesterday, ${time}`;
+  return `${d.toLocaleDateString("en-US", { month: "short", day: "numeric" })}, ${time}`;
+}
+
 function ImportDupReviewPanel({ t, match, fmtMoney, hideValues, confirmed, onConfirm }) {
   return (
     <div onClick={(e) => e.stopPropagation()}>
@@ -8862,6 +9062,34 @@ function ImportTransactions({
   // surface "N pending" and let the user pull them into this same preview
   // pipeline instead of (or in addition to) a manual "Sync now".
   const [sfPendingCount, setSfPendingCount] = useState(0);
+
+  // "Last sync" status shown above the Sync now button (v1.75.0). Deliberately
+  // derived from what the client already knows — the sessionStorage SimpleFin
+  // balances cache (written by every loadSfBalances call and by this tab's own
+  // sync via onSfSynced) — instead of a new persisted field or endpoint. When
+  // this session has never seen a sync, the card says "Not synced yet".
+  const [sfStatus, setSfStatus] = useState(() => {
+    const cached = readSfBalancesCache();
+    return { at: cached?.fetchedAt || null, accounts: (cached?.accountBalances || []).length };
+  });
+  // "N new since {1st of the current month}": SimpleFin-sourced rows already in
+  // the ledger, dated this month. Pure client-side count over `transactions`.
+  const sfNewThisMonth = useMemo(() => {
+    const now = new Date();
+    const first = localISO(new Date(now.getFullYear(), now.getMonth(), 1));
+    return transactions.filter((t) => t.source === "sf" && t.date >= first).length;
+  }, [transactions]);
+  const sfStatusSubtitle = useMemo(() => {
+    const parts = [];
+    if (sfStatus.accounts > 0) parts.push(`${sfStatus.accounts} account${sfStatus.accounts === 1 ? "" : "s"}`);
+    if (sfNewThisMonth > 0) {
+      const now = new Date();
+      const firstLabel = new Date(now.getFullYear(), now.getMonth(), 1)
+        .toLocaleDateString("en-US", { month: "short", day: "numeric" });
+      parts.push(`${sfNewThisMonth} new since ${firstLabel}`);
+    }
+    return parts.length ? parts.join(" · ") : "Pull the latest transactions from SimpleFin";
+  }, [sfStatus.accounts, sfNewThisMonth]);
 
   const refreshSfPendingCount = async () => {
     try {
@@ -9262,7 +9490,9 @@ function ImportTransactions({
   };
 
   const methods = [
-    { id: "sf", title: "SimpleFin (auto)", desc: "Pulls transactions from SimpleFin on demand — complements, doesn't replace, the CSV/Credit Karma import." },
+    // No description for SimpleFin: the status card right below already says
+    // everything the old explanatory line did (v1.75.0).
+    { id: "sf", title: "SimpleFin", desc: "" },
     { id: "ck", title: "Credit Karma", desc: "Daily export — auto-mapped, sign preserved." },
     { id: "csv", title: "CSV", desc: "Manual mapping — for backfilling old history." },
   ];
@@ -9316,6 +9546,10 @@ function ImportTransactions({
       // from, so a manual sync surfaces a brand-new account immediately
       // instead of waiting out the cache's TTL.
       onSfSynced?.(data.accountBalances);
+      setSfStatus((prev) => ({
+        at: Date.now(),
+        accounts: Array.isArray(data.accountBalances) ? data.accountBalances.length : prev.accounts,
+      }));
     } catch (err) {
       setError(`Could not reach the sync endpoint: ${err.message}`);
       setSfRows([]);
@@ -9367,59 +9601,67 @@ function ImportTransactions({
             <button
               key={m.id}
               onClick={() => selectMethod(m.id)}
-              style={{ ...S.segmentedBtn(method === m.id), flex: 1, padding: "8px 16px", minHeight: 36, fontSize: 13 }}
+              style={{ ...S.segmentedBtn(method === m.id), flex: 1, padding: "9px 0", minHeight: 40, fontSize: 14, textAlign: "center", whiteSpace: "nowrap" }}
             >
               {m.title}
             </button>
           ))}
         </div>
-        <div style={{ fontSize: 11, color: "#8b94a3", marginTop: 6, lineHeight: 1.35 }}>
-          {methods.find((m) => m.id === method)?.desc}
-        </div>
+        {methods.find((m) => m.id === method)?.desc ? (
+          <div style={{ fontSize: 11, color: "#8b94a3", marginTop: 6, lineHeight: 1.35 }}>
+            {methods.find((m) => m.id === method)?.desc}
+          </div>
+        ) : null}
       </div>
 
-      {/* SimpleFin: no file to drag, so this is a slim control bar, not the
-          CSV dropzone below — the big dashed drop target only makes sense
-          where there's something to drop. */}
+      {/* SimpleFin: no file to drag, so this is a status card + a full-width
+          "Sync now" CTA, not the CSV dropzone below — the big dashed drop
+          target only makes sense where there's something to drop. */}
       {method === "sf" ? (
-        <div style={{ display: "flex", flexDirection: "column", gap: 8, padding: "10px 14px", borderRadius: 12, background: "#12161c", border: "1px solid #1e2530" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-            <RefreshCw size={16} color="#8b94a3" style={{ flexShrink: 0 }} />
-            <span style={{ fontSize: 13, color: "#cbd5e1", overflowWrap: "anywhere", flex: 1, minWidth: 160 }}>
-              {fileName || "Pull the latest transactions from SimpleFin"}
-            </span>
-            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-              {sfPendingCount > 0 ? (
-                <button
-                  onClick={loadSimpleFinPending}
-                  disabled={sfLoading}
-                  style={{ ...S.primaryBtn, opacity: sfLoading ? 0.6 : 1, cursor: sfLoading ? "not-allowed" : "pointer", padding: "7px 16px", minHeight: 32, fontSize: 13 }}
-                >
-                  {sfLoading ? "Loading…" : `Review ${sfPendingCount} pending`}
-                </button>
-              ) : null}
-              <button
-                onClick={syncSimpleFin}
-                disabled={sfLoading}
-                style={{
-                  ...(sfPendingCount > 0 ? S.secondaryBtn : S.primaryBtn),
-                  opacity: sfLoading ? 0.6 : 1,
-                  cursor: sfLoading ? "not-allowed" : "pointer",
-                  padding: "7px 16px",
-                  minHeight: 32,
-                  fontSize: 13,
-                }}
-              >
-                {sfLoading ? "Syncing…" : "Sync now"}
-              </button>
+        <>
+          <div style={{ ...S.card, display: "flex", flexDirection: "column", gap: 12 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+              <span style={S.sfStatusTile}><RefreshCw size={18} color="#93c5fd" /></span>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 15, fontWeight: 600, color: "#e5e7eb", overflowWrap: "anywhere" }}>
+                  {sfStatus.at ? `Last sync ${relativeSyncLabel(sfStatus.at)}` : "Not synced yet"}
+                </div>
+                <div style={{ fontSize: 12, color: "#8b94a3", marginTop: 2, overflowWrap: "anywhere" }}>
+                  {sfStatusSubtitle}
+                </div>
+              </div>
             </div>
+            <button
+              onClick={syncSimpleFin}
+              disabled={sfLoading}
+              style={{ ...S.primaryBtn, opacity: sfLoading ? 0.6 : 1, cursor: sfLoading ? "not-allowed" : "pointer" }}
+            >
+              {sfLoading ? "Syncing…" : "Sync now"}
+            </button>
+            {fileName ? (
+              <div style={{ fontSize: 12, color: "#8b94a3", overflowWrap: "anywhere" }}>{fileName}</div>
+            ) : null}
           </div>
           {sfPendingCount > 0 ? (
-            <div style={{ fontSize: 12, color: "#fbbf24", background: "#241d0f", border: "1px solid #4a3a12", borderRadius: 10, padding: "6px 10px", lineHeight: 1.4 }}>
-              {sfPendingCount} transaction{sfPendingCount === 1 ? "" : "s"} from SimpleFin (daily auto-sync) pending review.
-            </div>
+            <button
+              type="button"
+              onClick={loadSimpleFinPending}
+              disabled={sfLoading}
+              style={{ ...S.cardRowBtn, opacity: sfLoading ? 0.6 : 1, cursor: sfLoading ? "not-allowed" : "pointer" }}
+            >
+              <span style={{ flex: 1, minWidth: 0 }}>
+                <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <span style={{ fontSize: 15, fontWeight: 600, color: "#e5e7eb" }}>Pending review</span>
+                  <span style={S.sfPendingPill}>{sfPendingCount}</span>
+                </span>
+                <span style={{ display: "block", fontSize: 12, color: "#8b94a3", marginTop: 2 }}>
+                  {sfLoading ? "Loading…" : "Possible duplicates and unmapped accounts"}
+                </span>
+              </span>
+              <ChevronRight size={18} color="#636366" />
+            </button>
           ) : null}
-        </div>
+        </>
       ) : (
         <label
           onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
@@ -10201,6 +10443,99 @@ const S = {
     boxShadow: "0 2px 12px rgba(0,0,0,0.28)",
   },
   sectionTitle: { margin: "4px 0 0", fontSize: 10, color: "#8b94a3", fontWeight: 700, textTransform: "uppercase", letterSpacing: 1 },
+  // --- Settings tab: iOS-style grouped list + sub-view chrome (v1.75.0) ---
+  // One card per group, rows separated by hairlines instead of one card per
+  // section (the old CollapsibleCard stack).
+  settingsGroup: {
+    background: "rgba(22,26,32,0.7)",
+    border: "1px solid rgba(255,255,255,0.08)",
+    borderRadius: 14,
+    overflow: "hidden",
+    backdropFilter: "blur(16px) saturate(160%)",
+    WebkitBackdropFilter: "blur(16px) saturate(160%)",
+    boxShadow: "0 2px 12px rgba(0,0,0,0.28)",
+  },
+  settingsRow: {
+    display: "flex",
+    alignItems: "center",
+    gap: 8,
+    width: "100%",
+    minHeight: 44,
+    padding: "13px 16px",
+    background: "transparent",
+    border: "none",
+    textAlign: "left",
+    boxSizing: "border-box",
+  },
+  settingsRowSep: { borderTop: "1px solid rgba(255,255,255,0.06)" },
+  settingsRowLabel: { fontSize: 15, color: "#e5e7eb", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
+  settingsRowValue: { fontSize: 14, color: "#8b94a3", fontVariantNumeric: "tabular-nums" },
+  settingsRowPill: {
+    fontSize: 11,
+    fontWeight: 700,
+    color: "#0A84FF",
+    background: "rgba(10,132,255,0.16)",
+    borderRadius: 999,
+    padding: "2px 8px",
+    whiteSpace: "nowrap",
+  },
+  // Same colour as tabBadgeDot: this is the row the TabBar's "new SimpleFin
+  // accounts" badge is pointing at.
+  settingsRowDot: {
+    width: 7,
+    height: 7,
+    borderRadius: "50%",
+    background: "#f87171",
+    flexShrink: 0,
+  },
+  settingsBackBtn: {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 2,
+    alignSelf: "flex-start",
+    minHeight: 44,
+    padding: "0 8px 0 0",
+    background: "transparent",
+    border: "none",
+    color: "#0A84FF",
+    fontSize: 15,
+    cursor: "pointer",
+  },
+  // --- Import tab: SimpleFin status card (v1.75.0) ---
+  sfStatusTile: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    background: "rgba(10,132,255,0.16)",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    flexShrink: 0,
+  },
+  sfPendingPill: {
+    fontSize: 11,
+    fontWeight: 700,
+    color: "#fbbf24",
+    background: "rgba(251,191,36,0.14)",
+    borderRadius: 999,
+    padding: "2px 8px",
+    whiteSpace: "nowrap",
+  },
+  // Tappable card-row (Import's "Pending review"): title + subtitle + chevron.
+  cardRowBtn: {
+    display: "flex",
+    alignItems: "center",
+    gap: 12,
+    width: "100%",
+    minHeight: 44,
+    padding: "12px 16px",
+    background: "rgba(22,26,32,0.7)",
+    border: "1px solid rgba(255,255,255,0.08)",
+    borderRadius: 14,
+    textAlign: "left",
+    cursor: "pointer",
+    boxSizing: "border-box",
+  },
   list: { display: "flex", flexDirection: "column", gap: 8 },
   txnRow: {
     display: "flex",
