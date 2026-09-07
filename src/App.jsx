@@ -707,7 +707,7 @@ function idleExpired() {
 // path, so the pending copy is discarded with a notice instead).
 
 // Single source for the version shown in the header and in diagnostics.
-const APP_VERSION = "v1.71.0";
+const APP_VERSION = "v1.72.0";
 
 const PENDING_SAVE_KEY = "household_pending_save";
 
@@ -8856,7 +8856,18 @@ function ImportTransactions({
   // Header-column filters for the desktop preview table, same shape/behavior
   // as the Transactions tab's HeaderFilter/DateHeaderFilter (multi-select for
   // account/category, year/month tree + from/to range for date). Filtering
-  // only — never changes what's checked for import.
+  // only — never changes what's checked for import — EXCEPT `importAcctFilter`
+  // (see below), which is deliberately the one exception to that rule.
+  //
+  // `importAcctFilter` doubles as the "import only these accounts" scope: it
+  // filters the on-screen preview like the others, but it ALSO restricts what
+  // confirm() actually imports (via matchesImportAccountScope, near
+  // matchesImportHeaderFilters below) and what selectedCount/dupSelectedCount
+  // report. This is intentional — Credit Karma exports every linked account
+  // in one file, and this filter is how a user reviews/imports one account at
+  // a time without having to review the whole batch first. Do NOT "fix" this
+  // back to view-only; that would silently reintroduce importing accounts the
+  // user explicitly scoped out.
   const [importAcctFilter, setImportAcctFilter] = useState([]);
   const [importCatFilter, setImportCatFilter] = useState([]);
   const [importBadgeFilter, setImportBadgeFilter] = useState([]);
@@ -8997,6 +9008,15 @@ function ImportTransactions({
     return true;
   };
 
+  // Unlike matchesImportHeaderFilters above (purely cosmetic — what's shown
+  // in the preview), this predicate is what actually restricts confirm() to
+  // the account(s) the user picked in importAcctFilter. Kept separate/named
+  // rather than folded into matchesImportHeaderFilters so it's obvious at
+  // every call site that this one has teeth — see the comment on
+  // importAcctFilter's declaration above for why.
+  const matchesImportAccountScope = (t) =>
+    importAcctFilter.length === 0 || importAcctFilter.includes(t.account || "Unassigned");
+
   // Filtered + sorted preview list (Fase 2 of the categorization-memory
   // work: hoisted out of the render IIFE it used to live in, so both the
   // render AND the header's "learned" count / bulk-confirm button can share
@@ -9058,23 +9078,32 @@ function ImportTransactions({
 
   const setColumn = (key, col) => setMapping((prev) => ({ ...prev, [key]: col }));
 
-  const selectedCount = selected.size;
-  // How many CERTAIN duplicates are currently checked. Normally 0 (they start
-  // unchecked), but "Select all" or a manual tick puts them back in — and the
-  // summary used to keep claiming they were "auto-unchecked" regardless, so
-  // the user could import a batch believing the duplicates had been excluded.
+  // Checked rows that are also within the current account-import scope (see
+  // matchesImportAccountScope) — this is what actually gets imported, so the
+  // count shown to the user must match it, not the raw checkbox tally.
+  const selectedCount = useMemo(
+    () => dedupedRows.reduce((n, r) => n + (selected.has(r.id) && matchesImportAccountScope(r) ? 1 : 0), 0),
+    [dedupedRows, selected, importAcctFilter]
+  );
+  // How many CERTAIN duplicates are currently checked AND in-scope. Normally 0
+  // (they start unchecked), but "Select all" or a manual tick puts them back
+  // in — and the summary used to keep claiming they were "auto-unchecked"
+  // regardless, so the user could import a batch believing the duplicates had
+  // been excluded.
   const dupSelectedCount = useMemo(
-    () => dedupedRows.reduce((n, r) => n + (r._dupState === "certain" && selected.has(r.id) ? 1 : 0), 0),
-    [dedupedRows, selected]
+    () => dedupedRows.reduce((n, r) => n + (r._dupState === "certain" && selected.has(r.id) && matchesImportAccountScope(r) ? 1 : 0), 0),
+    [dedupedRows, selected, importAcctFilter]
   );
   const confirm = () => {
     if (selectedCount === 0 || missingRequired.length > 0) return;
     // `raw` (added for the read-only Preview tab / SimpleFin field
     // inspection) must never reach the ledger — it can carry arbitrary,
     // institution-specific blobs that have nothing to do with the fixed
-    // transaction shape.
+    // transaction shape. The account-scope check is what makes
+    // importAcctFilter actually restrict the import, not just the preview —
+    // see the comment on its declaration above.
     const toImport = displayRows
-      .filter((r) => selected.has(r.id))
+      .filter((r) => selected.has(r.id) && matchesImportAccountScope(r))
       .map(({ _dup, _dupState, _dupScore, _dupReasons, _dupMatch, _dupNearMiss, raw, ...t }) => t);
     onImport(toImport);
     setDone(`Imported ${toImport.length} transactions${dupCount ? ` · ${dupCount} duplicate(s) detected` : ""}.`);
@@ -9326,6 +9355,15 @@ function ImportTransactions({
             </span>
             <button onClick={selectAll} style={S.linkBtn}>Select all</button>
             <button onClick={selectNone} style={S.linkBtn}>Deselect all</button>
+            {/* Mobile-only account chip — desktop gets the same filter as a
+                column-header dropdown in the table (see the `wide` branch
+                below). Only worth showing when the batch actually spans more
+                than one account. This is the one import filter that also
+                narrows what confirm() imports — see importAcctFilter's
+                declaration above. */}
+            {!wide && importAcctOptions.length > 1 ? (
+              <HeaderFilter chip label="Account" value={importAcctFilter} options={importAcctOptions} onChange={setImportAcctFilter} />
+            ) : null}
             {dupCount || reviewCount ? (
               <div style={S.segmented}>
                 {DUP_FILTERS.map(({ v, l }) => (

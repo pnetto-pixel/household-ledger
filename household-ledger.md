@@ -1,4 +1,4 @@
-# Household Ledger · v1.71.0
+# Household Ledger · v1.72.0
 
 Aplicativo mobile-first de controle financeiro doméstico. Registra
 transações da casa (despesas e receitas) por categoria e conta, com
@@ -31,7 +31,17 @@ O `feature-auditor` deve conferir, como parte da checklist de auditoria, que
 o diff inclui o bump nos dois arquivos antes de aprovar — se faltar, isso é
 motivo de reprovação (devolver ao coder), não um detalhe opcional.
 
-Versão atual: **v1.71.0** (PR #267, squash-merge) — a classificação automática (rule-based e
+Versão atual: **v1.72.0** — o filtro de conta do import (`importAcctFilter`,
+Import tab) agora restringe de fato o que `confirm()` importa, não só o que é
+exibido na prévia: um chip "Account" (mesmo padrão chip+Popover da tab
+Transactions) foi adicionado ao layout mobile do import (só aparece quando o
+lote tem mais de uma conta) e `selectedCount`/`dupSelectedCount`/o label do
+botão "Import N transactions" passaram a contar só linhas dentro do escopo de
+conta selecionado, via novo predicado `matchesImportAccountScope`
+(`src/App.jsx`). Os demais filtros do preview de import (categoria, status,
+data) continuam só visuais. Filtro efêmero, sem persistência.
+
+Versão anterior: **v1.71.0** (PR #267, squash-merge) — a classificação automática (rule-based e
 merchant-memory) agora pode sugerir "Transfer" como categoria, o que antes
 era estruturalmente impossível: (1) `isMemoryTrainableRow` (`src/ledger.js`)
 não exclui mais linhas `Transfer` do treinamento da memória de comerciantes
