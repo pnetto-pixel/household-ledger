@@ -2128,7 +2128,7 @@ export default function App() {
         {loading ? (
           <div style={S.center}>Loading…</div>
         ) : tab === "home" ? (
-          <Dashboard transactions={transactions} money={money} hideValues={hideValues} isWide={isWide} budgets={budgets} config={config} accountMap={accountMap} sfBalances={sfBalances} refreshSfBalances={refreshSfBalances} />
+          <Dashboard transactions={transactions} money={money} hideValues={hideValues} isWide={isWide} budgets={budgets} config={config} accountMap={accountMap} sfBalances={sfBalances} refreshSfBalances={refreshSfBalances} onGoToSettings={() => setTab("settings")} />
         ) : tab === "transactions" ? (
           <Transactions
             transactions={transactions}
@@ -2765,15 +2765,12 @@ function SingleCategoryFilter({ value, options, setValue, isWide }) {
 // Dashboard
 // ===========================================================================
 
-function Dashboard({ transactions, money, hideValues, isWide, budgets, config, accountMap, sfBalances, refreshSfBalances }) {
+function Dashboard({ transactions, money, hideValues, isWide, budgets, config, accountMap, sfBalances, refreshSfBalances, onGoToSettings }) {
   // Default the period to the current month.
   const [year, setYear] = useState(() => todayISO().slice(0, 4));
   const [month, setMonth] = useState(() => todayISO().slice(5, 7));
   const [catFilter, setCatFilter] = useState("All");
 
-  const all = useMemo(() => computeTotals(
-    catFilter === "All" ? transactions : transactions.filter((t) => t.category === catFilter)
-  ), [transactions, catFilter]);
   const years = useMemo(() => availableYears(transactions), [transactions]);
   // Bound the native month picker to the range of months with actual data.
   const monthRange = useMemo(() => {
@@ -2845,6 +2842,9 @@ function Dashboard({ transactions, money, hideValues, isWide, budgets, config, a
     const pctExp = (cur, base) => base === 0 ? null : ((-cur - (-base)) / Math.abs(base)) * 100;
     return {
       mm, yy,
+      // No transactions at all in the same period last year → the whole "LY"
+      // row is noise ($0 / —) and gets dropped from the hero (v1.75.0).
+      hasYY: yyTxns.length > 0,
       mmPctExp: pctExp(period.expenses, mm.expenses),
       yyPctExp: pctExp(period.expenses, yy.expenses),
       mmPctInc: pct(period.income, mm.income),
@@ -2853,6 +2853,17 @@ function Dashboard({ transactions, money, hideValues, isWide, budgets, config, a
       yyPctNet: pct(period.net, yy.net),
     };
   }, [transactions, year, month, period, catFilter, cutoffDay]);
+
+  // "day 7 of 30" note in the hero's top-right corner — only meaningful while
+  // the selected month is still running (the current one); a past month is
+  // complete, so the progress marker would be noise.
+  const monthProgress = useMemo(() => {
+    const today = todayISO();
+    if (year === "All" || month === "All") return null;
+    if (year !== today.slice(0, 4) || month !== today.slice(5, 7)) return null;
+    const daysInMonth = new Date(Number(year), Number(month), 0).getDate();
+    return `day ${Number(today.slice(8, 10))} of ${daysInMonth}`;
+  }, [year, month]);
 
   // Expenses by category for the selected period (up to cutoff day).
   const catExpenses = useMemo(() => {
@@ -2991,23 +3002,18 @@ function Dashboard({ transactions, money, hideValues, isWide, budgets, config, a
         previous: d <= daysInPrev ? prevRunning : null,
       });
     }
+    // Month name only ("Sep") — the "/26" suffix repeated on both legend
+    // entries was noise, since the two series are always adjacent months.
     const monthLabel = (key) => {
       const [y, m] = key.split("-").map(Number);
-      return new Date(y, m - 1, 1).toLocaleString("default", { month: "short" }) + "/" + String(y).slice(2);
+      return new Date(y, m - 1, 1).toLocaleString("default", { month: "short" });
     };
-    // End-of-month projection: extrapolate the current cumulative total by
-    // average daily pace so far. Only meaningful when viewing the current
-    // (partial) month — a past month is already complete.
     const isCurrentMonth = curMonthKey === todayMonth;
-    const projectedTotal =
-      isCurrentMonth && todayDay > 0 ? (curRunning / todayDay) * daysInCur : null;
     return {
       data,
       curLabel: monthLabel(curMonthKey),
       prevLabel: monthLabel(prevMonthKey),
       todayDay: isCurrentMonth ? todayDay : null,
-      projectedTotal,
-      prevTotal: prevRunning,
     };
   }, [transactions, year, month, catFilter, paceView]);
 
@@ -3042,16 +3048,21 @@ function Dashboard({ transactions, money, hideValues, isWide, budgets, config, a
           background: period.net >= 0 ? "rgba(52,211,153,0.13)" : "rgba(248,113,113,0.13)",
           borderRadius: "50%", filter: "blur(28px)", pointerEvents: "none",
         }} />
-        <div style={{ fontSize: 10, color: "#8b94a3", fontWeight: 600, letterSpacing: 0.8, textTransform: "uppercase", marginBottom: 6 }}>
-          {label}
+        <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 8, marginBottom: 6 }}>
+          <div style={{ fontSize: 10, color: "#8b94a3", fontWeight: 600, letterSpacing: 0.8, textTransform: "uppercase" }}>
+            {label}
+          </div>
+          {monthProgress && (
+            <div style={{ fontSize: 11, color: "#636366", whiteSpace: "nowrap" }}>{monthProgress}</div>
+          )}
         </div>
         <div style={{ display: "flex", alignItems: "center", gap: 20, marginBottom: 20 }}>
           <div style={{ fontSize: 40, fontWeight: 700, letterSpacing: -1.5, color: periodNetColor, lineHeight: 1.1 }}>
-            {money(period.net)}
+            {moneyShort(period.net)}
           </div>
           {heroComparisons && (
             <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-              {[["LM", heroComparisons.mm.net, heroComparisons.mmPctNet], ["LY", heroComparisons.yy.net, heroComparisons.yyPctNet]].map(([tag, refVal, p]) => {
+              {[["LM", heroComparisons.mm.net, heroComparisons.mmPctNet], ...(heroComparisons.hasYY ? [["LY", heroComparisons.yy.net, heroComparisons.yyPctNet]] : [])].map(([tag, refVal, p]) => {
                 const fmtPct = (v) => v == null ? null : `${v > 0 ? "+" : ""}${v.toFixed(0)}%`;
                 const pctColor = (v) => v == null ? "#6b7280" : v > 0 ? "#34d399" : "#f87171";
                 return (
@@ -3078,10 +3089,10 @@ function Dashboard({ transactions, money, hideValues, isWide, budgets, config, a
                 {i === 1 && <div style={{ width: 1, background: "rgba(255,255,255,0.06)", margin: "0 16px" }} />}
                 <div style={{ flex: 1 }}>
                   <div style={{ fontSize: 10, color: "#8b94a3", fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.5 }}>{lbl}</div>
-                  <div style={{ fontSize: 16, fontWeight: 700, color, marginTop: 3 }}>{money(val)}</div>
+                  <div style={{ fontSize: 16, fontWeight: 700, color, marginTop: 3 }}>{moneyShort(val)}</div>
                   {heroComparisons && (
                     <div style={{ marginTop: 6, display: "flex", flexDirection: "column", gap: 2 }}>
-                      {[["LM", mmVal, mmPct], ["LY", yyVal, yyPct]].map(([tag, refVal, p]) => (
+                      {[["LM", mmVal, mmPct], ...(heroComparisons.hasYY ? [["LY", yyVal, yyPct]] : [])].map(([tag, refVal, p]) => (
                         <div key={tag} style={{ display: "flex", alignItems: "center", gap: 4 }}>
                           <span style={{ fontSize: 9, color: "#6b7280", fontWeight: 600, minWidth: 14 }}>{tag}</span>
                           <span style={{ fontSize: 10, color: "#6b7280" }}>{hideValues ? "•••••" : usd0.format(refVal || 0)}</span>
@@ -3103,12 +3114,12 @@ function Dashboard({ transactions, money, hideValues, isWide, budgets, config, a
       {year !== "All" && month !== "All" && (
         <>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-            <h3 style={S.sectionTitle}>{label} — by Category</h3>
-            <div style={{ display: "flex", gap: 4 }}>
-              <button onClick={() => setCatView("list")} style={S.togglePill(catView === "list")}>
+            <h3 style={S.sectionTitle}>By Category</h3>
+            <div style={S.segmented}>
+              <button onClick={() => setCatView("list")} style={S.segmentedBtn(catView === "list")}>
                 List
               </button>
-              <button onClick={() => setCatView("map")} style={S.togglePill(catView === "map")}>
+              <button onClick={() => setCatView("map")} style={S.segmentedBtn(catView === "map")}>
                 Map
               </button>
             </div>
@@ -3131,25 +3142,31 @@ function Dashboard({ transactions, money, hideValues, isWide, budgets, config, a
                   }}>
                     {/* Category avatar */}
                     <CategoryAvatar cat={cat} size={34} />
-                    {/* Name + badges */}
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontSize: 14, color: "#e5e7eb", fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    {/* Name + variation pills, on one line (v1.75.0) */}
+                    <div style={{ flex: 1, minWidth: 0, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                      <span style={{ fontSize: 15, color: "#e5e7eb", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                         {cat}
-                      </div>
-                      <div style={{ display: "flex", gap: 5, marginTop: 4, flexWrap: "wrap" }}>
-                        <ChangeBadge label="M/M" pct={changes.mm} hideValues={hideValues} />
-                        <ChangeBadge label="Y/Y" pct={changes.yy} hideValues={hideValues} />
-                        <AnomalyBadge total={total} avg12m={changes.avg12m} hideValues={hideValues} />
-                      </div>
+                      </span>
+                      {/* M/M is the default comparison, so its pill carries no
+                          label; the Y/Y pill only shows up when there IS data
+                          for the same period a year back, and is labelled so
+                          the two can't be confused. With neither comparison
+                          available the row shows no pill at all instead of a
+                          bare "—". */}
+                      {(changes.mm != null || changes.yy != null) && (
+                        <ChangeBadge label={changes.yy == null ? "" : "M/M"} pct={changes.mm} hideValues={hideValues} />
+                      )}
+                      {changes.yy != null && <ChangeBadge label="Y/Y" pct={changes.yy} hideValues={hideValues} />}
+                      <AnomalyBadge total={total} avg12m={changes.avg12m} hideValues={hideValues} />
                     </div>
                     {/* Amount + reference totals */}
                     <div style={{ textAlign: "right", whiteSpace: "nowrap" }}>
-                      <div style={{ fontWeight: 700, fontSize: 14, color: total < 0 ? "#f87171" : "#34d399" }}>
+                      <div style={{ fontWeight: 700, fontSize: 15, color: total < 0 ? "#f87171" : "#34d399" }}>
                         {moneyShort(total)}
                       </div>
                       {changes.avg12m != null && (
-                        <div style={{ fontSize: 10, color: "#6b7280", marginTop: 2, textAlign: "right" }}>
-                          avg 12m {moneyShort(changes.avg12m)}
+                        <div style={{ fontSize: 11, color: "#636366", marginTop: 2, textAlign: "right" }}>
+                          avg {moneyShort(Math.abs(changes.avg12m))}
                         </div>
                       )}
                     </div>
@@ -3161,7 +3178,7 @@ function Dashboard({ transactions, money, hideValues, isWide, budgets, config, a
         </>
       )}
 
-      <AccountBalancesCard money={money} hideValues={hideValues} accountTypeOverrides={config?.accountTypeOverrides} accountMap={accountMap} sfBalances={sfBalances} refreshSfBalances={refreshSfBalances} />
+      <AccountBalancesCard money={money} hideValues={hideValues} accountTypeOverrides={config?.accountTypeOverrides} accountMap={accountMap} sfBalances={sfBalances} refreshSfBalances={refreshSfBalances} onGoToSettings={onGoToSettings} />
 
       {/* Budgets — bullet bars for the selected month (set in Settings) */}
       {year !== "All" && month !== "All" && (
@@ -3175,14 +3192,6 @@ function Dashboard({ transactions, money, hideValues, isWide, budgets, config, a
           hideValues={hideValues}
         />
       )}
-
-      {/* All Time chips — moved to end of page */}
-      <h3 style={S.sectionTitle}>All Time</h3>
-      <div style={S.cardRow}>
-        <StatCard label="Income" value={moneyShort(all.income)} accent="#34d399" small />
-        <StatCard label="Expenses" value={moneyShort(all.expenses)} accent="#f87171" small />
-        <StatCard label="Net" value={moneyShort(all.net)} accent={all.net >= 0 ? "#34d399" : "#f87171"} small />
-      </div>
     </div>
   );
 }
@@ -3196,7 +3205,7 @@ function Dashboard({ transactions, money, hideValues, isWide, budgets, config, a
 // re-hitting GET /api/simplefin-sync every time the user came back to Home.
 // The manual refresh button bypasses the 5-min sessionStorage cache
 // (loadSfBalances/readSfBalancesCache above) with `{ force: true }`.
-function AccountBalancesCard({ money, hideValues, accountTypeOverrides, accountMap, sfBalances, refreshSfBalances }) {
+function AccountBalancesCard({ money, hideValues, accountTypeOverrides, accountMap, sfBalances, refreshSfBalances, onGoToSettings }) {
   const state = sfBalances;
   const [view, setView] = useState("credit"); // "credit" | "accounts"
   const [refreshing, setRefreshing] = useState(false);
@@ -3320,6 +3329,33 @@ function AccountBalancesCard({ money, hideValues, accountTypeOverrides, accountM
     );
   };
 
+  // Nothing linked yet: a refresh button and a Credit Cards / Accounts
+  // switch over an empty list are dead controls — show the setup pointer
+  // only (v1.75.0). Still gated on a settled fetch so the card doesn't
+  // flash "not set up" while the first request is in flight.
+  const notLinked =
+    (state.status === "ready" && state.accountBalances.length === 0) ||
+    (state.status === "error" && state.notConfigured);
+
+  if (notLinked) {
+    return (
+      <div style={S.col}>
+        <h3 style={{ ...S.sectionTitle, marginBottom: 0 }}>Account Balances</h3>
+        <div style={{ ...S.card, padding: "18px 16px", textAlign: "center" }}>
+          <div style={{ fontSize: 14, color: "#8b94a3" }}>No SimpleFin accounts yet.</div>
+          {onGoToSettings && (
+            <button
+              onClick={onGoToSettings}
+              style={{ ...S.linkBtn, fontSize: 13, marginTop: 8, minHeight: 44, padding: "0 8px" }}
+            >
+              Set up in Settings
+            </button>
+          )}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div style={S.col}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
@@ -3376,17 +3412,6 @@ function AccountBalancesCard({ money, hideValues, accountTypeOverrides, accountM
           )}
         </div>
       )}
-    </div>
-  );
-}
-
-function StatCard({ label, value, accent, small }) {
-  return (
-    <div style={{ ...S.card, flex: 1, minWidth: 0, padding: 12, borderLeft: `3px solid ${accent || "#0A84FF"}`, paddingLeft: 12 }}>
-      <div style={{ color: "#8b94a3", fontSize: 10, fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.4 }}>{label}</div>
-      <div style={{ color: accent || "#e5e7eb", fontWeight: 700, fontSize: small ? 16 : 26, marginTop: 3, letterSpacing: -0.5, whiteSpace: "nowrap" }}>
-        {value}
-      </div>
     </div>
   );
 }
@@ -3726,6 +3751,8 @@ function AnomalyBadge({ total, avg12m, hideValues }) {
 // Inline badge showing M/M or Y/Y percentage change for an expense category.
 // For expenses: a rise in spending is bad (red), a drop is good (green).
 // pct = null means no comparison data; pct = 0 is a real 0 % change.
+// An empty `label` renders the bare percentage (Home "By category", where
+// M/M is the implicit default comparison).
 function ChangeBadge({ label, pct, hideValues }) {
   if (hideValues) return null;
   const noData = pct === null || pct === undefined;
@@ -3743,7 +3770,8 @@ function ChangeBadge({ label, pct, hideValues }) {
     : pct < 0
     ? "rgba(52,211,153,0.1)"
     : "rgba(139,148,163,0.1)";
-  const text = noData ? `${label} —` : `${label} ${pct > 0 ? "+" : ""}${Math.round(pct)}%`;
+  const prefix = label ? `${label} ` : "";
+  const text = noData ? `${prefix}—` : `${prefix}${pct > 0 ? "+" : ""}${Math.round(pct)}%`;
   return (
     <span style={{
       display: "inline-flex",
@@ -3766,13 +3794,14 @@ function ChangeBadge({ label, pct, hideValues }) {
 // MonthlyBarCard — Income or Expense bars per bucket, with toggle
 // ===========================================================================
 
-function MonthlyBarCard({ byBucket, hideValues, fmtK, fmtKTooltip, fmtBucketLabel, granularity }) {
+function MonthlyBarCard({ byBucket, hideValues, fmtK, fmtKTooltip, fmtBucketLabel, granularity, isWide }) {
   const [view, setView] = useState("expense");
 
   const isInc = view === "income";
   const isNet = view === "net";
   const dataKey = isNet ? "net" : isInc ? "income" : "expenses";
-  const barColor = isNet ? "#34d399" : isInc ? "#06B6D4" : "#F97316";
+  // Semantic palette (v1.75.0): income green, expenses red, net blue.
+  const barColor = isNet ? "#0A84FF" : isInc ? "#34d399" : "#f87171";
   const cardTitle = isNet ? "Net" : isInc ? "Income" : "Expense";
   const axisFmt = isNet ? (fmtKTooltip || fmtK) : fmtK;
 
@@ -3846,7 +3875,7 @@ function MonthlyBarCard({ byBucket, hideValues, fmtK, fmtKTooltip, fmtBucketLabe
           <ResponsiveContainer width="100%" height="100%">
             <ComposedChart data={chartData} margin={{ top: 24, right: 16, left: 0, bottom: 0 }}>
               <CartesianGrid vertical={false} stroke="rgba(255,255,255,0.05)" />
-              <XAxis dataKey="bucket" tick={{ fill: "#6b7280", fontSize: 10 }} tickLine={false} axisLine={false} tickFormatter={fmtBucketLabel} />
+              <XAxis dataKey="bucket" tick={{ fill: "#6b7280", fontSize: 10 }} tickLine={false} axisLine={false} {...bucketAxisProps(chartData.map((r) => r.bucket), granularity, !isWide)} />
               <YAxis tick={{ fill: "#6b7280", fontSize: 10 }} tickLine={false} axisLine={false} tickFormatter={axisFmt} width={56} />
               {!hideValues && (
                 <Tooltip
@@ -3855,7 +3884,7 @@ function MonthlyBarCard({ byBucket, hideValues, fmtK, fmtKTooltip, fmtBucketLabe
                   content={<ChartTooltip fmtValue={fmtKTooltip || fmtK} formatLabel={fmtBucketLabel} />}
                 />
               )}
-              <Bar dataKey={dataKey} name={isNet ? "Net" : isInc ? "Income" : "Expenses"} fill={barColor} radius={[4, 4, 0, 0]} activeBar={{ fill: barColor, opacity: 0.75 }}>
+              <Bar dataKey={dataKey} name={isNet ? "Net" : isInc ? "Income" : "Expenses"} fill={barColor} radius={[4, 4, 0, 0]} activeBar={isNet ? { opacity: 0.75 } : { fill: barColor, opacity: 0.75 }}>
                 {isNet &&
                   chartData.map((row, i) => (
                     <Cell key={`net-cell-${i}`} fill={row.net >= 0 ? "#34d399" : "#f87171"} />
@@ -3910,6 +3939,34 @@ function MonthlyBarCard({ byBucket, hideValues, fmtK, fmtKTooltip, fmtBucketLabe
 // ---------------------------------------------------------------------------
 
 // bucketKey / bucketLabel now live in src/ledger.js (imported above).
+
+// X-axis tick config for the bucketed Trends charts. On a phone, a monthly
+// axis printed as "Feb/26Mar/26Apr/26…" collides into a gray smear, so on
+// narrow viewports we (a) thin the ticks out to at most ~6 and (b) drop the
+// repeated "/YY" suffix, printing the year once — on the last visible tick
+// of each year, which doubles as the boundary marker between years.
+// Returns props to spread onto <XAxis>; wide viewports keep the full labels.
+function bucketAxisProps(buckets, granularity, narrow) {
+  if (!narrow || granularity === "Y" || buckets.length === 0) {
+    return { interval: "preserveStartEnd", tickFormatter: bucketLabel };
+  }
+  const step = Math.max(1, Math.ceil(buckets.length / 6));
+  const yearMark = new Map(); // year → index of its last visible tick
+  const idxOf = new Map();
+  buckets.forEach((bk, i) => {
+    idxOf.set(bk, i);
+    if (i % step !== 0) return;
+    yearMark.set(String(bk).slice(0, 4), i);
+  });
+  return {
+    interval: step - 1,
+    tickFormatter: (bk) => {
+      const year = String(bk).slice(0, 4);
+      if (yearMark.get(year) === idxOf.get(bk)) return `'${year.slice(2)}`;
+      return String(bucketLabel(bk)).split("/")[0];
+    },
+  };
+}
 
 // ===========================================================================
 // ChartTooltip — shared tooltip for every Trends chart: sorts series highest
@@ -3981,32 +4038,34 @@ function DailyPaceCard({ paceData, hideValues, fmtK, paceView, setPaceView }) {
   }, []);
 
   if (!paceData || paceData.data.length === 0) return null;
-  const { data, curLabel, prevLabel, todayDay, projectedTotal, prevTotal } = paceData;
+  const { data, curLabel, prevLabel, todayDay } = paceData;
   const isInc = paceView === "income";
   const curColor = isInc ? "#06B6D4" : "#F97316";
-  // Projection vs last month: for expenses, tracking higher is bad (red);
-  // for income, higher is good (green).
-  const projColor =
-    projectedTotal == null || !prevTotal
-      ? "#8b94a3"
-      : (projectedTotal > prevTotal) === isInc
-      ? "#34d399"
-      : "#f87171";
+  // Cumulative total at the "Today" marker — replaces the old end-of-month
+  // projection line, which took a full row for a guess (v1.75.0).
+  const todayTotal =
+    todayDay == null ? null : data.find((d) => d.day === todayDay)?.current ?? null;
+  const todayLabel =
+    todayTotal != null && !hideValues ? `Today · ${fmtK(todayTotal)}` : "Today";
+  // Keep the (now wider) label inside the plot area: it sits to the right of
+  // the marker for most of the month, and flips to its left near month end.
+  const todayLabelPos =
+    todayDay != null && todayDay / data.length > 0.6 ? "insideTopRight" : "insideTopLeft";
 
   return (
     <>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
         <h3 style={S.sectionTitle}>Daily Spending Pace</h3>
-        <div style={{ display: "flex", gap: 4 }}>
+        <div style={S.segmented}>
           <button
             onClick={() => setPaceView("expense")}
-            style={S.togglePill(paceView === "expense")}
+            style={S.segmentedBtn(paceView === "expense")}
           >
             Expense
           </button>
           <button
             onClick={() => setPaceView("income")}
-            style={S.togglePill(paceView === "income")}
+            style={S.segmentedBtn(paceView === "income")}
           >
             Income
           </button>
@@ -4024,13 +4083,6 @@ function DailyPaceCard({ paceData, hideValues, fmtK, paceView, setPaceView }) {
             {prevLabel}
           </span>
         </div>
-        {projectedTotal != null && !hideValues && (
-          <div style={{ textAlign: "center", fontSize: 11, color: "#8b94a3", paddingTop: 6 }}>
-            Projected {curLabel}:{" "}
-            <span style={{ fontWeight: 700, color: projColor }}>{fmtK(projectedTotal)}</span>
-            {prevTotal > 0 && <> · {prevLabel}: {fmtK(prevTotal)}</>}
-          </div>
-        )}
         <div style={{ height: 220 }}>
           {ready && (
           <ResponsiveContainer width="100%" height="100%">
@@ -4075,7 +4127,7 @@ function DailyPaceCard({ paceData, hideValues, fmtK, paceView, setPaceView }) {
                   x={todayDay}
                   stroke="rgba(255,255,255,0.18)"
                   strokeDasharray="3 3"
-                  label={{ value: "Today", fill: "#6b7280", fontSize: 9, position: "insideTopRight" }}
+                  label={{ value: todayLabel, fill: "#8b94a3", fontSize: 10, position: todayLabelPos }}
                 />
               )}
               <Area
@@ -4112,7 +4164,7 @@ function DailyPaceCard({ paceData, hideValues, fmtK, paceView, setPaceView }) {
 // CategoryStackedBarCard — stacked bar chart of expenses by category
 // ===========================================================================
 
-function CategoryStackedBarCard({ scoped, granularity, hideValues, fmtK, fmtKFull }) {
+function CategoryStackedBarCard({ scoped, granularity, hideValues, fmtK, fmtKFull, isWide }) {
   const [mode, setMode] = useState("expense");
 
   const { rows, cats } = useMemo(() => {
@@ -4187,10 +4239,10 @@ function CategoryStackedBarCard({ scoped, granularity, hideValues, fmtK, fmtKFul
             <CartesianGrid vertical={false} stroke="rgba(255,255,255,0.05)" />
             <XAxis
               dataKey="bucket"
-              tickFormatter={bk => bucketLabel(bk)}
               tick={{ fill: "#6b7280", fontSize: 10 }}
               tickLine={false}
               axisLine={false}
+              {...bucketAxisProps(rows.map((r) => r.bucket), granularity, !isWide)}
             />
             <YAxis
               tickFormatter={hideValues ? () => "" : fmtK}
@@ -4261,7 +4313,7 @@ function CategoryStackedBarCard({ scoped, granularity, hideValues, fmtK, fmtKFul
 // of the bucket (highest to lowest), not raw dollar amounts.
 // ===========================================================================
 
-function CompositionEvolutionCard({ scoped, granularity, hideValues }) {
+function CompositionEvolutionCard({ scoped, granularity, hideValues, isWide }) {
   const [mode, setMode] = useState("expense");
 
   const { rows, cats } = useMemo(() => {
@@ -4331,10 +4383,10 @@ function CompositionEvolutionCard({ scoped, granularity, hideValues }) {
             <CartesianGrid vertical={false} stroke="rgba(255,255,255,0.05)" />
             <XAxis
               dataKey="bucket"
-              tickFormatter={(bk) => bucketLabel(bk)}
               tick={{ fill: "#6b7280", fontSize: 10 }}
               tickLine={false}
               axisLine={false}
+              {...bucketAxisProps(rows.map((r) => r.bucket), granularity, !isWide)}
             />
             <YAxis
               tickFormatter={(v) => (hideValues ? "" : `${Math.round(v * 100)}%`)}
@@ -4696,6 +4748,12 @@ function Charts({ transactions, hideValues, config, isWide }) {
 
   const [granularity, setGranularity] = useState("M");
 
+  // Year-range picker: a single chip in the controls bar opens a popover with
+  // the presets + the drag slider (v1.75.0), instead of spending a whole row
+  // on an always-visible segmented control and track.
+  const [rangeOpen, setRangeOpen] = useState(false);
+  const rangeAnchorRef = useRef(null);
+
   // Category filter: multi-select across expense + income categories (Transfer
   // is never a selectable option — it's always excluded from charts). Empty
   // array = no filter applied (all categories), matching prior behavior.
@@ -4736,7 +4794,7 @@ function Charts({ transactions, hideValues, config, isWide }) {
 
   const rangePresets = [
     { v: "all", l: "All", from: oldestYear, to: newestYear },
-    { v: "l3y", l: "L3Y", from: l3yFrom, to: currentYear },
+    { v: "l3y", l: "Last 3 years", from: l3yFrom, to: currentYear },
     { v: "ytd", l: "YTD", from: currentYear, to: currentYear },
   ];
   const activePreset = rangePresets.find((p) => p.from === fromYearEff && p.to === toYearEff)?.v;
@@ -4829,22 +4887,12 @@ function Charts({ transactions, hideValues, config, isWide }) {
   );
 
   const granularitySwitch = (
-    <div style={{ display: "flex", gap: 2, background: "#0f1216", border: "1px solid #232a33", borderRadius: 10, padding: 3 }}>
+    <div style={S.segmented}>
       {GRANULARITIES.map(({ v, l }) => (
         <button
           key={v}
           onClick={() => setGranularity(v)}
-          style={{
-            background: granularity === v ? "#0A84FF" : "transparent",
-            border: "none",
-            color: granularity === v ? "#fff" : "#8b94a3",
-            borderRadius: 7,
-            padding: "3px 10px",
-            fontSize: 12,
-            fontWeight: granularity === v ? 700 : 400,
-            cursor: "pointer",
-            transition: "background 0.15s, color 0.15s",
-          }}
+          style={{ ...S.segmentedBtn(granularity === v), padding: "5px 9px" }}
         >
           {l}
         </button>
@@ -4852,40 +4900,60 @@ function Charts({ transactions, hideValues, config, isWide }) {
     </div>
   );
 
-  const rangePresetsSwitch = (
-    <div style={S.segmented}>
-      {rangePresets.map(({ v, l, from, to }) => (
-        <button
-          key={v}
-          onClick={() => applyYearRange(from, to)}
-          style={S.segmentedBtn(activePreset === v)}
-        >
-          {l}
-        </button>
-      ))}
-    </div>
-  );
+  // Chip label mirrors the active choice: a preset name when the range still
+  // matches one, otherwise the literal span the slider was dragged to.
+  const periodChipLabel =
+    activePreset === "all"
+      ? "All years"
+      : activePreset === "l3y"
+      ? "Last 3 years"
+      : activePreset === "ytd"
+      ? "YTD"
+      : fromYearEff && toYearEff && fromYearEff !== toYearEff
+      ? `${fromYearEff}–${toYearEff}`
+      : fromYearEff || toYearEff || "All years";
 
-  const yearRangeSlider = (
-    <YearRangeSlider
-      years={yearOptsAsc}
-      fromYear={fromYearEff}
-      toYear={toYearEff}
-      onFromYear={handleFromYear}
-      onToYear={handleToYear}
-      trackStyle={isWide ? { margin: "18px 0 8px", flexGrow: 0, flex: "0 1 260px" } : undefined}
-    />
+  const periodChip = (
+    <div ref={rangeAnchorRef} style={{ position: "relative" }}>
+      <button
+        onClick={() => setRangeOpen((o) => !o)}
+        style={{ ...S.chipBtn(true), padding: "7px 11px" }}
+        title="Filter by year range"
+      >
+        <span>{periodChipLabel}</span>
+        <span style={{ fontSize: 9, opacity: 0.7 }}>▼</span>
+      </button>
+      <Popover open={rangeOpen} setOpen={setRangeOpen} anchorRef={rangeAnchorRef} style={{ minWidth: 264, padding: 12 }}>
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+          {rangePresets.map(({ v, l, from, to }) => (
+            <button
+              key={v}
+              onClick={() => applyYearRange(from, to)}
+              style={{ ...S.chipBtn(activePreset === v), padding: "6px 12px", fontSize: 12 }}
+            >
+              {l}
+            </button>
+          ))}
+        </div>
+        <YearRangeSlider
+          years={yearOptsAsc}
+          fromYear={fromYearEff}
+          toYear={toYearEff}
+          onFromYear={handleFromYear}
+          onToYear={handleToYear}
+          trackStyle={{ margin: "26px 0 8px", maxWidth: "none", flex: "none" }}
+        />
+      </Popover>
+    </div>
   );
 
   return (
     <div style={S.col}>
-      {/* Trends controls: category filter, range presets, year-range slider,
-          and the M/Q/H/Y granularity switch. Sticky to the top of <main> so
+      {/* Trends controls, one row on every width (v1.75.0): category chip,
+          year-range chip (presets + slider live in its popover) and the
+          compact M/Q/H/Y granularity switch. Sticky to the top of <main> so
           the filters stay reachable while scrolling through the cards below
-          (same sticky-against-the-scroll-parent pattern as importActionsBar).
-          Desktop packs everything into a single row to save vertical space;
-          mobile splits it into two rows (category + granularity on top,
-          presets + slider below) since it's too tight for one line there. */}
+          (same sticky-against-the-scroll-parent pattern as importActionsBar). */}
       <div
         style={{
           position: "sticky",
@@ -4904,34 +4972,20 @@ function Charts({ transactions, hideValues, config, isWide }) {
           paddingRight: 16,
           paddingTop: 16,
           paddingBottom: 12,
-          background: "rgba(11,13,16,0.92)",
+          background: "rgba(11,13,16,0.96)",
           backdropFilter: "blur(20px) saturate(180%)",
           WebkitBackdropFilter: "blur(20px) saturate(180%)",
           borderBottom: "1px solid rgba(255,255,255,0.08)",
           display: "flex",
-          flexDirection: "column",
-          gap: 10,
+          alignItems: "center",
+          gap: 8,
+          flexWrap: "wrap",
+          rowGap: 8,
         }}
       >
-        {isWide ? (
-          <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-            {categoryChip}
-            {rangePresetsSwitch}
-            {yearRangeSlider}
-            <div style={{ marginLeft: "auto" }}>{granularitySwitch}</div>
-          </div>
-        ) : (
-          <>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, flexWrap: "wrap" }}>
-              {categoryChip}
-              {granularitySwitch}
-            </div>
-            <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-              {rangePresetsSwitch}
-              {yearRangeSlider}
-            </div>
-          </>
-        )}
+        {categoryChip}
+        {periodChip}
+        <div style={{ marginLeft: "auto", flexShrink: 0 }}>{granularitySwitch}</div>
       </div>
 
       {scoped.length === 0 ? <Empty>No data for {rangeLabel}.</Empty> : null}
@@ -4941,11 +4995,11 @@ function Charts({ transactions, hideValues, config, isWide }) {
           <h3 style={{ ...S.sectionTitle, margin: 0 }}>Income vs Expenses</h3>
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
             <span style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 10, color: "#6b7280" }}>
-              <span style={{ display: "inline-block", width: 10, height: 10, borderRadius: 2, background: "#06B6D4" }} />
+              <span style={{ display: "inline-block", width: 10, height: 10, borderRadius: 2, background: "#34d399" }} />
               Income
             </span>
             <span style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 10, color: "#6b7280" }}>
-              <span style={{ display: "inline-block", width: 10, height: 10, borderRadius: 2, background: "#F97316" }} />
+              <span style={{ display: "inline-block", width: 10, height: 10, borderRadius: 2, background: "#f87171" }} />
               Expenses
             </span>
           </div>
@@ -4957,7 +5011,7 @@ function Charts({ transactions, hideValues, config, isWide }) {
             <ResponsiveContainer width="100%" height="100%">
               <BarChart data={byBucket} margin={{ top: 8, right: 16, left: 0, bottom: 0 }}>
                 <CartesianGrid vertical={false} stroke="rgba(255,255,255,0.05)" />
-                <XAxis dataKey="bucket" tick={{ fill: "#6b7280", fontSize: 10 }} tickLine={false} axisLine={false} tickFormatter={bucketLabel} />
+                <XAxis dataKey="bucket" tick={{ fill: "#6b7280", fontSize: 10 }} tickLine={false} axisLine={false} {...bucketAxisProps(byBucket.map((r) => r.bucket), granularity, !isWide)} />
                 <YAxis tick={{ fill: "#6b7280", fontSize: 10 }} tickLine={false} axisLine={false} tickFormatter={fmtK} width={56} />
                 {!hideValues && (
                   <Tooltip
@@ -4966,8 +5020,8 @@ function Charts({ transactions, hideValues, config, isWide }) {
                     content={<ChartTooltip fmtValue={fmtKFull} formatLabel={(v) => bucketLabel(v)} />}
                   />
                 )}
-                <Bar dataKey="income" name="Income" fill="#06B6D4" radius={[4, 4, 0, 0]} activeBar={{ fill: "#06B6D4", opacity: 0.75 }} />
-                <Bar dataKey="expenses" name="Expenses" fill="#F97316" radius={[4, 4, 0, 0]} activeBar={{ fill: "#F97316", opacity: 0.75 }} />
+                <Bar dataKey="income" name="Income" fill="#34d399" radius={[4, 4, 0, 0]} activeBar={{ fill: "#34d399", opacity: 0.75 }} />
+                <Bar dataKey="expenses" name="Expenses" fill="#f87171" radius={[4, 4, 0, 0]} activeBar={{ fill: "#f87171", opacity: 0.75 }} />
               </BarChart>
             </ResponsiveContainer>
           )}
@@ -4981,6 +5035,7 @@ function Charts({ transactions, hideValues, config, isWide }) {
         fmtKTooltip={fmtKFull}
         fmtBucketLabel={bucketLabel}
         granularity={granularity}
+        isWide={isWide}
       />
 
       <CategoryStackedBarCard
@@ -4989,6 +5044,7 @@ function Charts({ transactions, hideValues, config, isWide }) {
         hideValues={hideValues}
         fmtK={fmtK}
         fmtKFull={fmtKFull}
+        isWide={isWide}
       />
 
       <MonthlyAvgByCategoryCard
@@ -5002,6 +5058,7 @@ function Charts({ transactions, hideValues, config, isWide }) {
         scoped={scoped}
         granularity={granularity}
         hideValues={hideValues}
+        isWide={isWide}
       />
 
       <YearInReviewCard
@@ -5019,18 +5076,25 @@ function Charts({ transactions, hideValues, config, isWide }) {
 // ===========================================================================
 // YearInReviewCard — annual summary: KPIs vs previous year (YTD-aligned when
 // the selected year is the current one — see cutoffMD below) + a per-category
-// breakdown bar chart with an Expense/Income toggle. Ignores the masthead
+// horizontal ranking with an Expense/Income toggle. Ignores the masthead
 // year-range/granularity scope on purpose — it has its own year selector
 // (default: latest year with data).
 // ===========================================================================
 
+// How many category rows the ranking shows before "Show N more".
+const YIR_TOP_N = 10;
+
 function YearInReviewCard({ transactions, years, hideValues, fmtKFull }) {
   const [yr, setYr] = useState(() => years[0] || "");
   const [view, setView] = useState("expense");
+  const [expanded, setExpanded] = useState(false);
   // Keep the selection valid when data changes (e.g. first import).
   useEffect(() => {
     if (!years.includes(yr)) setYr(years[0] || "");
   }, [years, yr]);
+  // A long expanded list shouldn't stay expanded when the ranking underneath
+  // it changes to a different year / side of the ledger.
+  useEffect(() => { setExpanded(false); }, [yr, view]);
 
   const review = useMemo(() => {
     if (!yr) return null;
@@ -5055,21 +5119,20 @@ function YearInReviewCard({ transactions, years, hideValues, fmtKFull }) {
 
     // Per-category totals for the selected year, split by income/expense so
     // the toggle can show either side without mixing scales. Sorted by
-    // magnitude descending; tail beyond 9 grouped as "Other".
+    // magnitude descending — the full list; the ranking below shows the top
+    // 10 and folds the rest behind "Show N more" (v1.75.0, replacing the old
+    // "everything past #9 lumped into Other" bucket, which collided with the
+    // real "Other" category).
     const buildBars = (predicate) => {
       const map = new Map();
       for (const t of curYearTxns) {
         if (isTransfer(t.category) || !predicate(t.category)) continue;
         map.set(t.category, (map.get(t.category) || 0) + (Number(t.amount) || 0));
       }
-      const sorted = [...map.entries()]
+      return [...map.entries()]
         .filter(([, v]) => v !== 0)
-        .sort((a, b) => Math.abs(b[1]) - Math.abs(a[1]));
-      const head = sorted.slice(0, 9);
-      const tailSum = sorted.slice(9).reduce((a, [, v]) => a + v, 0);
-      const bars = head.map(([name, value]) => ({ name, value: Math.abs(value), fill: getCategoryColor(name) }));
-      if (sorted.length > 9) bars.push({ name: "Other", value: Math.abs(tailSum), fill: getCategoryColor("Other") });
-      return bars;
+        .sort((a, b) => Math.abs(b[1]) - Math.abs(a[1]))
+        .map(([name, value]) => ({ name, value: Math.abs(value), fill: getCategoryColor(name) }));
     };
 
     return {
@@ -5090,14 +5153,28 @@ function YearInReviewCard({ transactions, years, hideValues, fmtKFull }) {
     { lbl: "Net", val: cur.net, p: prev ? pct(curForCompare.net, prev.net) : null, color: cur.net >= 0 ? "#34d399" : "#f87171", higherIsGood: true },
   ];
   const bars = view === "income" ? incomeBars : expenseBars;
+  const maxBar = bars.length ? bars[0].value : 0;
+  const visibleBars = expanded ? bars : bars.slice(0, YIR_TOP_N);
+  const hiddenCount = bars.length - visibleBars.length;
 
   return (
     <div style={{ ...S.card, padding: 0, overflow: "hidden" }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 16px 0", flexWrap: "wrap", gap: 8 }}>
-        <h3 style={{ ...S.sectionTitle, margin: 0 }}>Year in Review</h3>
-        <div style={{ display: "flex", gap: 4 }}>
-          <button onClick={() => setView("expense")} style={S.togglePill(view === "expense")}>Expense</button>
-          <button onClick={() => setView("income")} style={S.togglePill(view === "income")}>Income</button>
+        <h3 style={{ ...S.sectionTitle, margin: 0 }}>
+          {view === "income" ? "Income" : "Expenses"} by category
+        </h3>
+        <div style={{ position: "relative", display: "inline-flex", alignItems: "center" }}>
+          <select
+            value={yr}
+            onChange={(e) => setYr(e.target.value)}
+            aria-label="Year"
+            style={{ ...S.chipSelect(false), padding: "3px 24px 3px 9px", fontSize: 11 }}
+          >
+            {years.map((y) => (
+              <option key={y} value={y}>{y}</option>
+            ))}
+          </select>
+          <span style={S.chipSelectArrow}>▼</span>
         </div>
       </div>
       <div style={{ display: "flex", gap: 8, padding: "12px 16px 0" }}>
@@ -5115,59 +5192,51 @@ function YearInReviewCard({ transactions, years, hideValues, fmtKFull }) {
           </div>
         ))}
       </div>
-      <div style={{ display: "flex", justifyContent: "flex-end", gap: 4, padding: "10px 16px 0" }}>
-        <select value={yr} onChange={(e) => setYr(e.target.value)} style={{ ...S.select, flex: "0 0 auto", width: "auto", padding: "6px 10px", colorScheme: "dark" }}>
-          {years.map((y) => (
-            <option key={y} value={y}>{y}</option>
+      <div style={{ display: "flex", justifyContent: "flex-end", padding: "10px 16px 0" }}>
+        <div style={S.segmented}>
+          <button onClick={() => setView("expense")} style={S.segmentedBtn(view === "expense")}>Expense</button>
+          <button onClick={() => setView("income")} style={S.segmentedBtn(view === "income")}>Income</button>
+        </div>
+      </div>
+      {/* Horizontal ranking — plain HTML/CSS bars (v1.75.0). recharts' vertical
+          bars needed 45°-rotated labels to fit a phone and still overlapped;
+          a label / track / value row reads at any width. */}
+      {bars.length === 0 ? (
+        <Empty>No {view} categories for {yr}.</Empty>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 9, padding: "12px 16px 14px" }}>
+          {visibleBars.map(({ name, value, fill }) => (
+            <div key={name} style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 12 }}>
+              <span
+                title={name}
+                style={{ width: 84, flexShrink: 0, color: "#cbd5e1", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}
+              >
+                {name}
+              </span>
+              <div style={{ flex: 1, minWidth: 0, height: 14, borderRadius: 4, background: "rgba(255,255,255,0.05)", overflow: "hidden" }}>
+                <div
+                  style={{
+                    width: `${maxBar > 0 ? Math.max(2, (value / maxBar) * 100) : 0}%`,
+                    height: "100%",
+                    borderRadius: 4,
+                    background: fill,
+                  }}
+                />
+              </div>
+              <span style={{ width: 46, flexShrink: 0, textAlign: "right", color: "#8b94a3", fontVariantNumeric: "tabular-nums" }}>
+                {hideValues ? "•••" : fmtKFull(value)}
+              </span>
+            </div>
           ))}
-        </select>
-      </div>
-      <div style={{ height: 280 }}>
-        {bars.length === 0 ? (
-          <Empty>No {view} categories for {yr}.</Empty>
-        ) : (
-          <ResponsiveContainer width="100%" height="100%">
-            <BarChart data={bars} margin={{ top: 16, right: 16, left: 0, bottom: 40 }}>
-              <CartesianGrid vertical={false} stroke="rgba(255,255,255,0.05)" />
-              <XAxis
-                dataKey="name"
-                tick={{ fill: "#6b7280", fontSize: 9 }}
-                tickLine={false}
-                axisLine={false}
-                interval={0}
-                angle={-38}
-                textAnchor="end"
-              />
-              <YAxis tick={{ fill: "#6b7280", fontSize: 10 }} tickLine={false} axisLine={false} tickFormatter={fmtKFull} width={56} />
-              {!hideValues && (
-                <Tooltip
-                  cursor={false}
-                  formatter={(v) => [fmtKFull(v), "Amount"]}
-                  contentStyle={{ background: "#161a20", border: "1px solid rgba(255,255,255,0.12)", borderRadius: 14, fontSize: 12, boxShadow: "0 8px 24px rgba(0,0,0,0.4)" }}
-                  itemStyle={{ color: "#e5e7eb" }}
-                  labelStyle={{ color: "#8b94a3" }}
-                />
-              )}
-              <Bar dataKey="value" isAnimationActive={false} radius={[3, 3, 0, 0]}>
-                {bars.map((r, i) => (
-                  <Cell key={`bar-${i}`} fill={r.fill} />
-                ))}
-                <LabelList
-                  dataKey="value"
-                  position="top"
-                  content={({ x, y, width, value }) =>
-                    hideValues || !value ? null : (
-                      <text x={x + width / 2} y={y - 4} textAnchor="middle" fill="#6b7280" fontSize={10}>
-                        {fmtKFull(value)}
-                      </text>
-                    )
-                  }
-                />
-              </Bar>
-            </BarChart>
-          </ResponsiveContainer>
-        )}
-      </div>
+          {(hiddenCount > 0 || expanded) && (
+            <div style={{ textAlign: "center", marginTop: 3 }}>
+              <button onClick={() => setExpanded((v) => !v)} style={{ ...S.linkBtn, padding: "8px 12px" }}>
+                {expanded ? "Show less" : `Show ${hiddenCount} more`}
+              </button>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -10122,7 +10191,6 @@ const S = {
   txnListScroll: {
     paddingTop: 10,
   },
-  cardRow: { display: "flex", gap: 8 },
   card: {
     background: "rgba(22,26,32,0.7)",
     border: "1px solid rgba(255,255,255,0.08)",
@@ -10950,7 +11018,7 @@ const S = {
     border: "none",
     color: active ? "#fff" : "#8b94a3",
     borderRadius: 7,
-    padding: "3px 10px",
+    padding: "5px 11px",
     fontSize: 12,
     fontWeight: active ? 700 : 400,
     cursor: "pointer",
