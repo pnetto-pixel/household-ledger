@@ -1,4 +1,4 @@
-# Household Ledger · v1.75.0
+# Household Ledger · v1.75.1
 
 Aplicativo mobile-first de controle financeiro doméstico. Registra
 transações da casa (despesas e receitas) por categoria e conta, com
@@ -31,7 +31,18 @@ O `feature-auditor` deve conferir, como parte da checklist de auditoria, que
 o diff inclui o bump nos dois arquivos antes de aprovar — se faltar, isso é
 motivo de reprovação (devolver ao coder), não um detalhe opcional.
 
-Versão atual: **v1.75.0** (PR #272, draft, branch
+Versão atual: **v1.75.1** — fix: no card "By Category" da Home, várias
+categorias não mostravam os badges M/M e/ou Y/Y (ex.: Fuel sem nenhum;
+Entertainment/Mobile Phone/Travel só com Y/Y), e outras mostravam um badge
+sem rótulo (Shopping "-82%", Services "0%"). Causa: o JSX descartava o badge
+inteiro quando `catChanges[cat].mm`/`.yy` era `null` (guard `!= null`) e
+apagava o label do M/M quando não havia Y/Y, em vez de usar o estado
+"sem dado" que `ChangeBadge` já sabia renderizar (`"<label> —"`, cinza).
+`catChanges` (cálculo dos deltas) não mudou — só a montagem dos dois badges
+em `src/App.jsx`, que agora é incondicional e sempre com label fixo (`M/M`/
+`Y/Y`). `AnomalyBadge` (o aviso âmbar "⚠ N.Nx avg") não foi tocado.
+
+Versão anterior: **v1.75.0** (PR #272, draft, branch
 `claude/app-review-improvements-kfl93d`, pendente de merge — auditoria em
 andamento) — redesign de front-end das 5 tabs, a partir de capturas reais e
 mockups aprovados pelo usuário. Só `src/App.jsx` mudou (mais este doc); nada

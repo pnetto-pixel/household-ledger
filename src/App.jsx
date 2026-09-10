@@ -709,7 +709,7 @@ function idleExpired() {
 // path, so the pending copy is discarded with a notice instead).
 
 // Single source for the version shown in the header and in diagnostics.
-const APP_VERSION = "v1.75.0";
+const APP_VERSION = "v1.75.1";
 
 const PENDING_SAVE_KEY = "household_pending_save";
 
@@ -3165,16 +3165,14 @@ function Dashboard({ transactions, money, hideValues, isWide, budgets, config, a
                       <span style={{ fontSize: 15, color: "#e5e7eb", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                         {cat}
                       </span>
-                      {/* M/M is the default comparison, so its pill carries no
-                          label; the Y/Y pill only shows up when there IS data
-                          for the same period a year back, and is labelled so
-                          the two can't be confused. With neither comparison
-                          available the row shows no pill at all instead of a
-                          bare "—". */}
-                      {changes.mm != null && (
-                        <ChangeBadge label={changes.yy == null ? "" : "M/M"} pct={changes.mm} hideValues={hideValues} />
-                      )}
-                      {changes.yy != null && <ChangeBadge label="Y/Y" pct={changes.yy} hideValues={hideValues} />}
+                      {/* Both pills are always mounted, labelled, so it's
+                          unambiguous which is which. When there's no base to
+                          compare against (e.g. category had $0 last month or
+                          didn't exist a year ago), `changes.mm`/`.yy` is null
+                          and ChangeBadge renders "<label> —" in muted gray
+                          instead of a misleading 0% or a missing badge. */}
+                      <ChangeBadge label="M/M" pct={changes.mm} hideValues={hideValues} />
+                      <ChangeBadge label="Y/Y" pct={changes.yy} hideValues={hideValues} />
                       <AnomalyBadge total={total} avg12m={changes.avg12m} hideValues={hideValues} />
                     </div>
                     {/* Amount + reference totals */}
@@ -3768,9 +3766,9 @@ function AnomalyBadge({ total, avg12m, hideValues }) {
 
 // Inline badge showing M/M or Y/Y percentage change for an expense category.
 // For expenses: a rise in spending is bad (red), a drop is good (green).
-// pct = null means no comparison data; pct = 0 is a real 0 % change.
-// An empty `label` renders the bare percentage (Home "By category", where
-// M/M is the implicit default comparison).
+// pct = null means no comparison data — renders "<label> —" in muted gray
+// instead of being omitted, so the label is always present (v1.75.1); pct
+// = 0 is a real 0 % change, shown as "<label> 0%".
 function ChangeBadge({ label, pct, hideValues }) {
   if (hideValues) return null;
   const noData = pct === null || pct === undefined;
