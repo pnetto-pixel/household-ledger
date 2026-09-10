@@ -31,7 +31,8 @@ O `feature-auditor` deve conferir, como parte da checklist de auditoria, que
 o diff inclui o bump nos dois arquivos antes de aprovar — se faltar, isso é
 motivo de reprovação (devolver ao coder), não um detalhe opcional.
 
-Versão atual: **v1.75.1** — fix: no card "By Category" da Home, várias
+Versão atual: **v1.75.1** (PR #273, branch
+`claude/card-category-home-bugs-pkvrkt`) — fix: no card "By Category" da Home, várias
 categorias não mostravam os badges M/M e/ou Y/Y (ex.: Fuel sem nenhum;
 Entertainment/Mobile Phone/Travel só com Y/Y), e outras mostravam um badge
 sem rótulo (Shopping "-82%", Services "0%"). Causa: o JSX descartava o badge
@@ -3387,11 +3388,25 @@ shell de altura cheia (`#root` em `100lvh` + shell `height:100%`): só o
    mês); a legenda de meses ("Sep"/"Aug") deixou de mostrar o ano. No bloco
    "By category", cada linha ganhou um novo `CategoryAvatar({ cat, size })`
    (extraído dessa mesma lista, reaproveitado também na linha compacta da
-   tab Transactions), a pill M/M perdeu o rótulo textual e a pill Y/Y só
-   aparece (com rótulo, junto da M/M) quando há dado do ano anterior — sem
-   comparação, nenhuma pill é exibida; à direita, valor 15px/700 + "avg
+   tab Transactions); à direita, valor 15px/700 + "avg
    {valor}" 11px. Título da seção passou a "By Category" (antes "by
-   Category"). Os segmented controls (Expense/Income, List/Map) migraram de
+   Category"). **Fix v1.75.1 (PR #273)**: o redesign da v1.75.0 introduziu
+   uma regressão — a pill M/M perdia o rótulo textual e a pill Y/Y só era
+   montada (com rótulo) quando havia dado do ano anterior, deixando várias
+   categorias sem nenhum badge (Fuel), só com Y/Y (Entertainment, Mobile
+   Phone, Travel) ou com badge sem rótulo (Shopping, Services). Corrigido:
+   os dois badges (`M/M` e `Y/Y`) são sempre montados com rótulo fixo,
+   delegando ao próprio `ChangeBadge` o estado "sem dado" (`"M/M —"`/
+   `"Y/Y —"`, cinza) quando não há base de comparação (`catChanges[cat].mm`/
+   `.yy` é `null`) — comportamento que o componente já suportava mas nunca
+   era alcançado por causa da guarda `!= null` no JSX. `catChanges` (cálculo
+   dos deltas) não mudou. O `AnomalyBadge` âmbar ("⚠ N.N× avg") continua
+   como pill adicional na mesma linha, sem alteração. **Decisão em aberto,
+   fora de escopo deste patch**: a guarda `mmBase >= 0` de `catChanges` trata
+   como "sem dado" tanto "nunca houve gasto na categoria" quanto "o período
+   base fechou positivo" (estorno > compras) — depois do fix os dois casos
+   aparecem igualmente como `M/M —`; diferenciá-los seria mudança de
+   semântica do cálculo, não só de renderização. Os segmented controls (Expense/Income, List/Map) migraram de
    `S.togglePill` para `S.segmented`/`S.segmentedBtn`. `AccountBalancesCard`
    sem contas configuradas (estado `notConfigured`) agora mostra só o texto
    "No SimpleFin accounts yet." + um botão-link "Set up in Settings" (prop
@@ -5707,3 +5722,20 @@ riscos reais de perda de dados.
     Trends em `S.segmented` (hoje continuam em `S.togglePill`).
   - [ ] Sidebar desktop acima de 900px, no lugar da tab bar inferior
     (mencionado na revisão de design, não implementado).
+- [x] **Fix: badges M/M/Y/Y ausentes ou sem rótulo no card "By Category" da
+  Home** (v1.75.1, PR #273, branch `claude/card-category-home-bugs-pkvrkt`)
+  — regressão introduzida pelo redesign da v1.75.0: `Fuel` não exibia
+  nenhum badge, `Entertainment`/`Mobile Phone`/`Travel` só exibiam Y/Y, e
+  `Shopping`/`Services` exibiam um badge sem rótulo. Causa: o JSX descartava
+  o `ChangeBadge` inteiro quando `catChanges[cat].mm`/`.yy` era `null`
+  (guarda `!= null`) em vez de deixar o próprio componente renderizar o
+  estado "sem dado" (`"<label> —"`, cinza) que ele já suportava; o label do
+  M/M também era apagado quando não havia Y/Y. Fix: os dois badges agora são
+  sempre montados, com rótulo fixo (`M/M`/`Y/Y`). `catChanges` (cálculo dos
+  deltas) não mudou. Ver "Versão atual" no topo deste documento e a seção UI
+  (item 1, bloco "By category" da Home) para o detalhamento completo.
+  - [ ] **Decisão em aberto**: `catChanges` trata "nunca houve gasto na
+    categoria" e "período base fechou positivo" (estorno > compras) como o
+    mesmo caso "sem dado" (`mmBase >= 0`) — ambos aparecem como `M/M —`.
+    Diferenciar os dois é mudança de semântica do cálculo, fora de escopo
+    deste patch; avaliar se vale a pena numa rodada futura.
