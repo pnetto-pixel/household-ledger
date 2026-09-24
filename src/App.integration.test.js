@@ -11,7 +11,37 @@
 // extraction that drops an export App.jsx still relies on fails here instead
 // of only in production.
 import { describe, it, expect } from "vitest";
-import { descFragment, detectManualCategoryCorrections, detectOtherDescriptionFragments } from "./App.jsx";
+import { buildYearCategoryBars, descFragment, detectManualCategoryCorrections, detectOtherDescriptionFragments } from "./App.jsx";
+
+describe("buildYearCategoryBars", () => {
+  const isExpense = (category) => !["Salary", "Transfer"].includes(category);
+
+  it("adds a Y/Y percentage to each ranked expense category", () => {
+    const current = [
+      { category: "Groceries", amount: -150 },
+      { category: "Restaurant", amount: -50 },
+    ];
+    const previousYtd = [
+      { category: "Groceries", amount: -100 },
+      { category: "Restaurant", amount: -100 },
+    ];
+
+    expect(buildYearCategoryBars(current, previousYtd, isExpense)).toEqual([
+      expect.objectContaining({ name: "Groceries", value: 150, yoy: 50 }),
+      expect.objectContaining({ name: "Restaurant", value: 50, yoy: -50 }),
+    ]);
+  });
+
+  it("uses an unavailable comparison when the category has no prior-year spend", () => {
+    const bars = buildYearCategoryBars(
+      [{ category: "Travel", amount: -200 }],
+      [{ category: "Groceries", amount: -100 }],
+      isExpense
+    );
+
+    expect(bars[0]).toEqual(expect.objectContaining({ name: "Travel", yoy: null }));
+  });
+});
 
 describe("descFragment", () => {
   it("collapses a merchant description to its significant words", () => {
