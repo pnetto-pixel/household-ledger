@@ -1,4 +1,4 @@
-# Household Ledger · v1.75.1
+# Household Ledger · v1.75.2
 
 Aplicativo mobile-first de controle financeiro doméstico. Registra
 transações da casa (despesas e receitas) por categoria e conta, com
@@ -31,7 +31,19 @@ O `feature-auditor` deve conferir, como parte da checklist de auditoria, que
 o diff inclui o bump nos dois arquivos antes de aprovar — se faltar, isso é
 motivo de reprovação (devolver ao coder), não um detalhe opcional.
 
-Versão atual: **v1.75.1** (PR #273, branch
+Versão atual: **v1.75.2** (branch `claude/expense-category-layout-fxh2i8`) —
+UI: no card "Expenses/Income by category" (Year in Review), cada linha da
+ranking de categorias mostrava valor e Y/Y empilhados em duas linhas
+(`fmtKFull(value)` e, abaixo, `"Y/Y {pct}% YTD"`). Substituído por uma única
+linha de cabeçalho ("Amount" / "Y/Y" ou "YTD Y/Y" quando `isCurrentYear`)
+acima da lista, com as duas colunas (valor e Y/Y%) lado a lado na mesma
+linha de cada categoria — larguras fixas (72/50/38px) para caber em ~360–
+390px sem quebra. Quando `hideValues` está ligado, ambas as colunas mostram
+"•••" (antes só o valor era mascarado e o Y/Y sumia, o que já desalinhava a
+única coluna existente). Só toca em `YearInReviewCard`; o card "By Category"
+da Home (M/M/Y/Y com `ChangeBadge`) não foi tocado.
+
+Versão anterior: **v1.75.1** (PR #273, branch
 `claude/card-category-home-bugs-pkvrkt`) — fix: no card "By Category" da Home, várias
 categorias não mostravam os badges M/M e/ou Y/Y (ex.: Fuel sem nenhum;
 Entertainment/Mobile Phone/Travel só com Y/Y), e outras mostravam um badge
