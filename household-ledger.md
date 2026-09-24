@@ -1,4 +1,4 @@
-# Household Ledger · v1.75.2
+# Household Ledger · v1.75.3
 
 Aplicativo mobile-first de controle financeiro doméstico. Registra
 transações da casa (despesas e receitas) por categoria e conta, com
@@ -31,7 +31,16 @@ O `feature-auditor` deve conferir, como parte da checklist de auditoria, que
 o diff inclui o bump nos dois arquivos antes de aprovar — se faltar, isso é
 motivo de reprovação (devolver ao coder), não um detalhe opcional.
 
-Versão atual: **v1.75.2** (PR #275, branch
+Versão atual: **v1.75.3** (branch `claude/expense-category-layout-fxh2i8`) —
+fix (achado P2 do Codex Review no PR #275): a coluna Y/Y% do ranking do
+`YearInReviewCard` tem largura fixa (38px, `nowrap`), e um `yoy` muito alto
+(ex.: categoria que foi de $1 para $1.000 → `+99900%`) transbordava para a
+coluna Amount. Agora a coluna usa `fmtPctCol`, que limita a exibição a
+`>999%` (ou `<-999%`) — o valor exato aparece no tooltip — e o span ganhou
+`overflow: hidden` como proteção extra. O `fmtPct` dos KPIs do mesmo card não
+muda.
+
+Versão anterior: **v1.75.2** (PR #275, branch
 `claude/expense-category-layout-fxh2i8`) —
 UI: no card "Expenses/Income by category" (Year in Review), cada linha da
 ranking de categorias mostrava valor e Y/Y empilhados em duas linhas
@@ -3627,7 +3636,9 @@ shell de altura cheia (`#root` em `100lvh` + shell `height:100%`): só o
    Y/Y" quando `isCurrentYear`), 9px uppercase cinza, aparece acima da lista
    só quando há categorias. `yoy` nulo mostra "—"; o tooltip explicativo do
    % foi mantido. Com `hideValues`, as duas colunas (valor e Y/Y%) mostram
-   "•••" — antes só o valor era mascarado.
+   "•••" — antes só o valor era mascarado. **Desde a v1.75.3**, Y/Y acima de
+   999% aparece como `>999%` (valor exato no tooltip) para não invadir a
+   coluna Amount.
 3. **Transactions** — busca textual livre + **chips de filtro** (Type /
    Account / Category / Date) que abrem dropdowns via **portal** (`Popover`
    em `position: fixed` no `document.body`, ancorado por `getBoundingClientRect`
@@ -5773,5 +5784,10 @@ riscos reais de perda de dados.
   `hideValues`, as duas colunas mostram "•••" (antes só o valor era
   mascarado, o que desalinhava a coluna). Só toca em `YearInReviewCard`; o
   card "By Category" da Home (M/M/Y/Y com `ChangeBadge`, fix da v1.75.1) não
-  foi tocado. Ver "Versão atual" no topo deste documento para o
+  foi tocado. Ver "Versão anterior: v1.75.2" no topo deste documento para o
   detalhamento completo.
+- [x] **Fix: Y/Y% muito alto transbordando a coluna no ranking do
+  `YearInReviewCard`** (v1.75.3, branch `claude/expense-category-layout-fxh2i8`)
+  — achado P2 do Codex Review no PR #275: `yoy` acima de 999% (ex.: $1 →
+  $1.000) é exibido como `>999%` via `fmtPctCol` (valor exato no tooltip) e o
+  span tem `overflow: hidden`. Ver "Versão atual" no topo.

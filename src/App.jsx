@@ -709,7 +709,7 @@ function idleExpired() {
 // path, so the pending copy is discarded with a notice instead).
 
 // Single source for the version shown in the header and in diagnostics.
-const APP_VERSION = "v1.75.2";
+const APP_VERSION = "v1.75.3";
 
 const PENDING_SAVE_KEY = "household_pending_save";
 
@@ -5190,6 +5190,8 @@ function YearInReviewCard({ transactions, years, hideValues, fmtKFull }) {
   const { cur, prev, prevYear, isCurrentYear, expenseBars, incomeBars, curForCompare } = review;
   const pct = (c, p) => (p ? ((c - p) / Math.abs(p)) * 100 : null);
   const fmtPct = (p) => (p == null ? "—" : `${p > 0 ? "+" : ""}${p.toFixed(0)}%`);
+  // Coluna Y/Y do ranking tem largura fixa (38px): limita a ±999% pra não invadir a coluna Amount.
+  const fmtPctCol = (p) => (p != null && Math.abs(p) > 999 ? (p > 0 ? ">999%" : "<-999%") : fmtPct(p));
   const kpis = [
     { lbl: "Income", val: cur.income, p: prev ? pct(curForCompare.income, prev.income) : null, color: "#34d399", higherIsGood: true },
     { lbl: "Expenses", val: cur.expenses, p: prev ? pct(-curForCompare.expenses, -prev.expenses) : null, color: "#f87171", higherIsGood: false },
@@ -5286,7 +5288,7 @@ function YearInReviewCard({ transactions, years, hideValues, fmtKFull }) {
                   {hideValues ? "•••" : fmtKFull(value)}
                 </span>
                 <span
-                  title={isCurrentYear ? `Year over year through today's date vs ${prevYear}` : `Year over year vs ${prevYear}`}
+                  title={`${isCurrentYear ? `Year over year through today's date vs ${prevYear}` : `Year over year vs ${prevYear}`}${yoy != null && Math.abs(yoy) > 999 && !hideValues ? ` (${fmtPct(yoy)})` : ""}`}
                   style={{
                     width: 38,
                     textAlign: "right",
@@ -5294,10 +5296,11 @@ function YearInReviewCard({ transactions, years, hideValues, fmtKFull }) {
                     fontWeight: 700,
                     fontVariantNumeric: "tabular-nums",
                     whiteSpace: "nowrap",
+                    overflow: "hidden",
                     color: hideValues || yoy == null || yoy === 0 ? "#6b7280" : (yoy > 0) === (view === "income") ? "#34d399" : "#f87171",
                   }}
                 >
-                  {hideValues ? "•••" : fmtPct(yoy)}
+                  {hideValues ? "•••" : fmtPctCol(yoy)}
                 </span>
               </div>
             </div>
