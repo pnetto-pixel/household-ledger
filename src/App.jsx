@@ -5101,6 +5101,36 @@ function Charts({ transactions, hideValues, config, isWide }) {
 // How many category rows the ranking shows before "Show N more".
 const YIR_TOP_N = 10;
 
+// Build the annual category ranking and attach a year-over-year comparison
+// for every row. Callers are responsible for applying the same YTD cutoff to
+// both arrays before passing them in, which keeps an in-progress year from
+// being compared with all 12 months of the previous year.
+export function buildYearCategoryBars(currentTxns, previousTxns, predicate) {
+  const totals = (rows) => {
+    const map = new Map();
+    for (const t of rows) {
+      if (isTransfer(t.category) || !predicate(t.category)) continue;
+      map.set(t.category, (map.get(t.category) || 0) + (Number(t.amount) || 0));
+    }
+    return map;
+  };
+  const current = totals(currentTxns);
+  const previous = totals(previousTxns);
+  return [...current.entries()]
+    .filter(([, value]) => value !== 0)
+    .sort((a, b) => Math.abs(b[1]) - Math.abs(a[1]))
+    .map(([name, rawValue]) => {
+      const value = Math.abs(rawValue);
+      const previousValue = Math.abs(previous.get(name) || 0);
+      return {
+        name,
+        value,
+        fill: getCategoryColor(name),
+        yoy: previousValue === 0 ? null : ((value - previousValue) / previousValue) * 100,
+      };
+    });
+}
+
 function YearInReviewCard({ transactions, years, hideValues, fmtKFull }) {
   const [yr, setYr] = useState(() => years[0] || "");
   const [view, setView] = useState("expense");
@@ -5131,7 +5161,8 @@ function YearInReviewCard({ transactions, years, hideValues, fmtKFull }) {
     const withCutoff = (rows) =>
       cutoffMD ? rows.filter((t) => (t.date || "").slice(5, 10) <= cutoffMD) : rows;
 
-    const prev = hasPrev ? computeTotals(withCutoff(inYear(prevYear))) : null;
+    const prevYearTxns = hasPrev ? withCutoff(inYear(prevYear)) : [];
+    const prev = hasPrev ? computeTotals(prevYearTxns) : null;
     const curForCompare = cutoffMD ? computeTotals(withCutoff(curYearTxns)) : cur;
 
     // Per-category totals for the selected year, split by income/expense so
@@ -5140,17 +5171,12 @@ function YearInReviewCard({ transactions, years, hideValues, fmtKFull }) {
     // 10 and folds the rest behind "Show N more" (v1.75.0, replacing the old
     // "everything past #9 lumped into Other" bucket, which collided with the
     // real "Other" category).
-    const buildBars = (predicate) => {
-      const map = new Map();
-      for (const t of curYearTxns) {
-        if (isTransfer(t.category) || !predicate(t.category)) continue;
-        map.set(t.category, (map.get(t.category) || 0) + (Number(t.amount) || 0));
-      }
-      return [...map.entries()]
-        .filter(([, v]) => v !== 0)
-        .sort((a, b) => Math.abs(b[1]) - Math.abs(a[1]))
-        .map(([name, value]) => ({ name, value: Math.abs(value), fill: getCategoryColor(name) }));
-    };
+    const currentComparisonTxns = withCutoff(curYearTxns);
+    const buildBars = (predicate) => buildYearCategoryBars(
+      currentComparisonTxns,
+      prevYearTxns,
+      predicate
+    );
 
     return {
       cur, prev, prevYear, isCurrentYear,
@@ -5222,7 +5248,7 @@ function YearInReviewCard({ transactions, years, hideValues, fmtKFull }) {
         <Empty>No {view} categories for {yr}.</Empty>
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 9, padding: "12px 16px 14px" }}>
-          {visibleBars.map(({ name, value, fill }) => (
+          {visibleBars.map(({ name, value, fill, yoy }) => (
             <div key={name} style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 12 }}>
               <span
                 title={name}
@@ -5240,9 +5266,23 @@ function YearInReviewCard({ transactions, years, hideValues, fmtKFull }) {
                   }}
                 />
               </div>
-              <span style={{ width: 46, flexShrink: 0, textAlign: "right", color: "#8b94a3", fontVariantNumeric: "tabular-nums" }}>
-                {hideValues ? "•••" : fmtKFull(value)}
-              </span>
+              <div style={{ width: 62, flexShrink: 0, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>
+                <div style={{ color: "#8b94a3" }}>{hideValues ? "•••" : fmtKFull(value)}</div>
+                {!hideValues && (
+                  <div
+                    title={isCurrentYear ? `Year over year through today's date vs ${prevYear}` : `Year over year vs ${prevYear}`}
+                    style={{
+                      marginTop: 1,
+                      fontSize: 9,
+                      fontWeight: 700,
+                      color: yoy == null || yoy === 0 ? "#6b7280" : (yoy > 0) === (view === "income") ? "#34d399" : "#f87171",
+                      whiteSpace: "nowrap",
+                    }}
+                  >
+                    Y/Y {fmtPct(yoy)}{isCurrentYear ? " YTD" : ""}
+                  </div>
+                )}
+              </div>
             </div>
           ))}
           {(hiddenCount > 0 || expanded) && (
