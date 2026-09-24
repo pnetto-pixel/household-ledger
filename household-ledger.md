@@ -31,7 +31,8 @@ O `feature-auditor` deve conferir, como parte da checklist de auditoria, que
 o diff inclui o bump nos dois arquivos antes de aprovar — se faltar, isso é
 motivo de reprovação (devolver ao coder), não um detalhe opcional.
 
-Versão atual: **v1.75.2** (branch `claude/expense-category-layout-fxh2i8`) —
+Versão atual: **v1.75.2** (PR #275, branch
+`claude/expense-category-layout-fxh2i8`) —
 UI: no card "Expenses/Income by category" (Year in Review), cada linha da
 ranking de categorias mostrava valor e Y/Y empilhados em duas linhas
 (`fmtKFull(value)` e, abaixo, `"Y/Y {pct}% YTD"`). Substituído por uma única
@@ -3618,6 +3619,15 @@ shell de altura cheia (`#root` em `100lvh` + shell `height:100%`): só o
    `S.togglePill` (não migraram para `S.segmented` como os da Home — ver
    Roadmap); com um único ano de dados os dois handles do `YearRangeSlider`
    ainda se sobrepõem dentro do popover.
+   **Desde a v1.75.2 (PR #275)**: cada linha do ranking deixou de empilhar
+   valor e Y/Y em duas linhas (`fmtKFull(value)` + `"Y/Y {pct}% YTD"` abaixo)
+   e virou uma única linha por categoria — rótulo 72px (era 84px) / barra
+   flex / valor 50px / Y/Y% 38px, todas à direita com `fontVariantNumeric:
+   tabular-nums`. Uma única linha de cabeçalho ("Amount" / "Y/Y", ou "YTD
+   Y/Y" quando `isCurrentYear`), 9px uppercase cinza, aparece acima da lista
+   só quando há categorias. `yoy` nulo mostra "—"; o tooltip explicativo do
+   % foi mantido. Com `hideValues`, as duas colunas (valor e Y/Y%) mostram
+   "•••" — antes só o valor era mascarado.
 3. **Transactions** — busca textual livre + **chips de filtro** (Type /
    Account / Category / Date) que abrem dropdowns via **portal** (`Popover`
    em `position: fixed` no `document.body`, ancorado por `getBoundingClientRect`
@@ -5751,3 +5761,17 @@ riscos reais de perda de dados.
     mesmo caso "sem dado" (`mmBase >= 0`) — ambos aparecem como `M/M —`.
     Diferenciar os dois é mudança de semântica do cálculo, fora de escopo
     deste patch; avaliar se vale a pena numa rodada futura.
+- [x] **UI: layout de linha única (valor + Y/Y) no ranking do
+  `YearInReviewCard`** (v1.75.2, PR #275, branch
+  `claude/expense-category-layout-fxh2i8`) — no card "Expenses/Income by
+  category" (Year in Review), cada linha do ranking empilhava valor
+  (`fmtKFull`) e Y/Y (`"Y/Y {pct}% YTD"`) em duas linhas. Substituído por uma
+  única linha por categoria — rótulo 72px (era 84px) / barra flex / valor
+  50px / Y/Y% 38px, à direita com tabular-nums — mais uma linha de cabeçalho
+  ("Amount"/"Y/Y", ou "YTD Y/Y" no ano corrente) acima da lista, só quando há
+  categorias. `yoy` nulo mostra "—"; tooltip explicativo do % mantido. Com
+  `hideValues`, as duas colunas mostram "•••" (antes só o valor era
+  mascarado, o que desalinhava a coluna). Só toca em `YearInReviewCard`; o
+  card "By Category" da Home (M/M/Y/Y com `ChangeBadge`, fix da v1.75.1) não
+  foi tocado. Ver "Versão atual" no topo deste documento para o
+  detalhamento completo.
