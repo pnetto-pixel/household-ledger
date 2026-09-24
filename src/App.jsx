@@ -709,7 +709,7 @@ function idleExpired() {
 // path, so the pending copy is discarded with a notice instead).
 
 // Single source for the version shown in the header and in diagnostics.
-const APP_VERSION = "v1.75.1";
+const APP_VERSION = "v1.75.2";
 
 const PENDING_SAVE_KEY = "household_pending_save";
 
@@ -5248,11 +5248,26 @@ function YearInReviewCard({ transactions, years, hideValues, fmtKFull }) {
         <Empty>No {view} categories for {yr}.</Empty>
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 9, padding: "12px 16px 14px" }}>
+          {/* Column legend replaces the old two-line-per-row layout (v1.75.2):
+              "Amount" / "Y/Y" (or "YTD Y/Y" for the current, clipped year)
+              sit once above the list instead of repeating on every row. */}
+          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: -2 }}>
+            <span style={{ width: 72, flexShrink: 0 }} />
+            <div style={{ flex: 1, minWidth: 0 }} />
+            <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
+              <span style={{ width: 50, textAlign: "right", fontSize: 9, fontWeight: 600, color: "#6b7280", textTransform: "uppercase", letterSpacing: 0.4 }}>
+                Amount
+              </span>
+              <span style={{ width: 38, textAlign: "right", fontSize: 9, fontWeight: 600, color: "#6b7280", textTransform: "uppercase", letterSpacing: 0.4, whiteSpace: "nowrap" }}>
+                {isCurrentYear ? "YTD Y/Y" : "Y/Y"}
+              </span>
+            </div>
+          </div>
           {visibleBars.map(({ name, value, fill, yoy }) => (
             <div key={name} style={{ display: "flex", alignItems: "center", gap: 10, fontSize: 12 }}>
               <span
                 title={name}
-                style={{ width: 84, flexShrink: 0, color: "#cbd5e1", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}
+                style={{ width: 72, flexShrink: 0, color: "#cbd5e1", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}
               >
                 {name}
               </span>
@@ -5266,22 +5281,24 @@ function YearInReviewCard({ transactions, years, hideValues, fmtKFull }) {
                   }}
                 />
               </div>
-              <div style={{ width: 62, flexShrink: 0, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>
-                <div style={{ color: "#8b94a3" }}>{hideValues ? "•••" : fmtKFull(value)}</div>
-                {!hideValues && (
-                  <div
-                    title={isCurrentYear ? `Year over year through today's date vs ${prevYear}` : `Year over year vs ${prevYear}`}
-                    style={{
-                      marginTop: 1,
-                      fontSize: 9,
-                      fontWeight: 700,
-                      color: yoy == null || yoy === 0 ? "#6b7280" : (yoy > 0) === (view === "income") ? "#34d399" : "#f87171",
-                      whiteSpace: "nowrap",
-                    }}
-                  >
-                    Y/Y {fmtPct(yoy)}{isCurrentYear ? " YTD" : ""}
-                  </div>
-                )}
+              <div style={{ display: "flex", alignItems: "center", gap: 6, flexShrink: 0 }}>
+                <span style={{ width: 50, textAlign: "right", color: "#8b94a3", fontVariantNumeric: "tabular-nums" }}>
+                  {hideValues ? "•••" : fmtKFull(value)}
+                </span>
+                <span
+                  title={isCurrentYear ? `Year over year through today's date vs ${prevYear}` : `Year over year vs ${prevYear}`}
+                  style={{
+                    width: 38,
+                    textAlign: "right",
+                    fontSize: 10,
+                    fontWeight: 700,
+                    fontVariantNumeric: "tabular-nums",
+                    whiteSpace: "nowrap",
+                    color: hideValues || yoy == null || yoy === 0 ? "#6b7280" : (yoy > 0) === (view === "income") ? "#34d399" : "#f87171",
+                  }}
+                >
+                  {hideValues ? "•••" : fmtPct(yoy)}
+                </span>
               </div>
             </div>
           ))}
