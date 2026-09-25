@@ -31,7 +31,7 @@ O `feature-auditor` deve conferir, como parte da checklist de auditoria, que
 o diff inclui o bump nos dois arquivos antes de aprovar — se faltar, isso é
 motivo de reprovação (devolver ao coder), não um detalhe opcional.
 
-Versão atual: **v1.75.4** —
+Versão atual: **v1.75.4** (PR #277) —
 fix de UI: o header (`S.header`) tinha `padding-top: calc(env(safe-area-inset-top)
 + 8px)`, que em devices com Dynamic Island grande (ex.: iPhone 18 Pro) deixava
 o blur da ilha encostado no topo do cabeçalho. Aumentado para `+ 10px` (só o
@@ -3228,7 +3228,7 @@ Mobile-first, tema escuro iOS. Tab bar inferior fixa com 5 abas. A entrada de tr
 
 **Identidade visual (PR #23 — iOS 26 "Liquid Glass")**
 
-- **Safe-area**: header usa `padding-top: calc(env(safe-area-inset-top) + 8px)` para não sobrepor a Dynamic Island; tab bar usa `env(safe-area-inset-bottom)` para o home indicator. Os modais (sheets ancorados embaixo) têm a altura limitada a `calc(100dvh − inset-top − inset-bottom − 28px)` — assim, por mais que as seções expandam, o topo nunca passa da Dynamic Island (o conteúdo interno rola).
+- **Safe-area**: header usa `padding-top: calc(env(safe-area-inset-top) + 10px)` (antes `+ 8px`; aumentado na v1.75.4, PR #277, para o blur da Dynamic Island de devices maiores como o iPhone 18 Pro não encostar no cabeçalho) para não sobrepor a Dynamic Island; tab bar usa `env(safe-area-inset-bottom)` para o home indicator. Os modais (sheets ancorados embaixo) têm a altura limitada a `calc(100dvh − inset-top − inset-bottom − 28px)` — assim, por mais que as seções expandam, o topo nunca passa da Dynamic Island (o conteúdo interno rola).
 - **Tipografia**: font stack `SF Pro Display, SF Pro Text, system-ui`; antialiasing ligado; título do app 15 px peso 600 com `letter-spacing: -0.3px`; section titles uppercase estilo headline iOS; tab labels 9 px peso 500.
 - **Liquid Glass**: header e tab bar com `backdrop-filter: blur(20px) saturate(180%)` (superfície translúcida); borders `rgba(255,255,255,0.08)`.
 - **Cantos arredondados**: cards 16 px, modais 20 px, inputs/botões 12 px, linhas de transação 14 px.
