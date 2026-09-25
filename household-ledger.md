@@ -1,4 +1,4 @@
-# Household Ledger · v1.75.3
+# Household Ledger · v1.75.4
 
 Aplicativo mobile-first de controle financeiro doméstico. Registra
 transações da casa (despesas e receitas) por categoria e conta, com
@@ -31,7 +31,15 @@ O `feature-auditor` deve conferir, como parte da checklist de auditoria, que
 o diff inclui o bump nos dois arquivos antes de aprovar — se faltar, isso é
 motivo de reprovação (devolver ao coder), não um detalhe opcional.
 
-Versão atual: **v1.75.3** (branch `claude/expense-category-layout-fxh2i8`) —
+Versão atual: **v1.75.4** —
+fix de UI: o header (`S.header`) tinha `padding-top: calc(env(safe-area-inset-top)
++ 8px)`, que em devices com Dynamic Island grande (ex.: iPhone 18 Pro) deixava
+o blur da ilha encostado no topo do cabeçalho. Aumentado para `+ 10px` (só o
+padding-top; padding-right/bottom/left inalterados), tanto no estilo real
+quanto no comentário-spec do header no topo do arquivo. `EditModal`/sheets,
+tab bar e `index.html` não foram tocados.
+
+Versão anterior: **v1.75.3** (branch `claude/expense-category-layout-fxh2i8`) —
 fix (achado P2 do Codex Review no PR #275): a coluna Y/Y% do ranking do
 `YearInReviewCard` tem largura fixa (38px, `nowrap`), e um `yoy` muito alto
 (ex.: categoria que foi de $1 para $1.000 → `+99900%`) transbordava para a

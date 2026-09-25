@@ -709,7 +709,7 @@ function idleExpired() {
 // path, so the pending copy is discarded with a notice instead).
 
 // Single source for the version shown in the header and in diagnostics.
-const APP_VERSION = "v1.75.3";
+const APP_VERSION = "v1.75.4";
 
 const PENDING_SAVE_KEY = "household_pending_save";
 
@@ -10323,7 +10323,7 @@ function Empty({ children }) {
 //   Target total height (safe-area = 0): 44–46 px
 //   iPhone 16 Pro (safe-area-inset-top ≈ 59px): ~75–77 px  (<25% of 852px ✓)
 //
-//   padding-top:    calc(env(safe-area-inset-top) + 8px)
+//   padding-top:    calc(env(safe-area-inset-top) + 10px)
 //   padding-right:  16px
 //   padding-bottom: 8px
 //   padding-left:   16px
@@ -10457,7 +10457,7 @@ const S = {
     display: "flex",
     alignItems: "center",
     justifyContent: "space-between",
-    padding: "calc(env(safe-area-inset-top) + 8px) 16px 8px",
+    padding: "calc(env(safe-area-inset-top) + 10px) 16px 8px",
     background: "rgba(11,13,16,0.85)",
     backdropFilter: "blur(20px) saturate(180%)",
     WebkitBackdropFilter: "blur(20px) saturate(180%)",
