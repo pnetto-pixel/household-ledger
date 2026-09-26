@@ -709,7 +709,7 @@ function idleExpired() {
 // path, so the pending copy is discarded with a notice instead).
 
 // Single source for the version shown in the header and in diagnostics.
-const APP_VERSION = "v1.75.7";
+const APP_VERSION = "v1.75.8";
 
 const PENDING_SAVE_KEY = "household_pending_save";
 
@@ -4649,13 +4649,11 @@ const GRANULARITIES = [
   { v: "Y", l: "Y" },
 ];
 
-// Duplicate-visibility filter options for the Import preview segmented control.
-// "Review" is the uncertain band (scored 60–84): likely duplicates that stay
-// CHECKED so they're never silently dropped — see markDuplicates.
+// Compact duplicate-visibility filter for the Import preview. Uncertain matches
+// stay selected and appear under New; the scoring algorithm remains unchanged.
 export const DUP_FILTERS = [
   { v: "all", l: "All" },
   { v: "new", l: "New" },
-  { v: "review", l: "Review" },
   { v: "dup", l: "Dup" },
 ];
 
@@ -4663,6 +4661,11 @@ export const DUP_FILTERS = [
 // landed in the ledger yet. File imports keep the complete preview so changing
 // their long-standing review flow would not hide any rows unexpectedly.
 export const defaultImportDupFilter = (method) => method === "sf" ? "new" : "all";
+
+export const matchesImportDupFilter = (row, filter) =>
+  filter === "dup" ? row._dupState === "certain"
+    : filter === "new" ? row._dupState !== "certain"
+    : true;
 
 export const IMPORT_METHODS = [
   { id: "sf", title: "SimpleFin", desc: "" },
@@ -8975,42 +8978,6 @@ function relativeSyncLabel(ts) {
   return `${d.toLocaleDateString("en-US", { month: "short", day: "numeric" })}, ${time}`;
 }
 
-function ImportDupReviewPanel({ t, match, fmtMoney, hideValues, confirmed, onConfirm }) {
-  return (
-    <div onClick={(e) => e.stopPropagation()}>
-      <div style={S.importDupCompare}>
-        <div style={S.importDupCol}>
-          <div style={S.importDupColHead}>Already in ledger</div>
-          <div style={S.importDupColLine}>{match.date || "—"}</div>
-          <div style={S.importDupColLine}>{match.description || "—"}</div>
-          <div style={S.importDupColLine}>{match.account || "Unassigned"}</div>
-        </div>
-        <div style={S.importDupCol}>
-          <div style={{ ...S.importDupColHead, color: "#60a5fa" }}>This row</div>
-          <div style={S.importDupColLine}>{t.date || "—"}</div>
-          <div style={S.importDupColLine}>{t.description || "—"}</div>
-          <div style={S.importDupColLine}>{t.account || "Unassigned"}</div>
-        </div>
-      </div>
-      <div style={S.importDupActions}>
-        {/* The two amounts are identical by construction (the score gate
-            requires the same signed cents), so one masked-aware line says
-            it once instead of twice. */}
-        <span style={{ color: "#8b94a3" }}>
-          {hideValues ? "Same amount on both sides" : `Same amount: ${fmtMoney(t.amount)}`}
-        </span>
-        {confirmed ? (
-          <span style={{ color: "#34d399" }}>Marked as duplicate — will not be imported.</span>
-        ) : match.existing && t.sourceId ? (
-          <button type="button" onClick={onConfirm} style={S.importDupBtn}>
-            Mark as duplicate of existing
-          </button>
-        ) : null}
-      </div>
-    </div>
-  );
-}
-
 // Renders WHY a "new" row was NOT matched to the closest same-amount existing
 // row (see _dupNearMiss in src/ledger.js) — turns "still shows up as new" bug
 // reports into a self-diagnosable fact (date gap vs account vs description)
@@ -9061,35 +9028,6 @@ function categoryBadge(row) {
   return null;
 }
 
-// Fase 2 (badge filter): stable bucket key for a row's provenance badge,
-// independent of the label text above — used to filter the Category column
-// by "where did this categorization come from" without introducing a new
-// column. Mirrors the same thresholds as categoryBadge (>=0.7 / >=0.4).
-// Returns null when the row has no badge at all (already-trusted category
-// straight from the import source).
-function categoryBadgeFilterKey(row) {
-  if (row.categorySource === "rule") return "Rule";
-  if (row.categorySource === "confirmed") return "Confirmed";
-  if (row.categorySource === "learned") {
-    const tier = row.categoryConfidence >= 0.7 ? "High" : row.categoryConfidence >= 0.4 ? "Medium" : "Low";
-    return `Learned – ${tier}`;
-  }
-  if (row.category === "Uncategorized") return "Uncategorized";
-  return null;
-}
-const CATEGORY_BADGE_FILTER_OPTIONS = ["Rule", "Confirmed", "Learned – High", "Learned – Medium", "Learned – Low", "Uncategorized"];
-
-// Sort key for "Revisar primeiro" (Fase 2): lower = needs review sooner. A
-// rule, a user confirmation, or a real category straight from the import
-// source are all equally trusted (1) — only a memory guess (by its own
-// confidence) or a genuine "nothing classified this" (0) rank as worth a
-// second look.
-function categoryReviewConfidence(row) {
-  if (row.categorySource === "learned") return row.categoryConfidence || 0;
-  if (row.category === "Uncategorized") return 0;
-  return 1;
-}
-
 function CategoryBadge({ row }) {
   const badge = categoryBadge(row);
   if (!badge) return null;
@@ -9130,7 +9068,7 @@ function ConfirmCategoryButton({ row, onConfirm }) {
 }
 
 function ImportTransactions({
-  onImport, accountMap, config, transactions, ckCategoryMap, categoryDescriptionRules, money, hideValues, onConfirmDuplicateMatch, onSfSynced,
+  onImport, accountMap, config, transactions, ckCategoryMap, categoryDescriptionRules, money, hideValues, onSfSynced,
   // SimpleFin sync preview state — lifted to App level (v1.60.0) so it
   // survives switching tabs instead of resetting every time this component
   // unmounts (Import only renders while its tab is active). See the App()
@@ -9309,7 +9247,6 @@ function ImportTransactions({
   // (see markDuplicates): "certain" | "uncertain" | "new".
   const dedupedRows = useMemo(() => markDuplicates(csvRows, transactions || []), [csvRows, transactions]);
   const dupCount = useMemo(() => dedupedRows.filter((r) => r._dupState === "certain").length, [dedupedRows]);
-  const reviewCount = useMemo(() => dedupedRows.filter((r) => r._dupState === "uncertain").length, [dedupedRows]);
 
   // Per-row selection. Default: ONLY certain duplicates start unchecked.
   // Everything else — including the "probably a duplicate" review band — starts
@@ -9318,14 +9255,8 @@ function ImportTransactions({
   // Transactions tab. Resets whenever the parsed/mapped batch changes.
   // (`selected`/`setSelected` are now props — lifted to App level, see above.)
   // Duplicate-visibility filter for the preview list only ("all" | "new" |
-  // "review" | "dup"). Independent from `selected` (what actually gets imported).
+  // "dup"). Independent from `selected` (what actually gets imported).
   const [dupFilter, setDupFilter] = useState(() => defaultImportDupFilter(method));
-  // Preview sort order (Fase 2 of the categorization-memory work): "date"
-  // (default, unchanged newest-first behavior) or "confidence" (least
-  // confident first — see categoryReviewConfidence) so the rows most worth a
-  // second look surface at the top instead of being buried under hundreds of
-  // confident ones. Independent from `selected`/`dupFilter`, same as those.
-  const [previewSort, setPreviewSort] = useState("date");
   // Header-column filters for the desktop preview table, same shape/behavior
   // as the Transactions tab's HeaderFilter/DateHeaderFilter (multi-select for
   // account/category, year/month tree + from/to range for date). Filtering
@@ -9343,16 +9274,10 @@ function ImportTransactions({
   // user explicitly scoped out.
   const [importAcctFilter, setImportAcctFilter] = useState([]);
   const [importCatFilter, setImportCatFilter] = useState([]);
-  const [importBadgeFilter, setImportBadgeFilter] = useState([]);
   const [importDateYears, setImportDateYears] = useState([]);
   const [importDateMonths, setImportDateMonths] = useState([]);
   const [importFrom, setImportFrom] = useState("");
   const [importTo, setImportTo] = useState("");
-  // Rows the user explicitly confirmed as "this IS the existing transaction"
-  // in the review band (id -> matched existing id). Kept locally just to render
-  // the confirmation; the actual write (altSourceIds on the EXISTING row) goes
-  // through onConfirmDuplicateMatch.
-  const [confirmedDups, setConfirmedDups] = useState(() => new Map());
   // Per-row category corrections made in the preview, before import. Keyed
   // by row id -> { category, categoryManual }. Same manual-correction
   // semantics as EditModal (see setCategoryOverride below), so these
@@ -9360,47 +9285,17 @@ function ImportTransactions({
   // just like edits made after import. Reset whenever the parsed/mapped
   // batch changes (same trigger as `selected`/`dupFilter`).
   const [categoryOverrides, setCategoryOverrides] = useState(() => new Map());
-  // Rows the user explicitly confirmed the CURRENT (auto-classified) category
-  // for — id -> true (Fase 2 of the categorization-memory work). Confirming
-  // doesn't change the category value, only its provenance: from 'learned'
-  // (excluded from future training — see isMemoryTrainableRow, src/ledger.js)
-  // to 'confirmed' (included). This is what lets a review pass make the
-  // memory strictly better on every import instead of only ever staying the
-  // same size. Reset whenever the parsed/mapped batch changes, same as the
-  // other preview-only state above.
-  const [confirmedRows, setConfirmedRows] = useState(() => new Set());
   useEffect(() => {
     setSelected(new Set(dedupedRows.filter((r) => r._dupState !== "certain").map((r) => r.id)));
     setDupFilter(defaultImportDupFilter(method));
-    setPreviewSort("date");
     setCategoryOverrides(new Map());
-    setConfirmedRows(new Set());
-    setConfirmedDups(new Map());
     setImportAcctFilter([]);
     setImportCatFilter([]);
-    setImportBadgeFilter([]);
     setImportDateYears([]);
     setImportDateMonths([]);
     setImportFrom("");
     setImportTo("");
   }, [dedupedRows, method]);
-
-  // "Yes, this new row is the existing transaction": records the new row's
-  // source id on the EXISTING transaction (altSourceIds) so the next sync
-  // recognizes it by id instead of guessing again, and unchecks the row so it
-  // isn't imported twice. Deliberately a separate, explicit action — merely
-  // unchecking a row means "don't import", not "these are the same".
-  const confirmDuplicate = (row) => {
-    const match = row._dupMatch;
-    if (!match || !match.existing || !match.id || !row.sourceId) return;
-    onConfirmDuplicateMatch?.(match.id, row.sourceId);
-    setConfirmedDups((prev) => new Map(prev).set(row.id, match.id));
-    setSelected((prev) => {
-      const next = new Set(prev);
-      next.delete(row.id);
-      return next;
-    });
-  };
 
   const setCategoryOverride = (id, autoCategory, newCategory) => {
     setCategoryOverrides((prev) => {
@@ -9425,36 +9320,15 @@ function ImportTransactions({
     });
   };
 
-  // A row explicitly confirmed (see confirmedRows above) only matters while
-  // its category is still the memory's own unreviewed guess — confirming a
-  // row the user has since manually recategorized (categoryOverrides) would
-  // otherwise misreport a value the user never actually looked at as vouched
-  // for. `id` is confirmed relative to the SAME batch it was confirmed in.
-  const confirmCategory = (id) => {
-    setConfirmedRows((prev) => {
-      const next = new Set(prev);
-      next.add(id);
-      return next;
-    });
-  };
-
-  // Rows as they should be shown/imported, with any preview-time category
-  // corrections and confirmations applied on top of the deduped/auto-
-  // classified rows. Overrides are checked first: a manual pick already
-  // clears categorySource (see setCategoryOverride), so a stale confirmation
-  // on a since-overridden row is a no-op here (its categorySource is no
-  // longer 'learned').
+  // Rows as they should be shown/imported, with preview-time category
+  // corrections applied on top of the deduped/auto-classified rows.
   const displayRows = useMemo(() => {
-    if (categoryOverrides.size === 0 && confirmedRows.size === 0) return dedupedRows;
+    if (categoryOverrides.size === 0) return dedupedRows;
     return dedupedRows.map((r) => {
       const ov = categoryOverrides.get(r.id);
-      const row = ov ? { ...r, ...ov } : r;
-      if (confirmedRows.has(r.id) && row.categorySource === "learned") {
-        return { ...row, categorySource: "confirmed" };
-      }
-      return row;
+      return ov ? { ...r, ...ov } : r;
     });
-  }, [dedupedRows, categoryOverrides, confirmedRows]);
+  }, [dedupedRows, categoryOverrides]);
 
   // Options for the header-filter dropdowns, derived from the current preview
   // batch (not the whole ledger) — matches what's actually on screen.
@@ -9473,7 +9347,6 @@ function ImportTransactions({
   const matchesImportHeaderFilters = (t) => {
     if (importAcctFilter.length && !importAcctFilter.includes(t.account || "Unassigned")) return false;
     if (importCatFilter.length && !importCatFilter.includes(t.category)) return false;
-    if (importBadgeFilter.length && !importBadgeFilter.includes(categoryBadgeFilterKey(t))) return false;
     if (importFrom && (t.date || "") < importFrom) return false;
     if (importTo && (t.date || "") > importTo) return false;
     const ym = (t.date || "").slice(0, 7);
@@ -9490,52 +9363,16 @@ function ImportTransactions({
   const matchesImportAccountScope = (t) =>
     importAcctFilter.length === 0 || importAcctFilter.includes(t.account || "Unassigned");
 
-  // Filtered + sorted preview list (Fase 2 of the categorization-memory
-  // work: hoisted out of the render IIFE it used to live in, so both the
-  // render AND the header's "learned" count / bulk-confirm button can share
-  // one computation instead of the button acting on a different row set than
-  // what's actually on screen).
+  // Filtered preview list. The uncertain score band remains selected and is
+  // intentionally grouped with New; only certain duplicates belong in Dup.
   const previewRows = useMemo(() => {
     const rows = displayRows
-      .filter((t) =>
-        dupFilter === "dup" ? t._dupState === "certain"
-          : dupFilter === "review" ? t._dupState === "uncertain"
-          : dupFilter === "new" ? t._dupState === "new"
-          : true
-      )
+      .filter((t) => matchesImportDupFilter(t, dupFilter))
       .filter((t) => matchesImportHeaderFilters(t))
       .map((t, i) => ({ t, i }));
-    if (previewSort === "confidence") {
-      // Ascending — least confident (most worth a second look) first.
-      rows.sort((a, b) => {
-        const diff = categoryReviewConfidence(a.t) - categoryReviewConfidence(b.t);
-        return diff !== 0 ? diff : a.i - b.i;
-      });
-    } else {
-      // Same newest-first order as the Transactions tab, with a stable
-      // tie-break by original index (see filtered's comment there).
-      rows.sort((a, b) => (a.t.date < b.t.date ? 1 : a.t.date > b.t.date ? -1 : a.i - b.i));
-    }
+    rows.sort((a, b) => (a.t.date < b.t.date ? 1 : a.t.date > b.t.date ? -1 : a.i - b.i));
     return rows.map(({ t }) => t);
-  }, [displayRows, dupFilter, importAcctFilter, importCatFilter, importBadgeFilter, importFrom, importTo, importDateMonths, previewSort]);
-
-  // How many rows currently on screen are still the memory's OWN unreviewed
-  // guess — gates whether the sort toggle / bulk-confirm button are worth
-  // showing at all. The duplicate-status control beside it stays available
-  // even when a bucket is empty so users can always move between views.
-  const learnedVisibleCount = useMemo(
-    () => previewRows.filter((t) => t.categorySource === "learned").length,
-    [previewRows]
-  );
-  const confirmAllVisibleLearned = () => {
-    const ids = previewRows.filter((t) => t.categorySource === "learned").map((t) => t.id);
-    if (ids.length === 0) return;
-    setConfirmedRows((prev) => {
-      const next = new Set(prev);
-      for (const id of ids) next.add(id);
-      return next;
-    });
-  };
+  }, [displayRows, dupFilter, importAcctFilter, importCatFilter, importFrom, importTo, importDateMonths]);
 
   const toggleRow = (id) => setSelected((prev) => {
     const next = new Set(prev);
@@ -9592,28 +9429,11 @@ function ImportTransactions({
     resetAll();
   };
 
-  // Guards against the silent-data-loss bug where a user clicks "Confirm"
-  // on several preview rows (categorySource: learned -> confirmed, see
-  // confirmCategory above) but never clicks "Import" — `confirmedRows` is
-  // local-only preview state, and a fresh sync replaces `dedupedRows`, which
-  // resets it via the useEffect above. Rather than lose those confirmations
-  // silently, ask before wiping them. Returns true when it's safe to
-  // proceed (nothing to lose, or the user opted to lose it anyway).
-  const confirmDiscardUnimportedConfirmations = () => {
-    if (confirmedRows.size === 0) return true;
-    const n = confirmedRows.size;
-    return window.confirm(
-      `You have ${n} confirmed transaction${n === 1 ? "" : "s"} that ${n === 1 ? "hasn't" : "haven't"} been imported yet. ` +
-      `Syncing again will lose ${n === 1 ? "that confirmation" : "those confirmations"}. Continue anyway?`
-    );
-  };
-
   // SimpleFin sync: hits the server endpoint, then runs the returned rows
   // through the same account-matching / category-fallback buildRow already
   // applies for CSV rows, so they land in the shared preview/dedup pipeline
   // looking exactly like any other imported row.
   const syncSimpleFin = async () => {
-    if (!confirmDiscardUnimportedConfirmations()) return;
     setError("");
     setDone("");
     setSfLoading(true);
@@ -9658,7 +9478,6 @@ function ImportTransactions({
   // account-matching / category-fallback as a manual sync so they land in the
   // shared preview/dedup pipeline looking identical either way.
   const loadSimpleFinPending = async () => {
-    if (!confirmDiscardUnimportedConfirmations()) return;
     setError("");
     setDone("");
     setSfLoading(true);
@@ -9818,8 +9637,7 @@ function ImportTransactions({
               {skippedCount > 0 ? <span style={{ color: "#fbbf24" }}> · {skippedCount} skipped (non-numeric rows)</span> : null} · <span style={{ color: "#cbd5e1" }}>{selectedCount} selected</span>
               {/* Live state, not a description of the defaults: these counts
                   have to stay true after "Select all" or any manual tick. */}
-              {dupCount ? <span style={{ color: "#fbbf24" }}> · {dupCount} duplicate{dupCount === 1 ? "" : "s"}</span> : null}
-              {reviewCount ? <span style={{ color: "#fbbf24" }}> · {reviewCount} to review</span> : null}
+              {dupCount ? <span style={{ color: "#60a5fa" }}> · {dupCount} duplicate{dupCount === 1 ? "" : "s"}</span> : null}
               {dupSelectedCount > 0 ? (
                 <span style={{ color: "#f87171", fontWeight: 600 }}> · ⚠ {dupSelectedCount} duplicate{dupSelectedCount === 1 ? "" : "s"} checked for import</span>
               ) : null}
@@ -9835,28 +9653,19 @@ function ImportTransactions({
             {!wide && importAcctOptions.length > 1 ? (
               <HeaderFilter chip label="Account" value={importAcctFilter} options={importAcctOptions} onChange={setImportAcctFilter} />
             ) : null}
-            <div style={{ ...S.segmented, flex: "1 1 260px" }} aria-label="Transaction status filter">
+            <div style={S.importStatusFilter} aria-label="Duplicate filter">
               {DUP_FILTERS.map(({ v, l }) => (
                 <button
                   key={v}
                   onClick={() => setDupFilter(v)}
                   aria-pressed={dupFilter === v}
-                  style={{ ...S.segmentedBtn(dupFilter === v), minHeight: 40, flex: 1 }}
+                  style={S.importStatusFilterBtn(dupFilter === v)}
                 >
                   {l}
                 </button>
               ))}
             </div>
-            {learnedVisibleCount > 0 ? (
-              <>
-                <span style={{ color: "#fbbf24" }}>· {learnedVisibleCount} learned</span>
-                <div style={S.segmented}>
-                  <button onClick={() => setPreviewSort("date")} style={S.segmentedBtn(previewSort === "date")}>Most recent</button>
-                  <button onClick={() => setPreviewSort("confidence")} style={S.segmentedBtn(previewSort === "confidence")}>Review first</button>
-                </div>
-                <button onClick={confirmAllVisibleLearned} style={S.linkBtn}>Confirm all visible learned</button>
-              </>
-            ) : null}
+
           </div>
           {(() => {
             const shown = previewRows.slice(0, 400);
@@ -9864,7 +9673,7 @@ function ImportTransactions({
               return (
                 <div style={S.importEmpty}>
                   <strong>{dupFilter === "new" ? "No new transactions" : "No matches"}</strong>
-                  <span>{dupFilter === "new" ? "Try All, Review, or Dup." : "Choose another filter."}</span>
+                  <span>{dupFilter === "new" ? "Try All or Dup." : "Choose another filter."}</span>
                 </div>
               );
             }
@@ -9904,10 +9713,7 @@ function ImportTransactions({
                           <HeaderFilter label="Account" value={importAcctFilter} options={importAcctOptions} onChange={setImportAcctFilter} />
                         </th>
                         <th style={S.stickyTh}>
-                          <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
-                            <HeaderFilter label="Category" value={importCatFilter} options={importCatOptions} onChange={setImportCatFilter} />
-                            <HeaderFilter label="Status" value={importBadgeFilter} options={CATEGORY_BADGE_FILTER_OPTIONS} onChange={setImportBadgeFilter} />
-                          </div>
+                          <HeaderFilter label="Category" value={importCatFilter} options={importCatOptions} onChange={setImportCatFilter} />
                         </th>
                         <th style={{ ...S.stickyTh, textAlign: "right" }}>Amount</th>
                       </tr>
@@ -9920,7 +9726,7 @@ function ImportTransactions({
                         const certain = t._dupState === "certain";
                         const review = t._dupState === "uncertain";
                         const reasons = (t._dupReasons || []).join(" · ");
-                        const rowBg = review ? "rgba(251,191,36,0.06)" : selected.has(t.id) ? "#1a1f2e" : "transparent";
+                        const rowBg = selected.has(t.id) ? "#1a1f2e" : "transparent";
                         return (
                           <React.Fragment key={t.id}>
                             <tr onClick={() => toggleRow(t.id)} style={{ cursor: "pointer", opacity: checked ? 1 : 0.5, background: rowBg }}>
@@ -9931,9 +9737,8 @@ function ImportTransactions({
                               <td style={{ ...S.td, color: "#e5e7eb", whiteSpace: "normal", overflowWrap: "anywhere", minWidth: 260 }}>
                                 {t.description || t.category}
                                 {certain ? <span title={reasons} style={S.dupBadge(false)}>DUP</span> : null}
-                                {review ? <span title={reasons} style={S.dupBadge(true)}>DUP?</span> : null}
                                 {edited ? <span title={`Auto-detected as ${autoCategory}`} style={{ marginLeft: 6, fontSize: 10, fontWeight: 700, color: "#60a5fa", border: "1px solid #1d3a5f", borderRadius: 6, padding: "1px 5px", verticalAlign: "1px" }}>EDITED</span> : null}
-                                {(certain || review) && reasons ? (
+                                {certain && reasons ? (
                                   <div style={{ fontSize: 11, color: "#8b94a3", marginTop: 2, fontWeight: 400, whiteSpace: "normal" }}>{reasons}</div>
                                 ) : null}
                                 {!certain && !review ? (
@@ -9951,26 +9756,9 @@ function ImportTransactions({
                                     <option key={c} value={c}>{c}</option>
                                   ))}
                                 </select>
-                                <CategoryBadge row={t} />
-                                <ConfirmCategoryButton row={t} onConfirm={confirmCategory} />
                               </td>
                               <td style={{ ...S.td, textAlign: "right", color: "#cbd5e1", whiteSpace: "nowrap" }}>{fmtMoney(t.amount)}</td>
                             </tr>
-                            {review && t._dupMatch ? (
-                              <tr style={{ background: "rgba(251,191,36,0.04)" }}>
-                                <td style={S.td} />
-                                <td colSpan={5} style={S.td}>
-                                  <ImportDupReviewPanel
-                                    t={t}
-                                    match={t._dupMatch}
-                                    fmtMoney={fmtMoney}
-                                    hideValues={hideValues}
-                                    confirmed={confirmedDups.has(t.id)}
-                                    onConfirm={() => confirmDuplicate(t)}
-                                  />
-                                </td>
-                              </tr>
-                            ) : null}
                           </React.Fragment>
                         );
                       })}
@@ -9990,20 +9778,18 @@ function ImportTransactions({
                   const edited = t.category !== autoCategory;
                   const certain = t._dupState === "certain";
                   const review = t._dupState === "uncertain";
-                  const confirmed = confirmedDups.has(t.id);
                   const reasons = (t._dupReasons || []).join(" · ");
                   return (
-                    <div key={t.id} style={certain || review ? S.importDupWrap(review) : undefined}>
+                    <div key={t.id} style={certain ? S.importDupWrap() : undefined}>
                       <div
                         onClick={() => toggleRow(t.id)}
-                        style={{ ...S.txnRow, cursor: "pointer", gap: 10, opacity: checked ? 1 : 0.5, border: certain || review ? "none" : undefined }}
+                        style={{ ...S.txnRow, cursor: "pointer", gap: 10, opacity: checked ? 1 : 0.5, border: certain ? "none" : undefined }}
                       >
                         <input type="checkbox" checked={checked} onChange={() => toggleRow(t.id)} onClick={(e) => e.stopPropagation()} style={S.checkbox} />
                         <div style={{ minWidth: 0, flex: 1 }}>
                           <div style={{ fontSize: 14, color: "#e5e7eb", overflowWrap: "anywhere" }}>
                             {t.description || t.category}
                             {certain ? <span title={reasons} style={S.dupBadge(false)}>DUP</span> : null}
-                            {review ? <span title={reasons} style={S.dupBadge(true)}>DUP?</span> : null}
                             {edited ? <span title={`Auto-detected as ${autoCategory}`} style={{ marginLeft: 6, fontSize: 10, fontWeight: 700, color: "#60a5fa", border: "1px solid #1d3a5f", borderRadius: 6, padding: "1px 5px", verticalAlign: "1px" }}>EDITED</span> : null}
                           </div>
                           <div style={{ fontSize: 11, color: "#8b94a3", display: "flex", alignItems: "center", gap: 6, marginTop: 3, flexWrap: "wrap" }}>
@@ -10018,29 +9804,17 @@ function ImportTransactions({
                                 <option key={c} value={c}>{c}</option>
                               ))}
                             </select>
-                            <CategoryBadge row={t} />
-                            <ConfirmCategoryButton row={t} onConfirm={confirmCategory} />
                           </div>
                         </div>
                         <span style={{ fontSize: 14, color: "#cbd5e1", whiteSpace: "nowrap" }}>{fmtMoney(t.amount)}</span>
                       </div>
-                      {(certain || review) && reasons ? (
+                      {certain && reasons ? (
                         <div style={S.importDupReasons}>{reasons}</div>
                       ) : null}
                       {!certain && !review ? (
                         <div style={{ padding: "0 4px" }}>
                           <ImportNearMissHint nearMiss={t._dupNearMiss} fmtMoney={fmtMoney} hideValues={hideValues} />
                         </div>
-                      ) : null}
-                      {review && t._dupMatch ? (
-                        <ImportDupReviewPanel
-                          t={t}
-                          match={t._dupMatch}
-                          fmtMoney={fmtMoney}
-                          hideValues={hideValues}
-                          confirmed={confirmed}
-                          onConfirm={() => confirmDuplicate(t)}
-                        />
                       ) : null}
                     </div>
                   );
@@ -10825,13 +10599,32 @@ const S = {
     lineHeight: 1.4,
     boxShadow: "inset 0 1px 2px rgba(0,0,0,0.2)",
   },
-  // --- Import preview: duplicate states -----------------------------------
-  // `review` (the uncertain 60–84 band) gets the same amber family as a certain
-  // duplicate but a filled tint, because it's the state that asks for a
-  // decision instead of just reporting one.
-  importDupWrap: (review) => ({
-    background: review ? "rgba(251,191,36,0.06)" : "transparent",
-    border: "1px solid #5b4a16",
+  importStatusFilter: {
+    display: "flex",
+    flex: "0 0 auto",
+    width: 180,
+    padding: 3,
+    border: "1px solid #1e2530",
+    borderRadius: 10,
+    background: "#12161c",
+  },
+  importStatusFilterBtn: (active) => ({
+    flex: 1,
+    minHeight: 30,
+    padding: "4px 10px",
+    border: "none",
+    borderRadius: 7,
+    background: active ? "#2563b9" : "transparent",
+    color: active ? "#f8fafc" : "#8b94a3",
+    fontSize: 12,
+    fontWeight: active ? 700 : 500,
+    cursor: "pointer",
+  }),
+  // Certain duplicates use the app's blue token instead of a warning color;
+  // they are informational because they already start unchecked.
+  importDupWrap: () => ({
+    background: "transparent",
+    border: "1px solid rgba(96,165,250,0.38)",
     borderRadius: 14,
     overflow: "hidden",
     // `overflow: hidden` replaces this flex item's automatic minimum size
@@ -10842,13 +10635,13 @@ const S = {
     // corners of the inner row.
     flexShrink: 0,
   }),
-  dupBadge: (review) => ({
+  dupBadge: () => ({
     marginLeft: 6,
     fontSize: 10,
     fontWeight: 700,
-    color: "#fbbf24",
-    background: review ? "rgba(251,191,36,0.14)" : "transparent",
-    border: "1px solid #5b4a16",
+    color: "#60a5fa",
+    background: "rgba(96,165,250,0.1)",
+    border: "1px solid rgba(96,165,250,0.38)",
     borderRadius: 6,
     padding: "1px 5px",
     verticalAlign: "1px",
@@ -10859,52 +10652,6 @@ const S = {
     padding: "0 12px 8px 38px",
     lineHeight: 1.4,
     overflowWrap: "anywhere",
-  },
-  importDupCompare: {
-    display: "flex",
-    gap: 8,
-    padding: "0 12px 8px",
-  },
-  importDupCol: {
-    flex: 1,
-    minWidth: 0,
-    background: "#12161c",
-    border: "1px solid #1e2530",
-    borderRadius: 10,
-    padding: "6px 8px",
-  },
-  importDupColHead: {
-    fontSize: 10,
-    fontWeight: 700,
-    textTransform: "uppercase",
-    letterSpacing: 0.6,
-    color: "#8b94a3",
-    marginBottom: 3,
-  },
-  importDupColLine: {
-    fontSize: 11,
-    color: "#cbd5e1",
-    overflowWrap: "anywhere",
-    lineHeight: 1.4,
-  },
-  importDupActions: {
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "space-between",
-    flexWrap: "wrap",
-    gap: 8,
-    fontSize: 11,
-    padding: "0 12px 10px",
-  },
-  importDupBtn: {
-    background: "transparent",
-    border: "1px solid #5b4a16",
-    color: "#fbbf24",
-    borderRadius: 8,
-    padding: "5px 10px",
-    fontSize: 11,
-    fontWeight: 600,
-    cursor: "pointer",
   },
   primaryBtn: {
     width: "100%",

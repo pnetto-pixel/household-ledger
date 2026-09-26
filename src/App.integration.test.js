@@ -19,17 +19,25 @@ import {
   detectOtherDescriptionFragments,
   DUP_FILTERS,
   IMPORT_METHODS,
+  matchesImportDupFilter,
 } from "./App.jsx";
 
 describe("Import preview defaults", () => {
   it("opens SimpleFin sync and pending previews on New", () => {
     expect(defaultImportDupFilter("sf")).toBe("new");
-    expect(DUP_FILTERS.map(({ v }) => v)).toEqual(["all", "new", "review", "dup"]);
+    expect(DUP_FILTERS.map(({ v }) => v)).toEqual(["all", "new", "dup"]);
   });
 
   it("keeps Credit Karma and generic CSV previews on All", () => {
     expect(defaultImportDupFilter("ck")).toBe("all");
     expect(defaultImportDupFilter("csv")).toBe("all");
+  });
+
+  it("groups uncertain matches under New while Dup stays certain-only", () => {
+    expect(matchesImportDupFilter({ _dupState: "uncertain" }, "new")).toBe(true);
+    expect(matchesImportDupFilter({ _dupState: "new" }, "new")).toBe(true);
+    expect(matchesImportDupFilter({ _dupState: "certain" }, "new")).toBe(false);
+    expect(matchesImportDupFilter({ _dupState: "certain" }, "dup")).toBe(true);
   });
 
   it("keeps the import choices concise and identifiable", () => {
