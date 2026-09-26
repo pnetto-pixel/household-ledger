@@ -709,7 +709,7 @@ function idleExpired() {
 // path, so the pending copy is discarded with a notice instead).
 
 // Single source for the version shown in the header and in diagnostics.
-const APP_VERSION = "v1.75.4";
+const APP_VERSION = "v1.75.5";
 
 const PENDING_SAVE_KEY = "household_pending_save";
 
@@ -4697,6 +4697,12 @@ function YearRangeSlider({ years, fromYear, toYear, onFromYear, onToYear, trackS
 
   const endDrag = () => setDragging(null);
 
+  // The year label sits above its handle, horizontally centered by default;
+  // near either end of the track that centering would push it past the
+  // wrap's edge (clipped by the phone viewport in a popover). Clamp instead
+  // of always centering.
+  const labelTransform = (pct) => (pct > 82 ? "translateX(-100%)" : pct < 18 ? "translateX(0%)" : "translateX(-50%)");
+
   if (n === 0) return null;
 
   return (
@@ -4727,7 +4733,9 @@ function YearRangeSlider({ years, fromYear, toYear, onFromYear, onToYear, trackS
             zIndex: dragging === "from" ? 3 : 1,
           }}
         >
-          {fromIdx === toIdx ? null : <span style={S.yearRangeLabel}>{fromYear}</span>}
+          {fromIdx === toIdx ? null : (
+            <span style={{ ...S.yearRangeLabel, transform: labelTransform(pctFor(fromIdx)) }}>{fromYear}</span>
+          )}
         </div>
         <div
           role="slider"
@@ -4741,7 +4749,7 @@ function YearRangeSlider({ years, fromYear, toYear, onFromYear, onToYear, trackS
             zIndex: dragging === "to" ? 3 : 2,
           }}
         >
-          <span style={S.yearRangeLabel}>{toYear}</span>
+          <span style={{ ...S.yearRangeLabel, transform: labelTransform(pctFor(toIdx)) }}>{toYear}</span>
         </div>
       </div>
     </div>
@@ -5966,8 +5974,14 @@ function Popover({ open, setOpen, anchorRef, children, style }) {
       const el = anchorRef.current;
       if (!el) return;
       const r = el.getBoundingClientRect();
-      const left = Math.max(8, Math.min(r.left, window.innerWidth - 8 - (style?.minWidth || 180)));
-      setPos({ top: r.bottom + 6, left, maxWidth: window.innerWidth - left - 8 });
+      // Use the real rendered width once known (popRef mounted); until then
+      // fall back to the declared minWidth as a first estimate so there's no
+      // flash at the wrong spot.
+      const estWidth = popRef.current?.getBoundingClientRect().width || style?.minWidth || 180;
+      const hardMax = window.innerWidth - 16;
+      const maxLeft = Math.max(8, window.innerWidth - 8 - estWidth);
+      const left = Math.max(8, Math.min(r.left, maxLeft));
+      setPos({ top: r.bottom + 6, left, maxWidth: Math.min(hardMax, window.innerWidth - left - 8) });
     };
     update();
     window.addEventListener("resize", update);
@@ -5977,6 +5991,24 @@ function Popover({ open, setOpen, anchorRef, children, style }) {
       window.removeEventListener("scroll", update, true);
     };
   }, [open, anchorRef, style]);
+
+  // Second pass: once the popover is actually mounted, re-clamp against its
+  // real measured width (the estimate above may be wrong for popovers whose
+  // width depends on content, e.g. the period-range slider). Runs before
+  // paint, so no visible flicker.
+  useLayoutEffect(() => {
+    if (!open || !pos || !popRef.current) return;
+    const el = anchorRef.current;
+    if (!el) return;
+    const r = el.getBoundingClientRect();
+    const w = popRef.current.getBoundingClientRect().width;
+    const maxLeft = Math.max(8, window.innerWidth - 8 - w);
+    const left = Math.max(8, Math.min(r.left, maxLeft));
+    if (Math.abs(left - pos.left) > 0.5) {
+      setPos((p) => (p ? { ...p, left, maxWidth: window.innerWidth - 16 } : p));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, pos, anchorRef]);
 
   useEffect(() => {
     if (!open) return;
@@ -10457,7 +10489,7 @@ const S = {
     display: "flex",
     alignItems: "center",
     justifyContent: "space-between",
-    padding: "calc(env(safe-area-inset-top) + 10px) 16px 8px",
+    padding: "calc(env(safe-area-inset-top) + 18px) 16px 8px",
     background: "rgba(11,13,16,0.85)",
     backdropFilter: "blur(20px) saturate(180%)",
     WebkitBackdropFilter: "blur(20px) saturate(180%)",
@@ -11305,6 +11337,8 @@ const S = {
     fontFamily: FONT_STACK,
     maxHeight: 280,
     overflowY: "auto",
+    overflowX: "hidden",
+    boxSizing: "border-box",
     background: "rgba(22,26,32,0.82)",
     backdropFilter: "blur(20px) saturate(180%)",
     WebkitBackdropFilter: "blur(20px) saturate(180%)",
@@ -11461,7 +11495,6 @@ const S = {
   yearRangeLabel: {
     position: "absolute",
     top: -18,
-    transform: "translateX(-50%)",
     fontSize: 11,
     fontWeight: 700,
     color: "#93c5fd",

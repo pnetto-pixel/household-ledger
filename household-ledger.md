@@ -1,4 +1,4 @@
-# Household Ledger · v1.75.4
+# Household Ledger · v1.75.5
 
 Aplicativo mobile-first de controle financeiro doméstico. Registra
 transações da casa (despesas e receitas) por categoria e conta, com
@@ -31,7 +31,24 @@ O `feature-auditor` deve conferir, como parte da checklist de auditoria, que
 o diff inclui o bump nos dois arquivos antes de aprovar — se faltar, isso é
 motivo de reprovação (devolver ao coder), não um detalhe opcional.
 
-Versão atual: **v1.75.4** (PR #277) —
+Versão atual: **v1.75.5** (PR #278) —
+fix de UI: `S.header` ainda ficava colado à Dynamic Island em alguns devices
+(padding-top só `+ 10px` sobre o safe-area); aumentado para `+ 18px`. O
+`Popover` compartilhado (usado por `HeaderFilter`, `DateHeaderFilter`,
+`SinglePeriodFilter`/`SingleCategoryFilter` e o chip de período do Trends)
+clampava a posição horizontal usando `style.minWidth` como estimativa de
+largura em vez de medir o popover real — em telas estreitas (390px) o
+popover do chip "YTD" no Trends, mais largo que o `minWidth` declarado,
+transbordava pela borda direita. Agora mede a largura real via
+`getBoundingClientRect()` em duas passagens (estimativa inicial + correção
+pós-render, ambas em `useLayoutEffect` para não piscar) e aplica um teto
+duro de `innerWidth - 16`. `S.headerPop` ganhou `boxSizing: border-box` e
+`overflowX: hidden` como rede de segurança. O label do ano no
+`YearRangeSlider` (dentro desse popover) usava `translateX(-50%)` fixo, que
+vazava quando o handle estava perto de uma das pontas do slider; agora
+clampa para `translateX(0%)`/`translateX(-100%)` nos extremos.
+
+Versão anterior: **v1.75.4** (PR #277) —
 fix de UI: o header (`S.header`) tinha `padding-top: calc(env(safe-area-inset-top)
 + 8px)`, que em devices com Dynamic Island grande (ex.: iPhone 18 Pro) deixava
 o blur da ilha encostado no topo do cabeçalho. Aumentado para `+ 10px` (só o
@@ -5799,3 +5816,15 @@ riscos reais de perda de dados.
   — achado P2 do Codex Review no PR #275: `yoy` acima de 999% (ex.: $1 →
   $1.000) é exibido como `>999%` via `fmtPctCol` (valor exato no tooltip) e o
   span tem `overflow: hidden`. Ver "Versão atual" no topo.
+- [x] **Fix: header colado à Dynamic Island + `Popover` transbordando em
+  telas estreitas** (v1.75.5, PR #278) — `S.header` ganhou `padding-top:
+  calc(env(safe-area-inset-top) + 18px)` (antes `+ 10px`, v1.75.4). O
+  `Popover` compartilhado (`HeaderFilter`, `DateHeaderFilter`, chip de
+  período/YTD do Trends, `SingleCategoryFilter` mobile, wheel-picker do
+  `SinglePeriodFilter`) passou a medir a largura real renderizada via
+  `getBoundingClientRect()` em duas passagens `useLayoutEffect`, clampando
+  `left` em `[8, innerWidth - 8 - width]` e `maxWidth` em `innerWidth - 16`;
+  `S.headerPop` ganhou `overflowX: hidden` + `boxSizing: border-box`. O
+  label do ano no `YearRangeSlider` passou a clampar `translateX` (`0%` /
+  `-50%` / `-100%`) nas pontas para não vazar. Sem mudança de API/Redis/
+  modelo de dados. Ver "Versão atual" no topo deste documento.
