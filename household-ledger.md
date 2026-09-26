@@ -31,7 +31,7 @@ O `feature-auditor` deve conferir, como parte da checklist de auditoria, que
 o diff inclui o bump nos dois arquivos antes de aprovar — se faltar, isso é
 motivo de reprovação (devolver ao coder), não um detalhe opcional.
 
-Versão atual: **v1.75.5** —
+Versão atual: **v1.75.5** (PR #278) —
 fix de UI: `S.header` ainda ficava colado à Dynamic Island em alguns devices
 (padding-top só `+ 10px` sobre o safe-area); aumentado para `+ 18px`. O
 `Popover` compartilhado (usado por `HeaderFilter`, `DateHeaderFilter`,
@@ -5816,3 +5816,15 @@ riscos reais de perda de dados.
   — achado P2 do Codex Review no PR #275: `yoy` acima de 999% (ex.: $1 →
   $1.000) é exibido como `>999%` via `fmtPctCol` (valor exato no tooltip) e o
   span tem `overflow: hidden`. Ver "Versão atual" no topo.
+- [x] **Fix: header colado à Dynamic Island + `Popover` transbordando em
+  telas estreitas** (v1.75.5, PR #278) — `S.header` ganhou `padding-top:
+  calc(env(safe-area-inset-top) + 18px)` (antes `+ 10px`, v1.75.4). O
+  `Popover` compartilhado (`HeaderFilter`, `DateHeaderFilter`, chip de
+  período/YTD do Trends, `SingleCategoryFilter` mobile, wheel-picker do
+  `SinglePeriodFilter`) passou a medir a largura real renderizada via
+  `getBoundingClientRect()` em duas passagens `useLayoutEffect`, clampando
+  `left` em `[8, innerWidth - 8 - width]` e `maxWidth` em `innerWidth - 16`;
+  `S.headerPop` ganhou `overflowX: hidden` + `boxSizing: border-box`. O
+  label do ano no `YearRangeSlider` passou a clampar `translateX` (`0%` /
+  `-50%` / `-100%`) nas pontas para não vazar. Sem mudança de API/Redis/
+  modelo de dados. Ver "Versão atual" no topo deste documento.
