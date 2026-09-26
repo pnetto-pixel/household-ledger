@@ -1,4 +1,4 @@
-# Household Ledger · v1.75.5
+# Household Ledger · v1.75.7
 
 Aplicativo mobile-first de controle financeiro doméstico. Registra
 transações da casa (despesas e receitas) por categoria e conta, com
@@ -31,7 +31,21 @@ O `feature-auditor` deve conferir, como parte da checklist de auditoria, que
 o diff inclui o bump nos dois arquivos antes de aprovar — se faltar, isso é
 motivo de reprovação (devolver ao coder), não um detalhe opcional.
 
-Versão atual: **v1.75.5** (PR #278) —
+Versão atual: **v1.75.7** —
+refinamento minimalista da prévia de Import: o filtro de status agora é um
+controle compacto, com apenas **All / New / Dup**; correspondências incertas
+continuam selecionadas e visíveis em All, sem um modo Review separado. Foram
+removidos da prévia os indicadores, ordenações, confirmações e filtro de
+proveniência relacionados a `learned`; a memória de categorias e seu algoritmo
+não mudaram. A semântica visual de duplicatas passou do amarelo para azul/neutro,
+mantendo vermelho exclusivamente no alerta de duplicata marcada para importar.
+
+Versão anterior: **v1.75.6** —
+ajuste de UI na tab Import: o SimpleFin passou a usar uma linha compacta de
+status e ação; previews do SimpleFin abrem em **New**, enquanto Credit Karma e
+CSV abrem em **All**.
+
+Versão v1.75.5 (PR #278) —
 fix de UI: `S.header` ainda ficava colado à Dynamic Island em alguns devices
 (padding-top só `+ 10px` sobre o safe-area); aumentado para `+ 18px`. O
 `Popover` compartilhado (usado por `HeaderFilter`, `DateHeaderFilter`,
@@ -130,11 +144,15 @@ no header (não migrou para a tela About/Settings). Por tab:
   compacta o rótulo de ano em telas estreitas; `YearInReviewCard` trocou o
   gráfico vertical de categorias por um ranking de barras horizontais
   (top 10 + "Show more").
-- **Import**: segmented SimpleFin/Credit Karma/CSV numa linha só. Painel
-  SimpleFin virou card de status ("Last sync {relativo}", nº de contas e
-  novas desde o início do mês, botão "Sync now") + card "Pending review"
-  tocável com pill de contagem (some quando 0), no lugar do banner âmbar
-  antigo. Histórico "Recent syncs" não foi implementado (ver Roadmap).
+- **Import**: segmented SimpleFin/Credit Karma/CSV numa linha só. O SimpleFin
+  mostra status e ação numa linha compacta, sem card, ícone ou resumo de
+  arquivo; o botão agora diz "Sync". O aviso tocável da fila foi reduzido a
+  "Pending" + contagem e some quando zerado. Após sync manual ou abertura da
+  fila, a prévia começa em **New**; Credit Karma e CSV continuam em **All**.
+  O controle compacto All/New/Dup fica sempre acessível; correspondências
+  incertas aparecem em All. A prévia não exibe mais informações ou controles
+  `learned`, e seu estado vazio orienta a trocar de filtro. Histórico "Recent
+  syncs" não foi implementado (ver Roadmap).
 - **Settings**: `SettingsTab` reescrito como lista agrupada iOS (grupos
   Categorization/Accounts/Planning/Data/About) com sub-views próprios
   (botão "‹ Settings", `<main>` rola ao topo, troca de tab sempre volta à
@@ -1028,11 +1046,13 @@ categorização automática de linhas SimpleFin** (`src/ledger.js`,
    nunca vai sozinho à tela. Três estados na prévia do Import
    (`_dupState`): **certain** (id igual, fingerprint idêntico ou score ≥85)
    → desmarcada, badge `DUP`; **uncertain** (60–84) → **marcada**, badge
-   âmbar `DUP?` + comparação lado a lado com a linha existente; **new**
+   `DUP?` (azul desde a v1.75.7; originalmente âmbar) + comparação lado a
+   lado com a linha existente; **new**
    (<60) → marcada, sem badge. O default é assimétrico de propósito: falso
    positivo faz uma transação real sumir em silêncio, falso negativo só
-   duplica uma linha visível e removível em massa. Quarto bucket "Review" no
-   filtro do preview. Botão explícito "Marcar como duplicata da existente" na
+   duplica uma linha visível e removível em massa. O quarto bucket "Review"
+   existiu no filtro do preview até a v1.75.6; desde a v1.75.7, uncertain fica
+   em All. Botão explícito "Marcar como duplicata da existente" na
    faixa incerta grava `altSourceIds` (array aditivo opcional) na transação
    **existente** via `updateTransaction`, então a próxima sync vira id-match
    exato. Helper novo `normalizeMerchant()` (tira prefixos de gateway `SQ *`,
@@ -3709,9 +3729,10 @@ shell de altura cheia (`#root` em `100lvh` + shell `height:100%`): só o
    removidos da tab Transactions** (pedido do usuário — a coluna Category
    ficava poluída): saíram `<CategoryBadge row={t} />` de `TxnTable`/
    `TxnAuditCard`, o chip mobile "Status" e o estado `badgeFilter` de
-   `Transactions`. O badge/filtro **continuam existindo, mas só na tab
-   Import** (`ImportTransactions`, ver item 4 abaixo) — lá ainda fazem
-   sentido para revisar o lote antes de confirmar. `ConfirmCategoryButton`
+   `Transactions`. Até a v1.75.6, os badges e o filtro **continuaram existindo
+   só na tab Import** (`ImportTransactions`, ver item 4 abaixo); desde a
+   v1.75.7, saíram de lá o filtro "Status" e apenas o badge `learned`. Os badges
+   `RULE`, `OK` e `?` continuam na prévia. `ConfirmCategoryButton`
    (ação de promover `learned` → `confirmed`) permanece na tab Transactions,
    ao lado do select de categoria; não é um badge, é um botão funcional.
    `categorySource`/`categoryConfidence`/`categoryReason` seguem no modelo de
@@ -3853,16 +3874,19 @@ shell de altura cheia (`#root` em `100lvh` + shell `height:100%`): só o
    Transactions (item 3 acima), aplicado também à tabela de preview do
    Import; sem equivalente na visão mobile (cards), pelo mesmo motivo do
    item anterior. **Desde a v1.73.0 (PR #270)**, esse filtro (e o badge
-   `CategoryBadge` na célula de categoria) foi removido da tab Transactions
-   — **este filtro/badge do Import é o único que resta no app**, mantido de
-   propósito para revisar o lote antes de confirmar. Nessa mesma versão
-   (v1.70.0), o botão **Confirm** deixou de perder
+   `CategoryBadge` na célula de categoria) foi removido da tab Transactions.
+   O filtro e todos os badges permaneceram no Import até a v1.75.6; desde a
+   v1.75.7, a prévia removeu o filtro "Status" e o badge `learned`, mas manteve
+   os demais badges de categoria (`RULE`, `OK` e `?`). Na v1.70.0, o botão
+   **Confirm** deixou de perder
    confirmações silenciosamente: `confirmedRows` era um estado local
    resetado a cada novo `dedupedRows` (novo sync), descartando confirmações
    já dadas mas ainda não importadas. Agora `syncSimpleFin`/
    `loadSimpleFinPending` chamam `confirmDiscardUnimportedConfirmations()`
    no início, que avisa via `window.confirm` quantas confirmações serão
-   perdidas e permite cancelar o sync.
+   perdidas e permite cancelar o sync. Esse estado, a confirmação no Import e
+   o guard foram removidos juntos na v1.75.7; a confirmação segue disponível
+   na tab Transactions.
 
    **SimpleFin (auto)** (v1.48.0, PR #213, Fase 1) — terceiro card na tab
    Import, ao lado de Credit Karma (CSV) e CSV genérico, com botão "Sync
@@ -3920,16 +3944,20 @@ shell de altura cheia (`#root` em `100lvh` + shell `height:100%`): só o
 
    **Deduplicação (três estados, desde a v1.56.0).** Na prévia, cada linha
    tem checkbox e um `_dupState` calculado por `markDuplicates`, com
-   Select/Deselect all — só as marcadas são importadas. Quando há duplicatas
-   detectadas (`dupCount > 0`), aparece um filtro de visualização da prévia:
-   um **segmented control** — "All" / "New Only" / "Dup Only" / "Review"
-   (estado `dupFilter`, enum `"all"|"new"|"dup"|"review"`; o quarto bucket
-   entrou na v1.56.0, os três primeiros vêm da v1.16.2/PR #126, que já havia
-   substituído os 2 checkboxes mutuamente exclusivos da v1.15.2/PR #123). É
+   Select/Deselect all — só as marcadas são importadas. Um filtro de
+   visualização da prévia permanece disponível independentemente das
+   contagens: desde a v1.75.7, o **segmented control** compacto mostra apenas
+   "All" / "New" / "Dup" (estado `dupFilter`, enum
+   `"all"|"new"|"dup"`). O bucket incerto continua no algoritmo e aparece em
+   All; apenas seu modo "Review" dedicado foi removido da interface. O controle
+   original vem da v1.16.2/PR #126 e o bucket incerto entrou na v1.56.0. É
    um filtro **de visualização da prévia apenas** — não afeta o Set
-   `selected` que determina o que de fato é importado. O botão **"Import N
-   transactions"** fica em uma **barra sticky** (`bottom: 0`, gradiente para
-   o fundo do app), sempre visível sem precisar rolar até o fim da lista
+   `selected` que determina o que de fato é importado. **Desde a v1.75.6**, o
+   controle fica sempre visível: sync manual e fila SimpleFin abrem em
+   **New**, enquanto Credit Karma e CSV abrem em **All**; buckets vazios
+   mostram uma mensagem curta com indicação dos demais filtros. O botão
+   **"Import N transactions"** fica em uma **barra sticky** (`bottom: 0`,
+   gradiente para o fundo do app), sempre visível sem precisar rolar até o fim da lista
    depois de carregar o arquivo; `maxHeight` da lista de preview reduzido de
    360 para 300 px para abrir espaço para a barra.
 
@@ -3938,7 +3966,7 @@ shell de altura cheia (`#root` em `100lvh` + shell `height:100%`): só o
    - **`certain`** — id de origem em comum (inclusive cross-source via
      `altSourceIds`), fingerprint de conteúdo idêntico, ou `score >= 85`.
      Vem **desmarcada**, badge `DUP` + as `reasons` do score.
-   - **`uncertain`** — `score` entre 60 e 84. Vem **MARCADA**, badge âmbar
+   - **`uncertain`** — `score` entre 60 e 84. Vem **MARCADA**, badge azul
      `DUP?` + comparação lado a lado com a linha existente (data, descrição,
      conta, valor via `money`, respeitando `hideValues`) e um botão
      "Marcar como duplicata da existente" que grava `altSourceIds`.
@@ -5713,7 +5741,9 @@ riscos reais de perda de dados.
     (`confirmedRows` resetado sem aviso) — `syncSimpleFin`/
     `loadSimpleFinPending` agora chamam
     `confirmDiscardUnimportedConfirmations()` (`window.confirm`) antes de
-    descartar. Ver "Versão atual" no topo deste documento para o
+    descartar. A UI de confirmação `learned` do Import, esse estado e o guard
+    foram removidos juntos na v1.75.7; a confirmação permanece em Transactions.
+    Ver "Versão atual" no topo deste documento para o
     detalhamento completo.
   - [x] **Classificação (rule-based e memória) nunca sugeria `Transfer`** —
     resolvido em v1.71.0 (PR #267, ver "Versão atual" no topo deste
@@ -5731,9 +5761,10 @@ riscos reais de perda de dados.
     transações estava poluída com o badge de proveniência (`CategoryBadge`)
     além do select de categoria. Removidos `<CategoryBadge row={t} />` de
     `TxnTable`/`TxnAuditCard`, o chip mobile/`HeaderFilter` "Status" e o
-    estado `badgeFilter` de `Transactions`. Badge e filtro **ficam mantidos
-    apenas na tab Import** (`ImportTransactions`), onde ainda servem para
-    revisar o lote antes de confirmar; sem mudança de modelo de transação
+    estado `badgeFilter` de `Transactions`. Badge e filtro permaneceram
+    apenas na tab Import até a v1.75.6; na v1.75.7, saiu também do Import o
+    filtro e o badge `learned` (os badges `RULE`, `OK` e `?` continuam na
+    prévia). Sem mudança de modelo de transação
     (`categorySource`/`categoryConfidence`/`categoryReason` seguem nos
     dados) nem de contrato de API/Redis. Ver "Versão atual" no topo deste
     documento para o detalhamento completo.
@@ -5780,6 +5811,21 @@ riscos reais de perda de dados.
     Trends em `S.segmented` (hoje continuam em `S.togglePill`).
   - [ ] Sidebar desktop acima de 900px, no lugar da tab bar inferior
     (mencionado na revisão de design, não implementado).
+- [x] **Import/SimpleFin mais minimalista** (v1.75.6, pendente de merge) —
+  status e ação compactados numa linha, textos reduzidos e informações
+  redundantes removidas; o filtro de status fica permanentemente acessível.
+  Prévia do SimpleFin abre em **New** após sync manual ou fila pendente;
+  Credit Karma e CSV preservam o default **All**. Sem alteração de API,
+  deduplicação ou modelo de dados.
+- [x] **Import sem revisão de categoria na prévia** (v1.75.7, pendente de
+  merge) — o filtro compacto agora oferece somente **All / New / Dup**;
+  correspondências `uncertain` continuam marcadas e aparecem em All. Foram
+  removidos do Import o filtro de proveniência, badge/contagem `learned`,
+  ordenação por confiança e ações de confirmação de categoria; a confirmação
+  continua disponível em Transactions. Duplicatas usam azul/neutro, alinhado
+  aos tokens do app, e vermelho fica reservado ao alerta de duplicata marcada.
+  Sem alteração de API, modelo de dados, memória de categorias ou algoritmo de
+  deduplicação.
 - [x] **Fix: badges M/M/Y/Y ausentes ou sem rótulo no card "By Category" da
   Home** (v1.75.1, PR #273, branch `claude/card-category-home-bugs-pkvrkt`)
   — regressão introduzida pelo redesign da v1.75.0: `Fuel` não exibia
