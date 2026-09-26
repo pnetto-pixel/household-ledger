@@ -709,7 +709,7 @@ function idleExpired() {
 // path, so the pending copy is discarded with a notice instead).
 
 // Single source for the version shown in the header and in diagnostics.
-const APP_VERSION = "v1.75.5";
+const APP_VERSION = "v1.75.7";
 
 const PENDING_SAVE_KEY = "household_pending_save";
 
@@ -4649,14 +4649,24 @@ const GRANULARITIES = [
   { v: "Y", l: "Y" },
 ];
 
-// Duplicate-visibility filter options for the Import preview segmented control.
-// "Review" is the uncertain band (scored 60–84): likely duplicates that stay
-// CHECKED so they're never silently dropped — see markDuplicates.
-const DUP_FILTERS = [
+// Duplicate-visibility filter options for the Import preview. The uncertain
+// band remains visible in All (and checked by default), without adding a
+// separate decision mode to this compact control.
+export const DUP_FILTERS = [
   { v: "all", l: "All" },
-  { v: "new", l: "New Only" },
-  { v: "review", l: "Review" },
-  { v: "dup", l: "Dup Only" },
+  { v: "new", l: "New" },
+  { v: "dup", l: "Dup" },
+];
+
+// SimpleFin is the recurring feed, so its useful first view is what has not
+// landed in the ledger yet. File imports keep the complete preview so changing
+// their long-standing review flow would not hide any rows unexpectedly.
+export const defaultImportDupFilter = (method) => method === "sf" ? "new" : "all";
+
+export const IMPORT_METHODS = [
+  { id: "sf", title: "SimpleFin", desc: "" },
+  { id: "ck", title: "Credit Karma", desc: "Auto-mapped CSV." },
+  { id: "csv", title: "CSV", desc: "Manual mapping." },
 ];
 
 // Horizontal drag-to-select year range: a track with two draggable handles
@@ -9007,7 +9017,7 @@ function ImportDupReviewPanel({ t, match, fmtMoney, hideValues, confirmed, onCon
 function ImportNearMissHint({ nearMiss, fmtMoney, hideValues }) {
   if (!nearMiss) return null;
   const dayLabel = nearMiss.dayDiff === 0 ? "same day" : `${nearMiss.dayDiff} day${nearMiss.dayDiff === 1 ? "" : "s"} apart`;
-  const scoreLabel = nearMiss.score == null ? "more than 5 days apart (outside window)" : `score ${nearMiss.score}/100 (minimum 60 for "review")`;
+  const scoreLabel = nearMiss.score == null ? "more than 5 days apart (outside window)" : `score ${nearMiss.score}/100 · possible duplicate`;
   return (
     <div style={{ fontSize: 11, color: "#6b7280", marginTop: 2, fontStyle: "italic" }}>
       Closest candidate didn't match: {nearMiss.date || "—"} · {nearMiss.account || "Unassigned"}
@@ -9048,35 +9058,6 @@ function categoryBadge(row) {
     return { label: "?", ...CATEGORY_BADGE_TIERS.none, title: "Nothing classified this row yet" };
   }
   return null;
-}
-
-// Fase 2 (badge filter): stable bucket key for a row's provenance badge,
-// independent of the label text above — used to filter the Category column
-// by "where did this categorization come from" without introducing a new
-// column. Mirrors the same thresholds as categoryBadge (>=0.7 / >=0.4).
-// Returns null when the row has no badge at all (already-trusted category
-// straight from the import source).
-function categoryBadgeFilterKey(row) {
-  if (row.categorySource === "rule") return "Rule";
-  if (row.categorySource === "confirmed") return "Confirmed";
-  if (row.categorySource === "learned") {
-    const tier = row.categoryConfidence >= 0.7 ? "High" : row.categoryConfidence >= 0.4 ? "Medium" : "Low";
-    return `Learned – ${tier}`;
-  }
-  if (row.category === "Uncategorized") return "Uncategorized";
-  return null;
-}
-const CATEGORY_BADGE_FILTER_OPTIONS = ["Rule", "Confirmed", "Learned – High", "Learned – Medium", "Learned – Low", "Uncategorized"];
-
-// Sort key for "Revisar primeiro" (Fase 2): lower = needs review sooner. A
-// rule, a user confirmation, or a real category straight from the import
-// source are all equally trusted (1) — only a memory guess (by its own
-// confidence) or a genuine "nothing classified this" (0) rank as worth a
-// second look.
-function categoryReviewConfidence(row) {
-  if (row.categorySource === "learned") return row.categoryConfidence || 0;
-  if (row.category === "Uncategorized") return 0;
-  return 1;
 }
 
 function CategoryBadge({ row }) {
@@ -9180,7 +9161,7 @@ function ImportTransactions({
         .toLocaleDateString("en-US", { month: "short", day: "numeric" });
       parts.push(`${sfNewThisMonth} new since ${firstLabel}`);
     }
-    return parts.length ? parts.join(" · ") : "Pull the latest transactions from SimpleFin";
+    return parts.length ? parts.join(" · ") : "Ready to sync";
   }, [sfStatus.accounts, sfNewThisMonth]);
 
   const refreshSfPendingCount = async () => {
@@ -9298,7 +9279,6 @@ function ImportTransactions({
   // (see markDuplicates): "certain" | "uncertain" | "new".
   const dedupedRows = useMemo(() => markDuplicates(csvRows, transactions || []), [csvRows, transactions]);
   const dupCount = useMemo(() => dedupedRows.filter((r) => r._dupState === "certain").length, [dedupedRows]);
-  const reviewCount = useMemo(() => dedupedRows.filter((r) => r._dupState === "uncertain").length, [dedupedRows]);
 
   // Per-row selection. Default: ONLY certain duplicates start unchecked.
   // Everything else — including the "probably a duplicate" review band — starts
@@ -9307,14 +9287,9 @@ function ImportTransactions({
   // Transactions tab. Resets whenever the parsed/mapped batch changes.
   // (`selected`/`setSelected` are now props — lifted to App level, see above.)
   // Duplicate-visibility filter for the preview list only ("all" | "new" |
-  // "review" | "dup"). Independent from `selected` (what actually gets imported).
-  const [dupFilter, setDupFilter] = useState("all");
-  // Preview sort order (Fase 2 of the categorization-memory work): "date"
-  // (default, unchanged newest-first behavior) or "confidence" (least
-  // confident first — see categoryReviewConfidence) so the rows most worth a
-  // second look surface at the top instead of being buried under hundreds of
-  // confident ones. Independent from `selected`/`dupFilter`, same as those.
-  const [previewSort, setPreviewSort] = useState("date");
+  // "dup"). Uncertain matches remain visible in All. Independent from
+  // `selected` (what actually gets imported).
+  const [dupFilter, setDupFilter] = useState(() => defaultImportDupFilter(method));
   // Header-column filters for the desktop preview table, same shape/behavior
   // as the Transactions tab's HeaderFilter/DateHeaderFilter (multi-select for
   // account/category, year/month tree + from/to range for date). Filtering
@@ -9332,7 +9307,6 @@ function ImportTransactions({
   // user explicitly scoped out.
   const [importAcctFilter, setImportAcctFilter] = useState([]);
   const [importCatFilter, setImportCatFilter] = useState([]);
-  const [importBadgeFilter, setImportBadgeFilter] = useState([]);
   const [importDateYears, setImportDateYears] = useState([]);
   const [importDateMonths, setImportDateMonths] = useState([]);
   const [importFrom, setImportFrom] = useState("");
@@ -9349,30 +9323,18 @@ function ImportTransactions({
   // just like edits made after import. Reset whenever the parsed/mapped
   // batch changes (same trigger as `selected`/`dupFilter`).
   const [categoryOverrides, setCategoryOverrides] = useState(() => new Map());
-  // Rows the user explicitly confirmed the CURRENT (auto-classified) category
-  // for — id -> true (Fase 2 of the categorization-memory work). Confirming
-  // doesn't change the category value, only its provenance: from 'learned'
-  // (excluded from future training — see isMemoryTrainableRow, src/ledger.js)
-  // to 'confirmed' (included). This is what lets a review pass make the
-  // memory strictly better on every import instead of only ever staying the
-  // same size. Reset whenever the parsed/mapped batch changes, same as the
-  // other preview-only state above.
-  const [confirmedRows, setConfirmedRows] = useState(() => new Set());
   useEffect(() => {
     setSelected(new Set(dedupedRows.filter((r) => r._dupState !== "certain").map((r) => r.id)));
-    setDupFilter("all");
-    setPreviewSort("date");
+    setDupFilter(defaultImportDupFilter(method));
     setCategoryOverrides(new Map());
-    setConfirmedRows(new Set());
     setConfirmedDups(new Map());
     setImportAcctFilter([]);
     setImportCatFilter([]);
-    setImportBadgeFilter([]);
     setImportDateYears([]);
     setImportDateMonths([]);
     setImportFrom("");
     setImportTo("");
-  }, [dedupedRows]);
+  }, [dedupedRows, method]);
 
   // "Yes, this new row is the existing transaction": records the new row's
   // source id on the EXISTING transaction (altSourceIds) so the next sync
@@ -9414,36 +9376,15 @@ function ImportTransactions({
     });
   };
 
-  // A row explicitly confirmed (see confirmedRows above) only matters while
-  // its category is still the memory's own unreviewed guess — confirming a
-  // row the user has since manually recategorized (categoryOverrides) would
-  // otherwise misreport a value the user never actually looked at as vouched
-  // for. `id` is confirmed relative to the SAME batch it was confirmed in.
-  const confirmCategory = (id) => {
-    setConfirmedRows((prev) => {
-      const next = new Set(prev);
-      next.add(id);
-      return next;
-    });
-  };
-
-  // Rows as they should be shown/imported, with any preview-time category
-  // corrections and confirmations applied on top of the deduped/auto-
-  // classified rows. Overrides are checked first: a manual pick already
-  // clears categorySource (see setCategoryOverride), so a stale confirmation
-  // on a since-overridden row is a no-op here (its categorySource is no
-  // longer 'learned').
+  // Rows as they should be shown/imported, with preview-time category
+  // corrections applied on top of the deduped/auto-classified rows.
   const displayRows = useMemo(() => {
-    if (categoryOverrides.size === 0 && confirmedRows.size === 0) return dedupedRows;
+    if (categoryOverrides.size === 0) return dedupedRows;
     return dedupedRows.map((r) => {
       const ov = categoryOverrides.get(r.id);
-      const row = ov ? { ...r, ...ov } : r;
-      if (confirmedRows.has(r.id) && row.categorySource === "learned") {
-        return { ...row, categorySource: "confirmed" };
-      }
-      return row;
+      return ov ? { ...r, ...ov } : r;
     });
-  }, [dedupedRows, categoryOverrides, confirmedRows]);
+  }, [dedupedRows, categoryOverrides]);
 
   // Options for the header-filter dropdowns, derived from the current preview
   // batch (not the whole ledger) — matches what's actually on screen.
@@ -9462,7 +9403,6 @@ function ImportTransactions({
   const matchesImportHeaderFilters = (t) => {
     if (importAcctFilter.length && !importAcctFilter.includes(t.account || "Unassigned")) return false;
     if (importCatFilter.length && !importCatFilter.includes(t.category)) return false;
-    if (importBadgeFilter.length && !importBadgeFilter.includes(categoryBadgeFilterKey(t))) return false;
     if (importFrom && (t.date || "") < importFrom) return false;
     if (importTo && (t.date || "") > importTo) return false;
     const ym = (t.date || "").slice(0, 7);
@@ -9479,52 +9419,22 @@ function ImportTransactions({
   const matchesImportAccountScope = (t) =>
     importAcctFilter.length === 0 || importAcctFilter.includes(t.account || "Unassigned");
 
-  // Filtered + sorted preview list (Fase 2 of the categorization-memory
-  // work: hoisted out of the render IIFE it used to live in, so both the
-  // render AND the header's "learned" count / bulk-confirm button can share
-  // one computation instead of the button acting on a different row set than
-  // what's actually on screen).
+  // Filtered preview list. Uncertain rows intentionally stay in All rather
+  // than requiring a separate review mode.
   const previewRows = useMemo(() => {
     const rows = displayRows
       .filter((t) =>
         dupFilter === "dup" ? t._dupState === "certain"
-          : dupFilter === "review" ? t._dupState === "uncertain"
           : dupFilter === "new" ? t._dupState === "new"
           : true
       )
       .filter((t) => matchesImportHeaderFilters(t))
       .map((t, i) => ({ t, i }));
-    if (previewSort === "confidence") {
-      // Ascending — least confident (most worth a second look) first.
-      rows.sort((a, b) => {
-        const diff = categoryReviewConfidence(a.t) - categoryReviewConfidence(b.t);
-        return diff !== 0 ? diff : a.i - b.i;
-      });
-    } else {
-      // Same newest-first order as the Transactions tab, with a stable
-      // tie-break by original index (see filtered's comment there).
-      rows.sort((a, b) => (a.t.date < b.t.date ? 1 : a.t.date > b.t.date ? -1 : a.i - b.i));
-    }
+    // Same newest-first order as the Transactions tab, with a stable
+    // tie-break by original index (see filtered's comment there).
+    rows.sort((a, b) => (a.t.date < b.t.date ? 1 : a.t.date > b.t.date ? -1 : a.i - b.i));
     return rows.map(({ t }) => t);
-  }, [displayRows, dupFilter, importAcctFilter, importCatFilter, importBadgeFilter, importFrom, importTo, importDateMonths, previewSort]);
-
-  // How many rows currently on screen are still the memory's OWN unreviewed
-  // guess — gates whether the sort toggle / bulk-confirm button are worth
-  // showing at all (same "only show it when it's relevant" pattern as
-  // `dupCount || reviewCount` gating the duplicate-filter segmented control).
-  const learnedVisibleCount = useMemo(
-    () => previewRows.filter((t) => t.categorySource === "learned").length,
-    [previewRows]
-  );
-  const confirmAllVisibleLearned = () => {
-    const ids = previewRows.filter((t) => t.categorySource === "learned").map((t) => t.id);
-    if (ids.length === 0) return;
-    setConfirmedRows((prev) => {
-      const next = new Set(prev);
-      for (const id of ids) next.add(id);
-      return next;
-    });
-  };
+  }, [displayRows, dupFilter, importAcctFilter, importCatFilter, importFrom, importTo, importDateMonths]);
 
   const toggleRow = (id) => setSelected((prev) => {
     const next = new Set(prev);
@@ -9581,36 +9491,11 @@ function ImportTransactions({
     resetAll();
   };
 
-  const methods = [
-    // No description for SimpleFin: the status card right below already says
-    // everything the old explanatory line did (v1.75.0).
-    { id: "sf", title: "SimpleFin", desc: "" },
-    { id: "ck", title: "Credit Karma", desc: "Daily export — auto-mapped, sign preserved." },
-    { id: "csv", title: "CSV", desc: "Manual mapping — for backfilling old history." },
-  ];
-
-  // Guards against the silent-data-loss bug where a user clicks "Confirm"
-  // on several preview rows (categorySource: learned -> confirmed, see
-  // confirmCategory above) but never clicks "Import" — `confirmedRows` is
-  // local-only preview state, and a fresh sync replaces `dedupedRows`, which
-  // resets it via the useEffect above. Rather than lose those confirmations
-  // silently, ask before wiping them. Returns true when it's safe to
-  // proceed (nothing to lose, or the user opted to lose it anyway).
-  const confirmDiscardUnimportedConfirmations = () => {
-    if (confirmedRows.size === 0) return true;
-    const n = confirmedRows.size;
-    return window.confirm(
-      `You have ${n} confirmed transaction${n === 1 ? "" : "s"} that ${n === 1 ? "hasn't" : "haven't"} been imported yet. ` +
-      `Syncing again will lose ${n === 1 ? "that confirmation" : "those confirmations"}. Continue anyway?`
-    );
-  };
-
   // SimpleFin sync: hits the server endpoint, then runs the returned rows
   // through the same account-matching / category-fallback buildRow already
   // applies for CSV rows, so they land in the shared preview/dedup pipeline
   // looking exactly like any other imported row.
   const syncSimpleFin = async () => {
-    if (!confirmDiscardUnimportedConfirmations()) return;
     setError("");
     setDone("");
     setSfLoading(true);
@@ -9629,7 +9514,7 @@ function ImportTransactions({
       }
       const mapped = classifySimpleFinRows(data.transactions, accountMap, merchantMemory);
       setSfRows(mapped);
-      setFileName(`SimpleFin sync — ${mapped.length} transaction${mapped.length === 1 ? "" : "s"}`);
+      setFileName("");
       if (data.errors && data.errors.length) {
         setError(`SimpleFin warnings: ${data.errors.join("; ")}`);
       }
@@ -9655,7 +9540,6 @@ function ImportTransactions({
   // account-matching / category-fallback as a manual sync so they land in the
   // shared preview/dedup pipeline looking identical either way.
   const loadSimpleFinPending = async () => {
-    if (!confirmDiscardUnimportedConfirmations()) return;
     setError("");
     setDone("");
     setSfLoading(true);
@@ -9669,7 +9553,7 @@ function ImportTransactions({
       const mapped = classifySimpleFinRows(data.transactions, accountMap, merchantMemory);
       setSfRows(mapped);
       setSfFromPending(true);
-      setFileName(`SimpleFin pending — ${mapped.length} transaction${mapped.length === 1 ? "" : "s"}`);
+      setFileName("");
     } catch (err) {
       setError(`Could not reach the pending queue: ${err.message}`);
     } finally {
@@ -9689,7 +9573,7 @@ function ImportTransactions({
           description. */}
       <div>
         <div style={S.segmented}>
-          {methods.map((m) => (
+          {IMPORT_METHODS.map((m) => (
             <button
               key={m.id}
               onClick={() => selectMethod(m.id)}
@@ -9699,21 +9583,17 @@ function ImportTransactions({
             </button>
           ))}
         </div>
-        {methods.find((m) => m.id === method)?.desc ? (
+        {IMPORT_METHODS.find((m) => m.id === method)?.desc ? (
           <div style={{ fontSize: 11, color: "#8b94a3", marginTop: 6, lineHeight: 1.35 }}>
-            {methods.find((m) => m.id === method)?.desc}
+            {IMPORT_METHODS.find((m) => m.id === method)?.desc}
           </div>
         ) : null}
       </div>
 
-      {/* SimpleFin: no file to drag, so this is a status card + a full-width
-          "Sync now" CTA, not the CSV dropzone below — the big dashed drop
-          target only makes sense where there's something to drop. */}
+      {/* SimpleFin has no file: keep status and its one primary action compact. */}
       {method === "sf" ? (
         <>
-          <div style={{ ...S.card, display: "flex", flexDirection: "column", gap: 12 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-              <span style={S.sfStatusTile}><RefreshCw size={18} color="#93c5fd" /></span>
+          <div style={S.sfStatusRow}>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontSize: 15, fontWeight: 600, color: "#e5e7eb", overflowWrap: "anywhere" }}>
                   {sfStatus.at ? `Last sync ${relativeSyncLabel(sfStatus.at)}` : "Not synced yet"}
@@ -9722,17 +9602,13 @@ function ImportTransactions({
                   {sfStatusSubtitle}
                 </div>
               </div>
-            </div>
             <button
               onClick={syncSimpleFin}
               disabled={sfLoading}
-              style={{ ...S.primaryBtn, opacity: sfLoading ? 0.6 : 1, cursor: sfLoading ? "not-allowed" : "pointer" }}
+              style={{ ...S.sfSyncBtn, opacity: sfLoading ? 0.6 : 1, cursor: sfLoading ? "not-allowed" : "pointer" }}
             >
-              {sfLoading ? "Syncing…" : "Sync now"}
+              {sfLoading ? "Syncing…" : "Sync"}
             </button>
-            {fileName ? (
-              <div style={{ fontSize: 12, color: "#8b94a3", overflowWrap: "anywhere" }}>{fileName}</div>
-            ) : null}
           </div>
           {sfPendingCount > 0 ? (
             <button
@@ -9743,11 +9619,11 @@ function ImportTransactions({
             >
               <span style={{ flex: 1, minWidth: 0 }}>
                 <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <span style={{ fontSize: 15, fontWeight: 600, color: "#e5e7eb" }}>Pending review</span>
+                  <span style={{ fontSize: 15, fontWeight: 600, color: "#e5e7eb" }}>Pending</span>
                   <span style={S.sfPendingPill}>{sfPendingCount}</span>
                 </span>
                 <span style={{ display: "block", fontSize: 12, color: "#8b94a3", marginTop: 2 }}>
-                  {sfLoading ? "Loading…" : "Possible duplicates and unmapped accounts"}
+                  {sfLoading ? "Loading…" : "Ready to import"}
                 </span>
               </span>
               <ChevronRight size={18} color="#636366" />
@@ -9823,8 +9699,7 @@ function ImportTransactions({
               {skippedCount > 0 ? <span style={{ color: "#fbbf24" }}> · {skippedCount} skipped (non-numeric rows)</span> : null} · <span style={{ color: "#cbd5e1" }}>{selectedCount} selected</span>
               {/* Live state, not a description of the defaults: these counts
                   have to stay true after "Select all" or any manual tick. */}
-              {dupCount ? <span style={{ color: "#fbbf24" }}> · {dupCount} duplicate{dupCount === 1 ? "" : "s"}</span> : null}
-              {reviewCount ? <span style={{ color: "#fbbf24" }}> · {reviewCount} to review</span> : null}
+              {dupCount ? <span style={{ color: "#60a5fa" }}> · {dupCount} duplicate{dupCount === 1 ? "" : "s"}</span> : null}
               {dupSelectedCount > 0 ? (
                 <span style={{ color: "#f87171", fontWeight: 600 }}> · ⚠ {dupSelectedCount} duplicate{dupSelectedCount === 1 ? "" : "s"} checked for import</span>
               ) : null}
@@ -9840,28 +9715,29 @@ function ImportTransactions({
             {!wide && importAcctOptions.length > 1 ? (
               <HeaderFilter chip label="Account" value={importAcctFilter} options={importAcctOptions} onChange={setImportAcctFilter} />
             ) : null}
-            {dupCount || reviewCount ? (
-              <div style={S.segmented}>
-                {DUP_FILTERS.map(({ v, l }) => (
-                  <button key={v} onClick={() => setDupFilter(v)} style={S.segmentedBtn(dupFilter === v)}>
-                    {l}
-                  </button>
-                ))}
-              </div>
-            ) : null}
-            {learnedVisibleCount > 0 ? (
-              <>
-                <span style={{ color: "#fbbf24" }}>· {learnedVisibleCount} learned</span>
-                <div style={S.segmented}>
-                  <button onClick={() => setPreviewSort("date")} style={S.segmentedBtn(previewSort === "date")}>Most recent</button>
-                  <button onClick={() => setPreviewSort("confidence")} style={S.segmentedBtn(previewSort === "confidence")}>Review first</button>
-                </div>
-                <button onClick={confirmAllVisibleLearned} style={S.linkBtn}>Confirm all visible learned</button>
-              </>
-            ) : null}
+            <div style={S.importStatusSegment} role="group" aria-label="Transaction status filter">
+              {DUP_FILTERS.map(({ v, l }) => (
+                <button
+                  key={v}
+                  onClick={() => setDupFilter(v)}
+                  aria-pressed={dupFilter === v}
+                  style={{ ...S.segmentedBtn(dupFilter === v), minHeight: 44, minWidth: 58, padding: "6px 12px" }}
+                >
+                  {l}
+                </button>
+              ))}
+            </div>
           </div>
           {(() => {
             const shown = previewRows.slice(0, 400);
+            if (shown.length === 0) {
+              return (
+                <div style={S.importEmpty}>
+                  <strong>{dupFilter === "new" ? "No new transactions" : "No matches"}</strong>
+                  <span>{dupFilter === "new" ? "Try All or Dup." : "Choose another filter."}</span>
+                </div>
+              );
+            }
             const overflowNotice = previewRows.length > 400 ? (
               <div style={{ fontSize: 11, color: "#fbbf24", padding: "8px 12px", textAlign: "center" }}>
                 Preview limited to the first 400 of {previewRows.length} rows — rows beyond it are
@@ -9898,10 +9774,7 @@ function ImportTransactions({
                           <HeaderFilter label="Account" value={importAcctFilter} options={importAcctOptions} onChange={setImportAcctFilter} />
                         </th>
                         <th style={S.stickyTh}>
-                          <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
-                            <HeaderFilter label="Category" value={importCatFilter} options={importCatOptions} onChange={setImportCatFilter} />
-                            <HeaderFilter label="Status" value={importBadgeFilter} options={CATEGORY_BADGE_FILTER_OPTIONS} onChange={setImportBadgeFilter} />
-                          </div>
+                          <HeaderFilter label="Category" value={importCatFilter} options={importCatOptions} onChange={setImportCatFilter} />
                         </th>
                         <th style={{ ...S.stickyTh, textAlign: "right" }}>Amount</th>
                       </tr>
@@ -9914,7 +9787,7 @@ function ImportTransactions({
                         const certain = t._dupState === "certain";
                         const review = t._dupState === "uncertain";
                         const reasons = (t._dupReasons || []).join(" · ");
-                        const rowBg = review ? "rgba(251,191,36,0.06)" : selected.has(t.id) ? "#1a1f2e" : "transparent";
+                        const rowBg = review ? "rgba(96,165,250,0.06)" : selected.has(t.id) ? "#1a1f2e" : "transparent";
                         return (
                           <React.Fragment key={t.id}>
                             <tr onClick={() => toggleRow(t.id)} style={{ cursor: "pointer", opacity: checked ? 1 : 0.5, background: rowBg }}>
@@ -9945,13 +9818,12 @@ function ImportTransactions({
                                     <option key={c} value={c}>{c}</option>
                                   ))}
                                 </select>
-                                <CategoryBadge row={t} />
-                                <ConfirmCategoryButton row={t} onConfirm={confirmCategory} />
+                                {t.categorySource !== "learned" ? <CategoryBadge row={t} /> : null}
                               </td>
                               <td style={{ ...S.td, textAlign: "right", color: "#cbd5e1", whiteSpace: "nowrap" }}>{fmtMoney(t.amount)}</td>
                             </tr>
                             {review && t._dupMatch ? (
-                              <tr style={{ background: "rgba(251,191,36,0.04)" }}>
+                              <tr style={{ background: "rgba(96,165,250,0.04)" }}>
                                 <td style={S.td} />
                                 <td colSpan={5} style={S.td}>
                                   <ImportDupReviewPanel
@@ -10012,8 +9884,7 @@ function ImportTransactions({
                                 <option key={c} value={c}>{c}</option>
                               ))}
                             </select>
-                            <CategoryBadge row={t} />
-                            <ConfirmCategoryButton row={t} onConfirm={confirmCategory} />
+                            {t.categorySource !== "learned" ? <CategoryBadge row={t} /> : null}
                           </div>
                         </div>
                         <span style={{ fontSize: 14, color: "#cbd5e1", whiteSpace: "nowrap" }}>{fmtMoney(t.amount)}</span>
@@ -10593,16 +10464,35 @@ const S = {
     fontSize: 15,
     cursor: "pointer",
   },
-  // --- Import tab: SimpleFin status card (v1.75.0) ---
-  sfStatusTile: {
-    width: 40,
-    height: 40,
-    borderRadius: 12,
-    background: "rgba(10,132,255,0.16)",
+  // --- Import tab: compact SimpleFin status/action ---
+  sfStatusRow: {
     display: "flex",
     alignItems: "center",
-    justifyContent: "center",
+    gap: 12,
+    padding: "4px 0",
+  },
+  sfSyncBtn: {
+    minHeight: 44,
+    padding: "0 18px",
+    borderRadius: 12,
+    border: "1px solid rgba(96,165,250,0.38)",
+    background: "rgba(96,165,250,0.12)",
+    color: "#93c5fd",
+    fontSize: 14,
+    fontWeight: 700,
     flexShrink: 0,
+  },
+  importEmpty: {
+    minHeight: 88,
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 4,
+    color: "#cbd5e1",
+    fontSize: 13,
+    textAlign: "center",
+    borderTop: "1px solid #1e2530",
   },
   sfPendingPill: {
     fontSize: 11,
@@ -10800,13 +10690,23 @@ const S = {
     lineHeight: 1.4,
     boxShadow: "inset 0 1px 2px rgba(0,0,0,0.2)",
   },
+  importStatusSegment: {
+    display: "inline-flex",
+    alignItems: "center",
+    alignSelf: "flex-start",
+    width: "fit-content",
+    maxWidth: "100%",
+    padding: 3,
+    background: "#11151b",
+    border: "1px solid #1e2530",
+    borderRadius: 11,
+  },
   // --- Import preview: duplicate states -----------------------------------
-  // `review` (the uncertain 60–84 band) gets the same amber family as a certain
-  // duplicate but a filled tint, because it's the state that asks for a
-  // decision instead of just reporting one.
+  // Duplicate metadata uses the app's restrained blue/neutral palette;
+  // red remains reserved for the actionable "checked for import" warning.
   importDupWrap: (review) => ({
-    background: review ? "rgba(251,191,36,0.06)" : "transparent",
-    border: "1px solid #5b4a16",
+    background: review ? "rgba(96,165,250,0.06)" : "transparent",
+    border: "1px solid rgba(96,165,250,0.28)",
     borderRadius: 14,
     overflow: "hidden",
     // `overflow: hidden` replaces this flex item's automatic minimum size
@@ -10821,9 +10721,9 @@ const S = {
     marginLeft: 6,
     fontSize: 10,
     fontWeight: 700,
-    color: "#fbbf24",
-    background: review ? "rgba(251,191,36,0.14)" : "transparent",
-    border: "1px solid #5b4a16",
+    color: "#60a5fa",
+    background: review ? "rgba(96,165,250,0.12)" : "transparent",
+    border: "1px solid rgba(96,165,250,0.3)",
     borderRadius: 6,
     padding: "1px 5px",
     verticalAlign: "1px",
@@ -10873,8 +10773,8 @@ const S = {
   },
   importDupBtn: {
     background: "transparent",
-    border: "1px solid #5b4a16",
-    color: "#fbbf24",
+    border: "1px solid rgba(96,165,250,0.3)",
+    color: "#60a5fa",
     borderRadius: 8,
     padding: "5px 10px",
     fontSize: 11,
