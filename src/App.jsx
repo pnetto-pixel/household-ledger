@@ -709,7 +709,7 @@ function idleExpired() {
 // path, so the pending copy is discarded with a notice instead).
 
 // Single source for the version shown in the header and in diagnostics.
-const APP_VERSION = "v1.75.5";
+const APP_VERSION = "v1.75.6";
 
 const PENDING_SAVE_KEY = "household_pending_save";
 
@@ -4652,11 +4652,22 @@ const GRANULARITIES = [
 // Duplicate-visibility filter options for the Import preview segmented control.
 // "Review" is the uncertain band (scored 60–84): likely duplicates that stay
 // CHECKED so they're never silently dropped — see markDuplicates.
-const DUP_FILTERS = [
+export const DUP_FILTERS = [
   { v: "all", l: "All" },
-  { v: "new", l: "New Only" },
+  { v: "new", l: "New" },
   { v: "review", l: "Review" },
-  { v: "dup", l: "Dup Only" },
+  { v: "dup", l: "Dup" },
+];
+
+// SimpleFin is the recurring feed, so its useful first view is what has not
+// landed in the ledger yet. File imports keep the complete preview so changing
+// their long-standing review flow would not hide any rows unexpectedly.
+export const defaultImportDupFilter = (method) => method === "sf" ? "new" : "all";
+
+export const IMPORT_METHODS = [
+  { id: "sf", title: "SimpleFin", desc: "" },
+  { id: "ck", title: "Credit Karma", desc: "Auto-mapped CSV." },
+  { id: "csv", title: "CSV", desc: "Manual mapping." },
 ];
 
 // Horizontal drag-to-select year range: a track with two draggable handles
@@ -9180,7 +9191,7 @@ function ImportTransactions({
         .toLocaleDateString("en-US", { month: "short", day: "numeric" });
       parts.push(`${sfNewThisMonth} new since ${firstLabel}`);
     }
-    return parts.length ? parts.join(" · ") : "Pull the latest transactions from SimpleFin";
+    return parts.length ? parts.join(" · ") : "Ready to sync";
   }, [sfStatus.accounts, sfNewThisMonth]);
 
   const refreshSfPendingCount = async () => {
@@ -9308,7 +9319,7 @@ function ImportTransactions({
   // (`selected`/`setSelected` are now props — lifted to App level, see above.)
   // Duplicate-visibility filter for the preview list only ("all" | "new" |
   // "review" | "dup"). Independent from `selected` (what actually gets imported).
-  const [dupFilter, setDupFilter] = useState("all");
+  const [dupFilter, setDupFilter] = useState(() => defaultImportDupFilter(method));
   // Preview sort order (Fase 2 of the categorization-memory work): "date"
   // (default, unchanged newest-first behavior) or "confidence" (least
   // confident first — see categoryReviewConfidence) so the rows most worth a
@@ -9360,7 +9371,7 @@ function ImportTransactions({
   const [confirmedRows, setConfirmedRows] = useState(() => new Set());
   useEffect(() => {
     setSelected(new Set(dedupedRows.filter((r) => r._dupState !== "certain").map((r) => r.id)));
-    setDupFilter("all");
+    setDupFilter(defaultImportDupFilter(method));
     setPreviewSort("date");
     setCategoryOverrides(new Map());
     setConfirmedRows(new Set());
@@ -9372,7 +9383,7 @@ function ImportTransactions({
     setImportDateMonths([]);
     setImportFrom("");
     setImportTo("");
-  }, [dedupedRows]);
+  }, [dedupedRows, method]);
 
   // "Yes, this new row is the existing transaction": records the new row's
   // source id on the EXISTING transaction (altSourceIds) so the next sync
@@ -9510,8 +9521,8 @@ function ImportTransactions({
 
   // How many rows currently on screen are still the memory's OWN unreviewed
   // guess — gates whether the sort toggle / bulk-confirm button are worth
-  // showing at all (same "only show it when it's relevant" pattern as
-  // `dupCount || reviewCount` gating the duplicate-filter segmented control).
+  // showing at all. The duplicate-status control beside it stays available
+  // even when a bucket is empty so users can always move between views.
   const learnedVisibleCount = useMemo(
     () => previewRows.filter((t) => t.categorySource === "learned").length,
     [previewRows]
@@ -9581,14 +9592,6 @@ function ImportTransactions({
     resetAll();
   };
 
-  const methods = [
-    // No description for SimpleFin: the status card right below already says
-    // everything the old explanatory line did (v1.75.0).
-    { id: "sf", title: "SimpleFin", desc: "" },
-    { id: "ck", title: "Credit Karma", desc: "Daily export — auto-mapped, sign preserved." },
-    { id: "csv", title: "CSV", desc: "Manual mapping — for backfilling old history." },
-  ];
-
   // Guards against the silent-data-loss bug where a user clicks "Confirm"
   // on several preview rows (categorySource: learned -> confirmed, see
   // confirmCategory above) but never clicks "Import" — `confirmedRows` is
@@ -9629,7 +9632,7 @@ function ImportTransactions({
       }
       const mapped = classifySimpleFinRows(data.transactions, accountMap, merchantMemory);
       setSfRows(mapped);
-      setFileName(`SimpleFin sync — ${mapped.length} transaction${mapped.length === 1 ? "" : "s"}`);
+      setFileName("");
       if (data.errors && data.errors.length) {
         setError(`SimpleFin warnings: ${data.errors.join("; ")}`);
       }
@@ -9669,7 +9672,7 @@ function ImportTransactions({
       const mapped = classifySimpleFinRows(data.transactions, accountMap, merchantMemory);
       setSfRows(mapped);
       setSfFromPending(true);
-      setFileName(`SimpleFin pending — ${mapped.length} transaction${mapped.length === 1 ? "" : "s"}`);
+      setFileName("");
     } catch (err) {
       setError(`Could not reach the pending queue: ${err.message}`);
     } finally {
@@ -9689,7 +9692,7 @@ function ImportTransactions({
           description. */}
       <div>
         <div style={S.segmented}>
-          {methods.map((m) => (
+          {IMPORT_METHODS.map((m) => (
             <button
               key={m.id}
               onClick={() => selectMethod(m.id)}
@@ -9699,21 +9702,17 @@ function ImportTransactions({
             </button>
           ))}
         </div>
-        {methods.find((m) => m.id === method)?.desc ? (
+        {IMPORT_METHODS.find((m) => m.id === method)?.desc ? (
           <div style={{ fontSize: 11, color: "#8b94a3", marginTop: 6, lineHeight: 1.35 }}>
-            {methods.find((m) => m.id === method)?.desc}
+            {IMPORT_METHODS.find((m) => m.id === method)?.desc}
           </div>
         ) : null}
       </div>
 
-      {/* SimpleFin: no file to drag, so this is a status card + a full-width
-          "Sync now" CTA, not the CSV dropzone below — the big dashed drop
-          target only makes sense where there's something to drop. */}
+      {/* SimpleFin has no file: keep status and its one primary action compact. */}
       {method === "sf" ? (
         <>
-          <div style={{ ...S.card, display: "flex", flexDirection: "column", gap: 12 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-              <span style={S.sfStatusTile}><RefreshCw size={18} color="#93c5fd" /></span>
+          <div style={S.sfStatusRow}>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontSize: 15, fontWeight: 600, color: "#e5e7eb", overflowWrap: "anywhere" }}>
                   {sfStatus.at ? `Last sync ${relativeSyncLabel(sfStatus.at)}` : "Not synced yet"}
@@ -9722,17 +9721,13 @@ function ImportTransactions({
                   {sfStatusSubtitle}
                 </div>
               </div>
-            </div>
             <button
               onClick={syncSimpleFin}
               disabled={sfLoading}
-              style={{ ...S.primaryBtn, opacity: sfLoading ? 0.6 : 1, cursor: sfLoading ? "not-allowed" : "pointer" }}
+              style={{ ...S.sfSyncBtn, opacity: sfLoading ? 0.6 : 1, cursor: sfLoading ? "not-allowed" : "pointer" }}
             >
-              {sfLoading ? "Syncing…" : "Sync now"}
+              {sfLoading ? "Syncing…" : "Sync"}
             </button>
-            {fileName ? (
-              <div style={{ fontSize: 12, color: "#8b94a3", overflowWrap: "anywhere" }}>{fileName}</div>
-            ) : null}
           </div>
           {sfPendingCount > 0 ? (
             <button
@@ -9743,11 +9738,11 @@ function ImportTransactions({
             >
               <span style={{ flex: 1, minWidth: 0 }}>
                 <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <span style={{ fontSize: 15, fontWeight: 600, color: "#e5e7eb" }}>Pending review</span>
+                  <span style={{ fontSize: 15, fontWeight: 600, color: "#e5e7eb" }}>Pending</span>
                   <span style={S.sfPendingPill}>{sfPendingCount}</span>
                 </span>
                 <span style={{ display: "block", fontSize: 12, color: "#8b94a3", marginTop: 2 }}>
-                  {sfLoading ? "Loading…" : "Possible duplicates and unmapped accounts"}
+                  {sfLoading ? "Loading…" : "Review before importing"}
                 </span>
               </span>
               <ChevronRight size={18} color="#636366" />
@@ -9840,15 +9835,18 @@ function ImportTransactions({
             {!wide && importAcctOptions.length > 1 ? (
               <HeaderFilter chip label="Account" value={importAcctFilter} options={importAcctOptions} onChange={setImportAcctFilter} />
             ) : null}
-            {dupCount || reviewCount ? (
-              <div style={S.segmented}>
-                {DUP_FILTERS.map(({ v, l }) => (
-                  <button key={v} onClick={() => setDupFilter(v)} style={S.segmentedBtn(dupFilter === v)}>
-                    {l}
-                  </button>
-                ))}
-              </div>
-            ) : null}
+            <div style={{ ...S.segmented, flex: "1 1 260px" }} aria-label="Transaction status filter">
+              {DUP_FILTERS.map(({ v, l }) => (
+                <button
+                  key={v}
+                  onClick={() => setDupFilter(v)}
+                  aria-pressed={dupFilter === v}
+                  style={{ ...S.segmentedBtn(dupFilter === v), minHeight: 40, flex: 1 }}
+                >
+                  {l}
+                </button>
+              ))}
+            </div>
             {learnedVisibleCount > 0 ? (
               <>
                 <span style={{ color: "#fbbf24" }}>· {learnedVisibleCount} learned</span>
@@ -9862,6 +9860,14 @@ function ImportTransactions({
           </div>
           {(() => {
             const shown = previewRows.slice(0, 400);
+            if (shown.length === 0) {
+              return (
+                <div style={S.importEmpty}>
+                  <strong>{dupFilter === "new" ? "No new transactions" : "No matches"}</strong>
+                  <span>{dupFilter === "new" ? "Try All, Review, or Dup." : "Choose another filter."}</span>
+                </div>
+              );
+            }
             const overflowNotice = previewRows.length > 400 ? (
               <div style={{ fontSize: 11, color: "#fbbf24", padding: "8px 12px", textAlign: "center" }}>
                 Preview limited to the first 400 of {previewRows.length} rows — rows beyond it are
@@ -10593,16 +10599,35 @@ const S = {
     fontSize: 15,
     cursor: "pointer",
   },
-  // --- Import tab: SimpleFin status card (v1.75.0) ---
-  sfStatusTile: {
-    width: 40,
-    height: 40,
-    borderRadius: 12,
-    background: "rgba(10,132,255,0.16)",
+  // --- Import tab: compact SimpleFin status/action ---
+  sfStatusRow: {
     display: "flex",
     alignItems: "center",
-    justifyContent: "center",
+    gap: 12,
+    padding: "4px 0",
+  },
+  sfSyncBtn: {
+    minHeight: 44,
+    padding: "0 18px",
+    borderRadius: 12,
+    border: "1px solid rgba(96,165,250,0.38)",
+    background: "rgba(96,165,250,0.12)",
+    color: "#93c5fd",
+    fontSize: 14,
+    fontWeight: 700,
     flexShrink: 0,
+  },
+  importEmpty: {
+    minHeight: 88,
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 4,
+    color: "#cbd5e1",
+    fontSize: 13,
+    textAlign: "center",
+    borderTop: "1px solid #1e2530",
   },
   sfPendingPill: {
     fontSize: 11,

@@ -1,4 +1,4 @@
-# Household Ledger · v1.75.5
+# Household Ledger · v1.75.6
 
 Aplicativo mobile-first de controle financeiro doméstico. Registra
 transações da casa (despesas e receitas) por categoria e conta, com
@@ -31,7 +31,15 @@ O `feature-auditor` deve conferir, como parte da checklist de auditoria, que
 o diff inclui o bump nos dois arquivos antes de aprovar — se faltar, isso é
 motivo de reprovação (devolver ao coder), não um detalhe opcional.
 
-Versão atual: **v1.75.5** (PR #278) —
+Versão atual: **v1.75.6** —
+ajuste de UI na tab Import: o SimpleFin agora usa uma linha compacta de status
+e ação, sem card, ícone ou resumo de arquivo redundantes; os textos e filtros
+da prévia foram encurtados para leitura rápida em telas pequenas. Toda prévia
+carregada por sync manual ou fila pendente abre em **New**, com estado vazio
+curto e acesso permanente a All/New/Review/Dup; Credit Karma e CSV continuam
+abrindo em **All**. Deduplicação, seleção, APIs e modelo de dados não mudaram.
+
+Versão anterior: **v1.75.5** (PR #278) —
 fix de UI: `S.header` ainda ficava colado à Dynamic Island em alguns devices
 (padding-top só `+ 10px` sobre o safe-area); aumentado para `+ 18px`. O
 `Popover` compartilhado (usado por `HeaderFilter`, `DateHeaderFilter`,
@@ -130,11 +138,13 @@ no header (não migrou para a tela About/Settings). Por tab:
   compacta o rótulo de ano em telas estreitas; `YearInReviewCard` trocou o
   gráfico vertical de categorias por um ranking de barras horizontais
   (top 10 + "Show more").
-- **Import**: segmented SimpleFin/Credit Karma/CSV numa linha só. Painel
-  SimpleFin virou card de status ("Last sync {relativo}", nº de contas e
-  novas desde o início do mês, botão "Sync now") + card "Pending review"
-  tocável com pill de contagem (some quando 0), no lugar do banner âmbar
-  antigo. Histórico "Recent syncs" não foi implementado (ver Roadmap).
+- **Import**: segmented SimpleFin/Credit Karma/CSV numa linha só. O SimpleFin
+  mostra status e ação numa linha compacta, sem card, ícone ou resumo de
+  arquivo; o botão agora diz "Sync". O aviso tocável da fila foi reduzido a
+  "Pending" + contagem e some quando zerado. Após sync manual ou abertura da
+  fila, a prévia começa em **New**; Credit Karma e CSV continuam em **All**.
+  All/New/Review/Dup ficam sempre acessíveis e a prévia vazia orienta a trocar
+  de filtro. Histórico "Recent syncs" não foi implementado (ver Roadmap).
 - **Settings**: `SettingsTab` reescrito como lista agrupada iOS (grupos
   Categorization/Accounts/Planning/Data/About) com sub-views próprios
   (botão "‹ Settings", `<main>` rola ao topo, troca de tab sempre volta à
@@ -3920,16 +3930,19 @@ shell de altura cheia (`#root` em `100lvh` + shell `height:100%`): só o
 
    **Deduplicação (três estados, desde a v1.56.0).** Na prévia, cada linha
    tem checkbox e um `_dupState` calculado por `markDuplicates`, com
-   Select/Deselect all — só as marcadas são importadas. Quando há duplicatas
-   detectadas (`dupCount > 0`), aparece um filtro de visualização da prévia:
-   um **segmented control** — "All" / "New Only" / "Dup Only" / "Review"
+   Select/Deselect all — só as marcadas são importadas. Um filtro de
+   visualização da prévia permanece disponível independentemente das
+   contagens: o **segmented control** "All" / "New" / "Review" / "Dup"
    (estado `dupFilter`, enum `"all"|"new"|"dup"|"review"`; o quarto bucket
    entrou na v1.56.0, os três primeiros vêm da v1.16.2/PR #126, que já havia
    substituído os 2 checkboxes mutuamente exclusivos da v1.15.2/PR #123). É
    um filtro **de visualização da prévia apenas** — não afeta o Set
-   `selected` que determina o que de fato é importado. O botão **"Import N
-   transactions"** fica em uma **barra sticky** (`bottom: 0`, gradiente para
-   o fundo do app), sempre visível sem precisar rolar até o fim da lista
+   `selected` que determina o que de fato é importado. **Desde a v1.75.6**, o
+   controle fica sempre visível: sync manual e fila SimpleFin abrem em
+   **New**, enquanto Credit Karma e CSV abrem em **All**; buckets vazios
+   mostram uma mensagem curta com indicação dos demais filtros. O botão
+   **"Import N transactions"** fica em uma **barra sticky** (`bottom: 0`,
+   gradiente para o fundo do app), sempre visível sem precisar rolar até o fim da lista
    depois de carregar o arquivo; `maxHeight` da lista de preview reduzido de
    360 para 300 px para abrir espaço para a barra.
 
@@ -5780,6 +5793,12 @@ riscos reais de perda de dados.
     Trends em `S.segmented` (hoje continuam em `S.togglePill`).
   - [ ] Sidebar desktop acima de 900px, no lugar da tab bar inferior
     (mencionado na revisão de design, não implementado).
+- [x] **Import/SimpleFin mais minimalista** (v1.75.6, pendente de merge) —
+  status e ação compactados numa linha, textos reduzidos e informações
+  redundantes removidas; o filtro de status fica permanentemente acessível.
+  Prévia do SimpleFin abre em **New** após sync manual ou fila pendente;
+  Credit Karma e CSV preservam o default **All**. Sem alteração de API,
+  deduplicação ou modelo de dados.
 - [x] **Fix: badges M/M/Y/Y ausentes ou sem rótulo no card "By Category" da
   Home** (v1.75.1, PR #273, branch `claude/card-category-home-bugs-pkvrkt`)
   — regressão introduzida pelo redesign da v1.75.0: `Fuel` não exibia
