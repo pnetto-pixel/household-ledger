@@ -1,4 +1,4 @@
-# Household Ledger · v1.75.6
+# Household Ledger · v1.75.7
 
 Aplicativo mobile-first de controle financeiro doméstico. Registra
 transações da casa (despesas e receitas) por categoria e conta, com
@@ -31,7 +31,12 @@ O `feature-auditor` deve conferir, como parte da checklist de auditoria, que
 o diff inclui o bump nos dois arquivos antes de aprovar — se faltar, isso é
 motivo de reprovação (devolver ao coder), não um detalhe opcional.
 
-Versão atual: **v1.75.6** —
+Versão atual: **v1.75.7** —
+sincroniza a versão declarada pelo pacote npm e pelo lockfile com a versão do
+aplicativo. Esses arquivos ainda indicavam v1.44.1, embora o header e este
+documento já estivessem em v1.75.6; agora os quatro pontos usam a mesma versão.
+
+Versão anterior: **v1.75.6** —
 ajuste de UI na tab Import: o SimpleFin agora usa uma linha compacta de status
 e ação, sem card, ícone ou resumo de arquivo redundantes; os textos e filtros
 da prévia foram encurtados para leitura rápida em telas pequenas. Toda prévia
