@@ -11,7 +11,33 @@
 // extraction that drops an export App.jsx still relies on fails here instead
 // of only in production.
 import { describe, it, expect } from "vitest";
-import { buildYearCategoryBars, descFragment, detectManualCategoryCorrections, detectOtherDescriptionFragments } from "./App.jsx";
+import {
+  buildYearCategoryBars,
+  defaultImportDupFilter,
+  descFragment,
+  detectManualCategoryCorrections,
+  detectOtherDescriptionFragments,
+  DUP_FILTERS,
+  IMPORT_METHODS,
+} from "./App.jsx";
+
+describe("Import preview defaults", () => {
+  it("opens SimpleFin sync and pending previews on New", () => {
+    expect(defaultImportDupFilter("sf")).toBe("new");
+    expect(DUP_FILTERS.map(({ v }) => v)).toEqual(["all", "new", "dup"]);
+  });
+
+  it("keeps Credit Karma and generic CSV previews on All", () => {
+    expect(defaultImportDupFilter("ck")).toBe("all");
+    expect(defaultImportDupFilter("csv")).toBe("all");
+  });
+
+  it("keeps the import choices concise and identifiable", () => {
+    expect(IMPORT_METHODS.map(({ title }) => title)).toEqual(["SimpleFin", "Credit Karma", "CSV"]);
+    expect(IMPORT_METHODS.find(({ id }) => id === "ck")?.desc).toBe("Auto-mapped CSV.");
+    expect(IMPORT_METHODS.find(({ id }) => id === "csv")?.desc).toBe("Manual mapping.");
+  });
+});
 
 describe("buildYearCategoryBars", () => {
   const isExpense = (category) => !["Salary", "Transfer"].includes(category);
