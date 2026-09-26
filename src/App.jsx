@@ -709,7 +709,7 @@ function idleExpired() {
 // path, so the pending copy is discarded with a notice instead).
 
 // Single source for the version shown in the header and in diagnostics.
-const APP_VERSION = "v1.75.6";
+const APP_VERSION = "v1.75.7";
 
 const PENDING_SAVE_KEY = "household_pending_save";
 
