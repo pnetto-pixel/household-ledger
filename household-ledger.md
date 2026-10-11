@@ -1,4 +1,4 @@
-# Household Ledger · v1.75.8
+# Household Ledger · v1.76.0
 
 Aplicativo mobile-first de controle financeiro doméstico. Registra
 transações da casa (despesas e receitas) por categoria e conta, com
@@ -31,7 +31,16 @@ O `feature-auditor` deve conferir, como parte da checklist de auditoria, que
 o diff inclui o bump nos dois arquivos antes de aprovar — se faltar, isso é
 motivo de reprovação (devolver ao coder), não um detalhe opcional.
 
-Versão atual: **v1.75.8** —
+Versão atual: **v1.76.0** —
+o mesmo botão Sync do SimpleFin inclui Venmo via Plaid Production, reutilizando
+somente o Item existente. Transações passam pela prévia e deduplicação atuais;
+conta/saldo entram na tabela existente. Cursor e snapshot separados do ledger
+são persistidos atomicamente; correções/remoções do provedor geram aviso para
+revisão manual, preservando categorias. Nenhum botão, dependência ou endpoint
+serverless novo. Credenciais somente no servidor. Implementação auditada e
+documentada no PR #285.
+
+Versão anterior: **v1.75.8** —
 limpeza da tab Import: o controle compacto agora oferece somente **All / New /
 Dup**, agrupando correspondências incertas em New sem alterar o algoritmo ou a
 seleção segura. Foram removidas da prévia as filas/painéis de review, a
@@ -2598,13 +2607,15 @@ household-ledger/
 │   ├── apple-daily-cash-rule.js    # GET/PUT da regra Apple Card Daily Cash
 │   ├── snapshots.js                # GET read-only dos snapshots diários
 │   ├── simplefin-sync.js           # GET sync manual; dobra ?pending=1 (GET/DELETE da fila do cron)
-│   └── cron/simplefin-sync.js      # Vercel Cron Job diário, grava a fila do SimpleFin
+│   └── cron/simplefin-sync.js      # cron diário: fila SimpleFin + snapshot Venmo
 ├── tools/
 │   └── credit-karma/       # exportadores CK (bookmarklet Safari + Scriptable)
 ├── lib/
 │   ├── auth.js             # login Google (uma vez) + sessão opaca + allowlist
 │   ├── redis.js            # singleton ioredis
-│   └── simplefin.js        # cliente/mapeamento da API SimpleFin
+│   ├── simplefin.js        # cliente/mapeamento da API SimpleFin
+│   ├── bank-sync.js        # combina SimpleFin e Venmo; falhas independentes
+│   └── plaid.js            # Production, somente o Item Venmo já conectado
 ├── src/
 │   ├── App.jsx             # app completo (5 tabs)
 │   └── main.jsx            # entrypoint React
@@ -2671,6 +2682,26 @@ estourar o limite de Serverless Functions do plano Hobby). A gravação no
 ledger real segue manual — a
 fila só existe para alimentar a tela de revisão/import na tab Import.
 
+**Snapshot Venmo/Plaid (v1.76.0, PR #285)**: chave auxiliar
+`household:*:transactions:plaid-venmo`, independente da fila legada, guarda
+cursor, snapshot mínimo reutilizável de transações, saldos, hash do token e
+até 2000 ids removidos. Sem TTL: o histórico já buscado permanece disponível
+para prévia mesmo depois de avançar o cursor; isso usa memória Redis e não
+implica capacidade ilimitada. Lease de 55s protege commits concorrentes;
+cursor e snapshot só são gravados juntos, com verificação de posse da lease.
+Retry de mutação durante paginação recomeça do cursor salvo. Não há escrita
+na chave principal do ledger. Cache de 60s evita repetição imediata de fetch.
+
+`GET /api/simplefin-sync?pending=1` combina a fila SimpleFin com o snapshot
+Venmo, filtrando contas Venmo ignoradas; `DELETE ?pending=1` limpa apenas a
+fila SimpleFin, preservando cursor/histórico Venmo para revisão posterior.
+Transações ainda pendentes no banco ficam somente no estado do provedor e
+não são oferecidas para import. Modificações e remoções atualizam o snapshot;
+se afetarem valor/data ou removerem lançamentos já importados, a prévia avisa
+para revisão manual em Transactions, preservando os dados/categorias salvos.
+A listagem reutilizável pode conter registros já importados: o dedup existente
+os reconhece, e a contagem Pending review exclui duplicatas certas.
+
 ### Variáveis de ambiente
 
 | Variável                 | Uso                                              |
@@ -2678,10 +2709,22 @@ fila só existe para alimentar a tela de revisão/import na tab Import.
 | `REDIS_URL`              | conexão Redis                                    |
 | `APP_PASSWORD`           | legado — só deriva a `storageKey` compartilhada; não autentica mais nada desde a v1.55.0 |
 | `SIMPLEFIN_ACCESS_URL`   | credencial SimpleFin Bridge (v1.48.0)            |
+| `PLAID_CLIENT_ID`        | client ID do Plaid, somente servidor (v1.76.0) |
+| `PLAID_SECRET`           | secret de Production, somente servidor (v1.76.0) |
+| `PLAID_ENV`              | deve ser `production`; Sandbox não é aceito neste fluxo |
+| `PLAID_VENMO_ACCESS_TOKEN` | token do Item Venmo já conectado; não cria outro Item |
 | `CRON_SECRET`            | protege `api/cron/simplefin-sync.js` (v1.49.0); precisa ser configurada manualmente na Vercel — sem ela o endpoint sempre responde 401 (fail-safe) |
 | `GOOGLE_CLIENT_ID`       | login Google (v1.55.0, server) — valida o `aud` do ID token contra o tokeninfo do Google |
 | `VITE_GOOGLE_CLIENT_ID`  | login Google (v1.55.0, client) — id do botão/GIS  |
 | `ALLOWED_EMAILS`         | login Google (v1.55.0, opcional) — allowlist; default já cobre os 2 emails da casa |
+
+As quatro variáveis Plaid são configuradas na Vercel em Production, sem
+prefixo `VITE_`; credenciais não entram no bundle, respostas ou logs. Não há
+UI de Link/login, criação/remoção de Item, exchange, refresh nem chamada de
+balance em tempo real. O servidor verifica que a instituição do Item é Venmo
+antes do primeiro snapshot. Ausência de todas as envs Plaid mantém somente
+SimpleFin; configuração Plaid parcial gera aviso de indisponibilidade Venmo.
+Mudanças de env entram em uso no próximo deployment.
 
 *(`ADMIN_EMAILS`/`VITE_ADMIN_EMAILS` seguem sem uso desde a v1.30.0 — podem
 ser apagadas do projeto na Vercel. `GOOGLE_CLIENT_ID`/`ALLOWED_EMAILS`/
@@ -2709,7 +2752,7 @@ Cada transação:
   "sourceId": "abc123",        // opcional — id da transação na fonte (dedup)
   "categoryManual": true,      // opcional — usuário trocou a categoria manualmente
   "autoCategory": "Groceries", // opcional — categoria computada por buildRow no import (snapshot)
-  "source": "ck",              // opcional (v1.56.0) — feed de origem: "ck" | "csv" | "sf"
+  "source": "ck",              // opcional (v1.56.0) — feed de origem: "ck" | "csv" | "sf" | "plaid"
   "altSourceIds": ["9"],       // opcional (v1.56.0) — ids de OUTRAS fontes confirmados como a mesma transação
   "categorySource": "learned", // opcional (v1.65.0) — 'rule' | 'learned' | 'confirmed'; ausente = categoria real/desconhecida
   "categoryConfidence": 0.82,  // opcional (v1.65.0) — 0–1, confiança da classificação automática
@@ -2738,9 +2781,12 @@ altera o contrato de `/api/transactions` nem o formato Redis, e
 por `id` — permanece agnóstico de schema por princípio).
 
 `source` é gravado **no import**, por `buildRow` (`"ck"`/`"csv"` conforme o
-profile) e por `classifySimpleFinRows`/`mapTransaction` (`"sf"`). Serve
-exclusivamente ao dedup: dois `sourceId` diferentes só significam
-"transações distintas" quando vêm do mesmo espaço de ids. **Todo o histórico
+profile) e por `classifySimpleFinRows`/`mapTransaction` (`"sf"`). Desde a
+v1.76.0, `mapPlaidTransaction` grava `"plaid"` e o classificador preserva o
+feed recebido. O dedup distingue Plaid, SimpleFin e legado/CK/CSV: ids
+diferentes no mesmo feed Plaid/legado bloqueiam o fuzzy; pares SimpleFin
+continuam usando o scoring para ids reemitidos de pending → posted. Entre
+fontes diferentes, o scoring cross-source continua disponível. **Todo o histórico
 anterior à v1.56.0 não tem o campo** — e a regra é escrita para isso: "não
 provado diferente" bloqueia. Como só o SimpleFin escreve `"sf"`, uma linha
 sem tag é comprovadamente não-SimpleFin, o que basta para decidir sem
@@ -2748,6 +2794,16 @@ backfill nem migração. Comparar os dois campos com `===`/`!==` direto seria
 um bug silencioso — leria legado×`"ck"` como troca de fonte e fundiria
 gastos genuinamente distintos no import diário, quebrando a garantia do
 PR #51 justamente para os dados que já existem.
+
+**Identidade Plaid/Venmo (v1.76.0).** `id: "plaid_<transaction_id>"`,
+`sourceId: "plaid:<transaction_id>"`, `accountUrn: "plaid:<account_id>"` e
+`source: "plaid"` evitam colisões com outras fontes. `amount = -plaid.amount`
+converte saída positiva no Plaid em despesa negativa no ledger, e entrada
+negativa em receita positiva; a categoria continua independente do sinal.
+`altSourceIds` pode incluir o id Plaid da transação pendente substituída pela
+postada. O campo `pending` é interno ao snapshot do provedor e removido antes
+de oferecer a linha à prévia; não muda o shape persistido do ledger. Categorias
+passam pelas regras/memória e revisão já existentes.
 
 `altSourceIds` é gravado **em runtime**, na transação **já existente**, quando
 o usuário clica "Marcar como duplicata da existente" na faixa `uncertain` da
@@ -3893,6 +3949,23 @@ shell de altura cheia (`#root` em `100lvh` + shell `height:100%`): só o
    var ausente ("SimpleFin não configurado", 501) vs. falha de rede/resposta
    não-OK do SimpleFin (502).
 
+   **Sync unificado Venmo (v1.76.0, PR #285)** — o mesmo **Sync
+   now** chama a rota existente, que combina SimpleFin e Plaid via
+   `lib/bank-sync.js`; nenhum botão/método novo. O seletor segue **SimpleFin**,
+   com descrição "Sync includes Venmo.". Venmo usa exclusivamente o Item
+   existente em Production e entra no mesmo fluxo de mapear conta, prévia,
+   dedup e confirmação. O status "new since" conta feeds `sf` e `plaid`.
+   Falhas parciais permitem revisar os dados do provedor disponível e exibem
+   avisos em Import, Home e Settings; se nenhum estiver disponível, sync falha.
+   Contas/saldos Venmo aparecem nos cards existentes; o saldo de `/accounts/get`
+   é cache do Plaid, sem garantia de atualização em tempo real. Antes da
+   primeira importação, mapear a conta Venmo em **Settings → Connected accounts**
+   e revisar as categorias, inclusive transferências/reembolsos. Cron existente
+   continua às 09h UTC, sincronizando ambos os provedores; as duas funções de
+   sync têm `maxDuration: 60`, e os provedores usam timeout de 45s. Cursor,
+   pendências bancárias e correções/remoções seguem as regras do snapshot na
+   seção Autenticação e armazenamento.
+
    **Persistência do preview entre trocas de tab (v1.69.0, PR #259)** — o
    estado da prévia de sync (`method`, `sfRows`, `sfFromPending`,
    `selected`, `fileName`, `error`, `done`) subiu de `useState` local de
@@ -4027,6 +4100,7 @@ shell de altura cheia (`#root` em `100lvh` + shell `height:100%`): só o
    `readSfBalancesCache().fetchedAt` no mount, ou de `Date.now()` logo após
    um sync manual — sem nova persistência), subtítulo "{n} accounts · {n}
    new since {1º dia do mês corrente}" (conta transações `source === "sf"`
+   ou `"plaid"` desde a v1.76.0
    com data ≥ o 1º do mês) e o botão **"Sync now"** (`S.primaryBtn`, largura
    total, abaixo do card em vez de dentro dele); o `fileName` exibido após
    um sync vira uma linha de 12px dentro do card. O antigo **banner âmbar
@@ -4155,6 +4229,14 @@ shell de altura cheia (`#root` em `100lvh` + shell `height:100%`): só o
      ou ainda sem nenhuma transação casada, vira "SimpleFin"; só `"ck"`/
      `"csv"` (sem `"sf"`) vira "Credit Karma" (tratadas como a mesma origem
      "importada"); `"sf"` + `"ck"`/`"csv"` juntas vira "Mixed".
+
+   Desde a **v1.76.0 (PR #285)**, o título desta tabela é
+   **Connected accounts**, com contas de SimpleFin e Venmo. Linhas Plaid
+   (`source: "plaid"` no saldo ou URN com prefixo `plaid:`) exibem badge
+   **Venmo**, inclusive antes da primeira importação; os badges das demais
+   contas seguem o cálculo acima. Mapping, tipo, Ignore/Unignore e badge de
+   conta nova usam os mesmos controles/configuração existentes. Avisos de
+   falha parcial também aparecem nesta tabela e no card de saldos da Home.
 
    Contas ainda não configuradas — sem card mapping, sem tipo, não
    ignoradas e ausentes de `simplefinAcknowledgedAccounts` (ver Modelo de
@@ -5615,6 +5697,17 @@ riscos reais de perda de dados.
     que é importado (não só o que a prévia mostra) e ganhou chip equivalente
     no mobile — os demais filtros (categoria/status/data) continuam só
     visuais. Ver "Versão atual" no topo deste documento.
+  - [x] **Venmo via Plaid no mesmo Sync** (v1.76.0, PR #285) —
+    rotas manual/cron existentes combinam os provedores, com falhas parciais
+    visíveis e o mesmo pipeline de revisão/dedup. Somente o Item Venmo já
+    conectado em Production; quatro envs somente no servidor. Snapshot/cursor
+    atômicos separados do ledger; saldo cached via `/accounts/get`; conta
+    aparece em **Connected accounts**, badge Venmo. Sem novas funções/libs
+    ou botão separado. Modificações/remoções já importadas geram aviso para
+    revisão manual, preservando categorias. Ver UI e armazenamento.
+  - [ ] **Reconciliação assistida de correções/remoções Venmo** — opcional:
+    hoje a UI avisa e exige revisão manual em Transactions; qualquer fluxo
+    futuro deve preservar edições/categorias e exigir confirmação explícita.
   - [ ] UI de configuração de credencial SimpleFin na Settings — ainda
     hardcoded via env var `SIMPLEFIN_ACCESS_URL` (single-tenant).
   - [x] **Coluna "Source" (SimpleFin vs Credit Karma) na tabela

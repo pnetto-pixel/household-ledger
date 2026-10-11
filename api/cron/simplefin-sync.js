@@ -19,7 +19,7 @@
 
 import { getRedis } from '../../lib/redis.js';
 import { passwordStorageKey } from '../../lib/auth.js';
-import { fetchSimplefinTransactions } from '../../lib/simplefin.js';
+import { fetchBankTransactions } from '../../lib/bank-sync.js';
 
 function pendingKeyFromAppPassword() {
   const pwd = process.env.APP_PASSWORD;
@@ -84,7 +84,7 @@ export default async function handler(req, res) {
   }
 
   const ignoredPatterns = await loadIgnoredPatterns(redis);
-  const result = await fetchSimplefinTransactions(ignoredPatterns);
+  const result = await fetchBankTransactions(redis, pendingKey.replace(/:simplefin-pending$/, ''), ignoredPatterns);
   if (!result.ok) {
     return res.status(result.status).json({ error: result.error });
   }
@@ -105,8 +105,9 @@ export default async function handler(req, res) {
   // require the client's account-map/category pipeline, which lives on the
   // client) — at minimum it guarantees the cron never queues the same
   // pending item twice across daily runs.
+  existingPending = existingPending.filter(t => t.source !== 'plaid');
   const existingIds = new Set(existingPending.map((t) => t.id));
-  const newOnes = result.transactions.filter((t) => !existingIds.has(t.id));
+  const newOnes = result.transactions.filter((t) => t.source !== 'plaid' && !existingIds.has(t.id));
   const merged = existingPending.concat(newOnes);
 
   try {

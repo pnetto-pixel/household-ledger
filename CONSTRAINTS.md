@@ -29,7 +29,8 @@ login volta; timestamp `household_last_active` compartilhado entre abas.
   rotas via query param no mesmo arquivo em vez de arquivo próprio, para
   respeitar o limite de 12 Serverless Functions do plano Vercel Hobby.
 - `lib/auth.js`, `lib/redis.js`, `lib/simplefin.js` — não tocar sem motivo
-  claro.
+  claro. `lib/bank-sync.js` combina os provedores nas rotas existentes;
+  `lib/plaid.js` sincroniza somente o Item Venmo existente em Production.
 
 ## Modelo de transação (fixo)
 ```jsonc
@@ -39,7 +40,7 @@ login volta; timestamp `household_last_active` compartilhado entre abas.
   "category": "Groceries", "account": "...",
   // opcionais: srcAccount, accountUrn, last4, ckCategory, sourceId,
   // categoryManual, autoCategory,
-  // source ("sf" = veio do SimpleFin), altSourceIds (array de outros
+  // source ("sf" = SimpleFin, "plaid" = Venmo via Plaid), altSourceIds (array de outros
   // sourceId que a mesma txn também responde, usado no dedupe
   // cross-source por sourceIdsOf()), categorySource ('rule' | 'learned'
   // | 'confirmed'; ausente = categoria real/desconhecida),
@@ -48,7 +49,8 @@ login volta; timestamp `household_last_active` compartilhado entre abas.
 }
 ```
 - **`amount` é sinalizado**: despesa negativa, receita positiva — vem
-  verbatim da fonte (Credit Karma / CSV), a categoria não determina o
+  verbatim de Credit Karma / CSV / SimpleFin; Plaid usa o sinal inverso
+  e é convertido com `amount = -plaid.amount`. A categoria não determina o
   sinal. **Nunca** use `income − expenses` nem `Math.abs` nas agregações —
   `net = income + expenses` (ambos já sinalizados). Isso já foi bug uma vez
   (v1.5.10); não reintroduzir.
@@ -76,6 +78,15 @@ login volta; timestamp `household_last_active` compartilhado entre abas.
   string `savedAt|clientId` — o CAS Lua NÃO decodifica o blob JSON; cjson
   rejeita surrogates sem par que o JS aceita, o que já travou um ledger em
   409 eterno). PUT sanitiza surrogates sem par (→ U+FFFD) antes de gravar.
+- Venmo (v1.76.0): snapshot auxiliar sem TTL em
+  `household:*:transactions:plaid-venmo` guarda cursor, transações da fonte e
+  saldos; lease Redis impede commits concorrentes, e cursor/snapshot são
+  gravados juntos. Cache de fetch de 60s; não grava o ledger. GET pending
+  combina esse snapshot reutilizável com a fila SimpleFin legada; DELETE
+  pending limpa só a fila SimpleFin. Pendentes bancárias não vão à prévia.
+  Correções/remoções atualizam o snapshot (até 2000 ids removidos retidos),
+  mas lançamentos já importados exigem revisão manual: categorias e dados
+  salvos são preservados. Não duplicar histórico bruto no ledger/snapshots.
 - Headers custom chegam lowercase no Node.
 
 ## Constraints de implementação
@@ -113,3 +124,16 @@ compartilhada, não autentica mais ninguém), `SIMPLEFIN_ACCESS_URL`
 Login Google (reinstated v1.55.0): `GOOGLE_CLIENT_ID` (server, valida `aud`
 do ID token), `VITE_GOOGLE_CLIENT_ID` (client, id do botão), `ALLOWED_EMAILS`
 (opcional, default cobre os 2 emails da casa).
+
+Venmo via Plaid (v1.76.0, somente servidor): `PLAID_CLIENT_ID`,
+`PLAID_SECRET`, `PLAID_ENV=production`, `PLAID_VENMO_ACCESS_TOKEN` (token do
+Item já existente; nunca usar prefixo `VITE_`). Mesmo botão Sync busca ambos
+os provedores; falhas parciais retornam dados do provedor que funcionou com
+avisos em Import/Home/Settings. Conta Venmo usa `accountUrn: "plaid:<id>"`,
+`sourceId: "plaid:<id>"`, `source: "plaid"`. Saldo vem de `/accounts/get`
+(cache do Plaid, sem garantia de atualização em tempo real). Não chamar Link,
+exchange, criação/remoção de Item, refresh nem balance em tempo real. Cron
+permanece diário às 09h UTC; as duas funções de sync têm `maxDuration: 60`
+e os provedores têm timeout de 45s. Tabela existente: "Connected accounts",
+com badge "Venmo"; seletor Import continua "SimpleFin" com descrição de que
+Sync inclui Venmo. Mapear a conta em Settings e revisar antes de importar.

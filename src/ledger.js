@@ -955,7 +955,8 @@ export function markDuplicates(rows, existing) {
         // ever writes "sf" (lib/simplefin.js), so an untagged row is provably
         // NOT SimpleFin, which is enough to decide without tagging history.
         if (r.sourceId && e.t.sourceId) {
-          const sameFeed = (r.source === "sf") === (e.t.source === "sf");
+          const feed = t => t.source === "sf" ? "sf" : t.source === "plaid" ? "plaid" : "legacy";
+          const sameFeed = feed(r) === feed(e.t);
           const bothSf = r.source === "sf" && e.t.source === "sf";
           // Block the fuzzy path only within a feed whose ids are known to be
           // stable per physical transaction (legacy/"ck", untagged on both
@@ -1084,4 +1085,19 @@ export function mergeTransactions(base, local, server) {
     if (!same(t, baseM.get(t.id))) out.push(t);
   }
   return out;
+}
+
+// Provider corrections never overwrite manually classified ledger entries.
+// Compare only provider-owned financial fields; description/category may be edited.
+export function plaidReviewWarning(rows, existing, removedSourceIds = []) {
+  const incoming = new Map((rows || []).filter(t => t.source === 'plaid').map(t => [t.sourceId, t]));
+  const removed = new Set(removedSourceIds);
+  let changed = 0, deleted = 0;
+  for (const t of existing || []) {
+    const ids = sourceIdsOf(t);
+    const fresh = ids.map(id => incoming.get(id)).find(Boolean);
+    if (fresh && (fresh.date !== t.date || Math.round(fresh.amount * 100) !== Math.round(t.amount * 100))) changed++;
+    else if (!fresh && ids.some(id => removed.has(id))) deleted++;
+  }
+  return changed || deleted ? `Venmo: ${changed} updated and ${deleted} removed saved entries need manual review in Transactions. Saved entries and categories were preserved.` : '';
 }
