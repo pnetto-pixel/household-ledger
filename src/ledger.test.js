@@ -5,6 +5,7 @@
 import { describe, it, expect } from "vitest";
 import {
   TRANSFER_CATEGORY,
+  plaidReviewWarning,
   computeTotalsCore,
   matchPeriod,
   availableYears,
@@ -1131,4 +1132,22 @@ describe("isIgnoredSimplefinAccount", () => {
     expect(isIgnoredSimplefinAccount({}, ["auto lease"])).toBe(false);
     expect(isIgnoredSimplefinAccount(undefined, ["auto lease"])).toBe(false);
   });
+});
+
+describe('Venmo provider identity', () => {
+  const row = { id:'plaid_a', source:'plaid', sourceId:'plaid:a', date:'2026-09-23', amount:-14, description:'Payment', account:'Venmo' };
+  it('does not merge two equal payments with distinct Plaid IDs', () => {
+    const marked = markDuplicates([{...row,id:'plaid_b',sourceId:'plaid:b'}],[row]);
+    expect(marked[0]._dupState).toBe('new');
+    expect(markDuplicates([row],[row])[0]._dupState).toBe('certain');
+  });
+});
+
+it('Venmo corrections warn without rewriting saved categories', () => {
+  const saved = {source:'plaid',sourceId:'plaid:a',date:'2026-09-23',amount:-14,category:'Transfer',categoryManual:true};
+  expect(plaidReviewWarning([{...saved,amount:-15}],[saved])).toContain('1 updated');
+  expect(plaidReviewWarning([],[saved],['plaid:a'])).toContain('1 removed');
+  expect(plaidReviewWarning([{...saved,description:'provider text'}],[saved])).toBe('');
+  expect(saved.category).toBe('Transfer');
+  expect(saved.amount).toBe(-14);
 });

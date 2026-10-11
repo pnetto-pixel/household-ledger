@@ -1,13 +1,12 @@
 // api/simplefin-sync.js
 // GET: pulls transactions from SimpleFin Bridge on demand ("Sync now" in the
 // Import tab) and returns them mapped into the ledger's transaction shape.
-// This endpoint is READ-ONLY against SimpleFin and does NOT write to Redis —
+// Provider snapshots may be cached in Redis; the main ledger is unchanged —
 // persistence still goes through the existing PUT /api/transactions flow on
 // the client, same as the Credit Karma/CSV import pipeline (dedup + account
 // mapping happen there, not here).
 //
-// Auth: same shared app password as every other /api/* route
-// (x-app-password header, lib/auth.js).
+// Auth: Google session via x-session-token (lib/auth.js).
 //
 // Credential: SIMPLEFIN_ACCESS_URL env var — a SimpleFin Bridge "Access URL"
 // in the form https://<user>:<pass>@bridge.simplefin.org/simplefin. The
@@ -27,8 +26,9 @@
 // Vercel Hobby's 12-Serverless-Function-per-deployment limit.
 
 import { authenticate } from '../lib/auth.js';
-import { fetchSimplefinTransactions } from '../lib/simplefin.js';
+import { fetchBankTransactions } from '../lib/bank-sync.js';
 import { getRedis } from '../lib/redis.js';
+import { readPlaidSnapshot } from '../lib/plaid.js';
 
 function pendingKeyFromAuth(auth) {
   if (!auth?.storageKey) return null;
@@ -82,13 +82,14 @@ async function handlePending(req, res, auth) {
   if (req.method === 'GET') {
     try {
       const raw = await redis.get(pendingKey);
-      if (!raw) {
-        return res.status(200).json({ transactions: [], lastFetchAt: null });
-      }
-      const parsed = JSON.parse(raw);
+      const parsed = raw ? JSON.parse(raw) : {};
+      const ignoredPatterns = await loadIgnoredPatterns(auth, redis);
+      const plaid = await readPlaidSnapshot(redis, pendingKey.replace(/:simplefin-pending$/, ''), ignoredPatterns);
       return res.status(200).json({
-        transactions: Array.isArray(parsed?.transactions) ? parsed.transactions : [],
-        lastFetchAt: parsed?.lastFetchAt || null,
+        transactions: [...(Array.isArray(parsed.transactions) ? parsed.transactions.filter(t => t.source !== 'plaid') : []), ...plaid.transactions],
+        lastFetchAt: parsed.lastFetchAt || plaid.lastFetchAt,
+        errors: plaid.errors,
+        removedSourceIds: plaid.removedSourceIds,
       });
     } catch (err) {
       return res.status(500).json({ error: err.message });
@@ -129,7 +130,7 @@ export default async function handler(req, res) {
   }
 
   const ignoredPatterns = await loadIgnoredPatterns(auth, redis);
-  const result = await fetchSimplefinTransactions(ignoredPatterns);
+  const result = await fetchBankTransactions(redis, pendingKeyFromAuth(auth).replace(/:simplefin-pending$/, ''), ignoredPatterns);
   if (!result.ok) {
     return res.status(result.status).json({ error: result.error });
   }
@@ -138,6 +139,7 @@ export default async function handler(req, res) {
     transactions: result.transactions,
     accountCount: result.accountCount,
     errors: result.errors,
+    removedSourceIds: result.removedSourceIds,
     // account.holdings, minimally mapped (lib/simplefin.js mapHolding) —
     // only present on a live fetch; the ?pending=1 queue above is
     // transaction-only (it's an append-only cron queue, holdings is a

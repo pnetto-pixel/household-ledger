@@ -1,7 +1,7 @@
 {
   "name": "household-ledger",
   "private": true,
-  "version": "1.75.8",
+  "version": "1.76.0",
   "type": "module",
   "scripts": {
     "dev": "vite",

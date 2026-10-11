@@ -4,6 +4,12 @@
   "functions": {
     "api/transactions.js": {
       "maxDuration": 30
+    },
+    "api/simplefin-sync.js": {
+      "maxDuration": 60
+    },
+    "api/cron/simplefin-sync.js": {
+      "maxDuration": 60
     }
   },
   "crons": [

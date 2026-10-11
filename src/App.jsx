@@ -83,6 +83,7 @@ import {
   mergeTransactions,
   repairUnsavableRows,
   isIgnoredSimplefinAccount,
+  plaidReviewWarning,
 } from "./ledger.js";
 
 // ---------------------------------------------------------------------------
@@ -600,11 +601,11 @@ function readSfBalancesCache() {
   }
 }
 
-function writeSfBalancesCache(accountBalances) {
+function writeSfBalancesCache(accountBalances, warning = null) {
   try {
     sessionStorage.setItem(
       SF_BALANCES_CACHE_KEY,
-      JSON.stringify({ fetchedAt: Date.now(), accountBalances })
+      JSON.stringify({ fetchedAt: Date.now(), accountBalances, warning })
     );
   } catch {
     // Private mode / quota — the fetched-once-per-mount fallback still works.
@@ -618,7 +619,7 @@ async function loadSfBalances({ force = false } = {}) {
   if (!force) {
     const cached = readSfBalancesCache();
     if (cached && Date.now() - cached.fetchedAt < SF_BALANCES_CACHE_TTL_MS) {
-      return { ok: true, accountBalances: cached.accountBalances };
+      return { ok: true, accountBalances: cached.accountBalances, warning: cached.warning };
     }
   }
   try {
@@ -634,8 +635,9 @@ async function loadSfBalances({ force = false } = {}) {
       };
     }
     const accountBalances = Array.isArray(data.accountBalances) ? data.accountBalances : [];
-    writeSfBalancesCache(accountBalances);
-    return { ok: true, accountBalances };
+    const warning = data.errors?.length ? `Balances may be incomplete: ${data.errors.join("; ")}` : null;
+    writeSfBalancesCache(accountBalances, warning);
+    return { ok: true, accountBalances, warning };
   } catch (err) {
     return { ok: false, error: `Could not reach the sync endpoint: ${err.message}` };
   }
@@ -652,7 +654,7 @@ function useSfBalances(enabled) {
     if (!result.ok) {
       setState({ status: "error", accountBalances: [], error: result.error, notConfigured: result.status === 501 });
     } else {
-      setState({ status: "ready", accountBalances: result.accountBalances, error: null, notConfigured: false });
+      setState({ status: "ready", accountBalances: result.accountBalances, error: null, warning: result.warning, notConfigured: false });
     }
   }, []);
   useEffect(() => {
@@ -709,7 +711,7 @@ function idleExpired() {
 // path, so the pending copy is discarded with a notice instead).
 
 // Single source for the version shown in the header and in diagnostics.
-const APP_VERSION = "v1.75.8";
+const APP_VERSION = "v1.76.0";
 
 const PENDING_SAVE_KEY = "household_pending_save";
 
@@ -900,9 +902,9 @@ export default function App() {
   // sessionStorage cache/sfBalances state above. This callback lets it feed
   // that same result in, keeping the Settings table/badge fresh right after
   // a manual sync instead of waiting up to 5 minutes for the cache to expire.
-  const handleSfSynced = useCallback((accountBalances) => {
+  const handleSfSynced = useCallback((accountBalances, errors = []) => {
     if (!Array.isArray(accountBalances)) return;
-    writeSfBalancesCache(accountBalances);
+    writeSfBalancesCache(accountBalances, errors.length ? `Balances may be incomplete: ${errors.join("; ")}` : null);
     refreshSfBalances();
   }, [refreshSfBalances]);
 
@@ -3396,6 +3398,7 @@ function AccountBalancesCard({ money, hideValues, accountTypeOverrides, accountM
           </div>
         </div>
       </div>
+      {state.warning ? <div style={S.syncWarning}>{state.warning}</div> : null}
       {state.status === "loading" || state.status === "idle" ? (
         <div style={{ ...S.card, textAlign: "center", color: "#8b94a3", fontSize: 14, padding: 24 }}>
           Loading account balances…
@@ -4668,7 +4671,7 @@ export const matchesImportDupFilter = (row, filter) =>
     : true;
 
 export const IMPORT_METHODS = [
-  { id: "sf", title: "SimpleFin", desc: "" },
+  { id: "sf", title: "SimpleFin", desc: "Sync includes Venmo." },
   { id: "ck", title: "Credit Karma", desc: "Auto-mapped CSV." },
   { id: "csv", title: "CSV", desc: "Manual mapping." },
 ];
@@ -6912,7 +6915,8 @@ function SimplefinAccountsSection({ sfBalances, transactions, accountMap, config
     // "SimpleFin" (the row only exists here because a SimpleFin sync saw the
     // account). Only "ck"/"csv" (imported) -> "Credit Karma" (both treated
     // as the same imported origin for this badge). Both present -> "Mixed".
-    const sourceBadgeFor = (sources) => {
+    const sourceBadgeFor = (sources, acc) => {
+      if (acc.source === "plaid" || acc.accountUrn?.startsWith("plaid:")) return "Venmo";
       const hasSf = sources.has("sf");
       const hasImported = sources.has("ck") || sources.has("csv");
       if (hasSf && hasImported) return "Mixed";
@@ -6922,7 +6926,7 @@ function SimplefinAccountsSection({ sfBalances, transactions, accountMap, config
     return (sfBalances.accountBalances || [])
       .map((acc) => {
         const m = meta.get(acc.accountUrn) || { last4: "", count: 0, sources: new Set() };
-        return { ...acc, last4: m.last4, count: m.count, sourceBadge: sourceBadgeFor(m.sources) };
+        return { ...acc, last4: m.last4, count: m.count, sourceBadge: sourceBadgeFor(m.sources, acc) };
       })
       .sort((a, b) => (a.name || "").localeCompare(b.name || ""));
   }, [sfBalances.accountBalances, transactions]);
@@ -6961,15 +6965,16 @@ function SimplefinAccountsSection({ sfBalances, transactions, accountMap, config
   return (
     <CollapsibleCard
       id="simplefin-accounts-section"
-      title="SimpleFin accounts"
+      title="Connected accounts"
       badge={unconfigured > 0 ? `${unconfigured} new` : (enriched.length || undefined)}
     >
       <div style={{ fontSize: 11, color: "#8b94a3", lineHeight: 1.45, marginBottom: 10 }}>
-        Every account SimpleFin has synced a balance for at least once. Map it
+        Accounts synced through SimpleFin and Venmo. Map each one
         to a ledger account, classify it, or ignore it. Ignoring only affects
         FUTURE syncs — nothing already imported is deleted or changed, and
         it's reversible any time.
       </div>
+      {sfBalances.warning ? <div style={S.syncWarning}>{sfBalances.warning}</div> : null}
       {sfBalances.status === "loading" || sfBalances.status === "idle" ? (
         <div style={{ fontSize: 13, color: "#8b94a3" }}>Loading synced accounts…</div>
       ) : sfBalances.status === "error" ? (
@@ -9118,7 +9123,7 @@ function ImportTransactions({
   const sfNewThisMonth = useMemo(() => {
     const now = new Date();
     const first = localISO(new Date(now.getFullYear(), now.getMonth(), 1));
-    return transactions.filter((t) => t.source === "sf" && !isTransfer(t.category) && (t.date || "") >= first).length;
+    return transactions.filter((t) => (t.source === "sf" || t.source === "plaid") && !isTransfer(t.category) && (t.date || "") >= first).length;
   }, [transactions]);
   const sfStatusSubtitle = useMemo(() => {
     const parts = [];
@@ -9136,7 +9141,10 @@ function ImportTransactions({
     try {
       const res = await fetch("/api/simplefin-sync?pending=1", { headers: buildAuthHeaders() });
       const data = await res.json().catch(() => ({}));
-      if (res.ok) setSfPendingCount((data.transactions || []).length);
+      if (res.ok) {
+        const mapped = classifySimpleFinRows(data.transactions, accountMap, merchantMemory);
+        setSfPendingCount(markDuplicates(mapped, transactions).filter(t => t._dupState !== "certain").length);
+      }
     } catch {
       // best-effort — no pending banner if this fails, "Sync now" still works
     }
@@ -9453,14 +9461,13 @@ function ImportTransactions({
       const mapped = classifySimpleFinRows(data.transactions, accountMap, merchantMemory);
       setSfRows(mapped);
       setFileName("");
-      if (data.errors && data.errors.length) {
-        setError(`SimpleFin warnings: ${data.errors.join("; ")}`);
-      }
+      const warnings = [...(data.errors || []), plaidReviewWarning(data.transactions, transactions, data.removedSourceIds)].filter(Boolean);
+      if (warnings.length) setError(`Sync warnings: ${warnings.join("; ")}`);
       // Feed this fetch's accountBalances into the shared cache Settings'
       // consolidated SimpleFin accounts table / "new accounts" badge read
       // from, so a manual sync surfaces a brand-new account immediately
       // instead of waiting out the cache's TTL.
-      onSfSynced?.(data.accountBalances);
+      onSfSynced?.(data.accountBalances, data.errors || []);
       setSfStatus((prev) => ({
         at: Date.now(),
         accounts: Array.isArray(data.accountBalances) ? data.accountBalances.length : prev.accounts,
@@ -9488,6 +9495,8 @@ function ImportTransactions({
         setError(data.error || "Failed to load SimpleFin pending items.");
         return;
       }
+      const warnings = [...(data.errors || []), plaidReviewWarning(data.transactions, transactions, data.removedSourceIds)].filter(Boolean);
+      if (warnings.length) setError(`Sync warnings: ${warnings.join("; ")}`);
       const mapped = classifySimpleFinRows(data.transactions, accountMap, merchantMemory);
       setSfRows(mapped);
       setSfFromPending(true);
@@ -9903,7 +9912,7 @@ function classifySimpleFinRows(transactions, accountMap, merchantMemory) {
     // `source` also set here (not only in lib/simplefin.js) so rows already
     // sitting in the server-side pending queue from before this version still
     // get tagged for the cross-source duplicate check.
-    const row = { ...t, account, category, autoCategory: category, source: "sf" };
+    const row = { ...t, account, category, autoCategory: category, source: t.source || "sf" };
     // Same additive provenance fields as buildRow — see that function's
     // comment for why 'none'/0/"" is omitted rather than written.
     if (categorySource && categorySource !== "none") {
@@ -10246,6 +10255,7 @@ const TH_BASE = {
 };
 
 const S = {
+  syncWarning: { color: "#fbbf24", fontSize: 12, lineHeight: 1.45, marginBottom: 8 },
   app: {
     // Fills #root, which is sized to 100lvh (the full physical screen) in
     // index.html. The tab bar (last flex child) lands on the real bottom edge;
