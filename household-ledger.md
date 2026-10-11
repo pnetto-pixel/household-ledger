@@ -38,7 +38,7 @@ conta/saldo entram na tabela existente. Cursor e snapshot separados do ledger
 são persistidos atomicamente; correções/remoções do provedor geram aviso para
 revisão manual, preservando categorias. Nenhum botão, dependência ou endpoint
 serverless novo. Credenciais somente no servidor. Implementação auditada e
-documentada; PR/merge pendentes.
+documentada no PR #285.
 
 Versão anterior: **v1.75.8** —
 limpeza da tab Import: o controle compacto agora oferece somente **All / New /
@@ -2682,7 +2682,7 @@ estourar o limite de Serverless Functions do plano Hobby). A gravação no
 ledger real segue manual — a
 fila só existe para alimentar a tela de revisão/import na tab Import.
 
-**Snapshot Venmo/Plaid (v1.76.0, pendente de merge)**: chave auxiliar
+**Snapshot Venmo/Plaid (v1.76.0, PR #285)**: chave auxiliar
 `household:*:transactions:plaid-venmo`, independente da fila legada, guarda
 cursor, snapshot mínimo reutilizável de transações, saldos, hash do token e
 até 2000 ids removidos. Sem TTL: o histórico já buscado permanece disponível
@@ -3949,7 +3949,7 @@ shell de altura cheia (`#root` em `100lvh` + shell `height:100%`): só o
    var ausente ("SimpleFin não configurado", 501) vs. falha de rede/resposta
    não-OK do SimpleFin (502).
 
-   **Sync unificado Venmo (v1.76.0, pendente de merge)** — o mesmo **Sync
+   **Sync unificado Venmo (v1.76.0, PR #285)** — o mesmo **Sync
    now** chama a rota existente, que combina SimpleFin e Plaid via
    `lib/bank-sync.js`; nenhum botão/método novo. O seletor segue **SimpleFin**,
    com descrição "Sync includes Venmo.". Venmo usa exclusivamente o Item
@@ -4230,7 +4230,7 @@ shell de altura cheia (`#root` em `100lvh` + shell `height:100%`): só o
      `"csv"` (sem `"sf"`) vira "Credit Karma" (tratadas como a mesma origem
      "importada"); `"sf"` + `"ck"`/`"csv"` juntas vira "Mixed".
 
-   Desde a **v1.76.0 (pendente de merge)**, o título desta tabela é
+   Desde a **v1.76.0 (PR #285)**, o título desta tabela é
    **Connected accounts**, com contas de SimpleFin e Venmo. Linhas Plaid
    (`source: "plaid"` no saldo ou URN com prefixo `plaid:`) exibem badge
    **Venmo**, inclusive antes da primeira importação; os badges das demais
@@ -5697,7 +5697,7 @@ riscos reais de perda de dados.
     que é importado (não só o que a prévia mostra) e ganhou chip equivalente
     no mobile — os demais filtros (categoria/status/data) continuam só
     visuais. Ver "Versão atual" no topo deste documento.
-  - [x] **Venmo via Plaid no mesmo Sync** (v1.76.0, pendente de merge) —
+  - [x] **Venmo via Plaid no mesmo Sync** (v1.76.0, PR #285) —
     rotas manual/cron existentes combinam os provedores, com falhas parciais
     visíveis e o mesmo pipeline de revisão/dedup. Somente o Item Venmo já
     conectado em Production; quatro envs somente no servidor. Snapshot/cursor
