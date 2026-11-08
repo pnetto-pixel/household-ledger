@@ -78,6 +78,7 @@ import {
   resolveImportCategory,
   buildMerchantMemory,
   buildMerchantGroups,
+  sanitizeMerchantOverrides,
   txnFingerprint,
   markDuplicates,
   descWords,
@@ -164,6 +165,7 @@ let ACCOUNT_TYPE_OVERRIDES = {};
 // compute the "new accounts" badge (see App's `sfNewAccountsCount`). Same
 // "empty array is meaningful" rule as IGNORED_SIMPLEFIN_ACCOUNTS above.
 let SIMPLEFIN_ACKNOWLEDGED_ACCOUNTS = [];
+let MERCHANT_OVERRIDES = {};
 
 function applyConfig(cfg) {
   if (Array.isArray(cfg?.accounts) && cfg.accounts.length) ACCOUNTS = [...cfg.accounts];
@@ -189,6 +191,7 @@ function applyConfig(cfg) {
   }
   // No `.length` guard: clearing the last entry must actually clear the list.
   if (Array.isArray(cfg?.simplefinAcknowledgedAccounts)) SIMPLEFIN_ACKNOWLEDGED_ACCOUNTS = [...cfg.simplefinAcknowledgedAccounts];
+  if (Object.hasOwn(cfg || {}, "merchantOverrides")) MERCHANT_OVERRIDES = sanitizeMerchantOverrides(cfg.merchantOverrides);
 }
 
 // The current runtime config as a plain object (for seeding React state).
@@ -200,6 +203,7 @@ function currentConfig() {
     ignoredSimplefinAccounts: [...IGNORED_SIMPLEFIN_ACCOUNTS],
     accountTypeOverrides: { ...ACCOUNT_TYPE_OVERRIDES },
     simplefinAcknowledgedAccounts: [...SIMPLEFIN_ACKNOWLEDGED_ACCOUNTS],
+    merchantOverrides: { ...MERCHANT_OVERRIDES },
   };
 }
 
@@ -712,7 +716,7 @@ function idleExpired() {
 // path, so the pending copy is discarded with a notice instead).
 
 // Single source for the version shown in the header and in diagnostics.
-const APP_VERSION = "v1.78.0";
+const APP_VERSION = "v1.79.0";
 
 const PENDING_SAVE_KEY = "household_pending_save";
 
@@ -1754,6 +1758,21 @@ export default function App() {
     }).catch(() => {});
   }, []);
 
+  // Merchant corrections update the ranking only after confirmed persistence.
+  // Keep the editor open on failure so a correction is never silently lost.
+  const saveMerchantOverrides = useCallback(async (overrides) => {
+    const next = { ...currentConfig(), merchantOverrides: sanitizeMerchantOverrides(overrides) };
+    const res = await fetch("/api/config", {
+      method: "PUT",
+      headers: buildAuthHeaders(),
+      body: JSON.stringify({ config: next }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || "Could not save merchant grouping. Try again.");
+    applyConfig({ merchantOverrides: data.config?.merchantOverrides || next.merchantOverrides });
+    setConfig(currentConfig());
+  }, []);
+
   useEffect(() => {
     if (authed) loadConfig();
   }, [authed, loadConfig]);
@@ -2220,7 +2239,7 @@ export default function App() {
             initialView={settingsInitialView}
           />
         ) : (
-          <Charts transactions={transactions} hideValues={hideValues} config={config} isWide={isWide} />
+          <Charts transactions={transactions} hideValues={hideValues} config={config} isWide={isWide} onSaveMerchantOverrides={saveMerchantOverrides} />
         )}
         </TabErrorBoundary>
       </main>
@@ -4774,7 +4793,7 @@ function YearRangeSlider({ years, fromYear, toYear, onFromYear, onToYear, trackS
   );
 }
 
-function Charts({ transactions, hideValues, config, isWide }) {
+function Charts({ transactions, hideValues, config, isWide, onSaveMerchantOverrides }) {
   const years = useMemo(() => availableYears(transactions), [transactions]);
 
   // Year-range filter: default to the most recent year of data on open.
@@ -5117,6 +5136,7 @@ function Charts({ transactions, hideValues, config, isWide }) {
         config={config}
         hideValues={hideValues}
         isWide={isWide}
+        onSaveMerchantOverrides={onSaveMerchantOverrides}
       />
 
       <DailyHeatmapCard scoped={scoped} hideValues={hideValues} isWide={isWide} />
@@ -5392,10 +5412,12 @@ export function buildMerchantExpenseBars(transactions, year, category = "All", a
     .sort((a, b) => b.value - a.value || a.name.localeCompare(b.name));
 }
 
-function ExpensesByMerchantCard({ transactions, years, config, hideValues, isWide }) {
+function ExpensesByMerchantCard({ transactions, years, config, hideValues, isWide, onSaveMerchantOverrides }) {
   const [year, setYear] = useState("");
   const [category, setCategory] = useState("All");
   const [expanded, setExpanded] = useState(false);
+  const [editingMerchant, setEditingMerchant] = useState(null);
+  const closeMerchantEditor = useCallback(() => setEditingMerchant(null), []);
   const effectiveYear = years.includes(year) ? year : years[0] || "";
   const categories = useMemo(() => [...new Set([
     ...EXPENSE_CATEGORIES,
@@ -5406,7 +5428,19 @@ function ExpensesByMerchantCard({ transactions, years, config, hideValues, isWid
   // cannot change how a merchant is matched to its prior-year counterpart.
   const merchantGroups = useMemo(() => buildMerchantGroups(transactions
     .filter((t) => !isTransfer(t.category) && !isIncome(t.category))
-    .map((t) => t.description)), [transactions, config]);
+    .map((t) => t.description), config?.merchantOverrides), [transactions, config]);
+  const merchantMembers = useMemo(() => {
+    const groups = new Map();
+    for (const t of transactions) {
+      if (isTransfer(t.category) || isIncome(t.category)) continue;
+      const description = String(t.description || "");
+      const name = merchantGroups.get(description);
+      if (!groups.has(name)) groups.set(name, new Map());
+      const members = groups.get(name);
+      members.set(description, (members.get(description) || 0) + 1);
+    }
+    return groups;
+  }, [transactions, merchantGroups, config]);
   const asOf = todayISO();
   const bars = useMemo(
     () => buildMerchantExpenseBars(transactions, effectiveYear, effectiveCategory, asOf, merchantGroups),
@@ -5444,6 +5478,7 @@ function ExpensesByMerchantCard({ transactions, years, config, hideValues, isWid
           isWide={isWide}
         />
       </div>
+      <p style={S.merchantHint}>Select a merchant to edit its group.</p>
       {bars.length === 0 ? (
         <Empty>No merchant expenses for {effectiveCategory === "All" ? "all categories" : effectiveCategory} in {effectiveYear}.</Empty>
       ) : (
@@ -5456,7 +5491,7 @@ function ExpensesByMerchantCard({ transactions, years, config, hideValues, isWid
           </div>
           {visibleBars.map(({ name, value, yoy }) => (
             <div key={name} style={S.merchantRow}>
-              <span title={name} style={S.merchantName}>{name}</span>
+              <button type="button" title={name} aria-label={`Edit merchant ${name}`} onClick={() => setEditingMerchant(name)} style={{ ...S.merchantName, ...S.merchantNameButton }}>{name}</button>
               <div style={S.merchantTrack}>
                 <div style={S.merchantBar((value / maxBar) * 100)} />
               </div>
@@ -5476,7 +5511,112 @@ function ExpensesByMerchantCard({ transactions, years, config, hideValues, isWid
           )}
         </div>
       )}
+      {editingMerchant !== null && (
+        <MerchantGroupEditor
+          name={editingMerchant}
+          members={merchantMembers.get(editingMerchant) || new Map()}
+          groups={merchantMembers}
+          overrides={config?.merchantOverrides || {}}
+          onSave={onSaveMerchantOverrides}
+          onClose={closeMerchantEditor}
+        />
+      )}
     </section>
+  );
+}
+
+function MerchantGroupEditor({ name, members, groups, overrides, onSave, onClose }) {
+  const [selected, setSelected] = useState(() => new Set(members.keys()));
+  const [target, setTarget] = useState(name);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const dialogRef = useRef(null);
+  const nameRef = useRef(null);
+  const savingRef = useRef(false);
+  savingRef.current = saving;
+  const optionsId = React.useId();
+  useEffect(() => {
+    const prior = document.activeElement;
+    nameRef.current?.focus();
+    const keydown = (event) => {
+      if (event.key === "Escape" && !savingRef.current) onClose();
+      if (event.key !== "Tab") return;
+      const nodes = [...dialogRef.current.querySelectorAll('button:not(:disabled), input:not(:disabled), select:not(:disabled)')];
+      if (nodes.length === 0) { event.preventDefault(); dialogRef.current.focus(); return; }
+      const first = nodes[0], last = nodes[nodes.length - 1];
+      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
+      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
+    };
+    document.addEventListener("keydown", keydown);
+    return () => { document.removeEventListener("keydown", keydown); prior?.focus(); };
+  }, [onClose]);
+  useEffect(() => { if (saving) dialogRef.current?.focus(); }, [saving]);
+
+  const submit = async (automatic = false) => {
+    if (selected.size === 0 || (!automatic && !target.trim())) return;
+    setError("");
+    const next = { ...overrides };
+    const merchant = target.trim().toUpperCase();
+    if (!automatic && merchant.length > 100) {
+      setError("Merchant name must be 100 characters or fewer.");
+      return;
+    }
+    if (automatic) {
+      for (const description of selected) delete next[description];
+    } else {
+      // Pin the existing destination too, so future automatic changes cannot
+      // undo a user's explicit merge into that group.
+      const destination = [...groups].find(([name]) => name.trim().toUpperCase() === merchant)?.[1];
+      for (const description of destination?.keys() || []) next[description] = merchant;
+      for (const description of selected) next[description] = merchant;
+    }
+    const clean = sanitizeMerchantOverrides(next);
+    if (!automatic && [...selected].some((description) => clean[description] !== merchant)) {
+      setError("One of these descriptions cannot be saved as a grouping rule.");
+      return;
+    }
+    setSaving(true);
+    try {
+      await onSave(clean);
+      onClose();
+    } catch (err) {
+      setError(err.message || "Could not save merchant grouping. Try again.");
+      setSaving(false);
+    }
+  };
+
+  return createPortal(
+    <div style={S.modalOverlay} onClick={() => { if (!saving) onClose(); }}>
+      <div ref={dialogRef} tabIndex={-1} style={{ ...S.modalCard, ...S.merchantEditor }} onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true" aria-label="Edit merchant group">
+        <div style={S.merchantEditorHeader}>
+          <h3 style={S.merchantEditorTitle}>Edit merchant group</h3>
+          <button type="button" aria-label="Close merchant editor" disabled={saving} onClick={onClose} style={S.linkBtn}><X size={18} /></button>
+        </div>
+        <p style={S.merchantEditorHelp}>Select descriptions to move together. Choose an existing merchant or enter a new name to separate them. Applies across all years and categories.</p>
+        <form onSubmit={(e) => { e.preventDefault(); submit(); }} style={S.merchantEditorForm}>
+          <label style={S.merchantEditorLabel} htmlFor={`${optionsId}-name`}>Merchant name</label>
+          <input id={`${optionsId}-name`} ref={nameRef} list={optionsId} value={target} maxLength={100} onChange={(e) => setTarget(e.target.value)} disabled={saving} style={S.input} required />
+          <datalist id={optionsId}>{[...groups.keys()].sort().map((merchant) => <option key={merchant} value={merchant} />)}</datalist>
+          <div style={S.merchantSelectionControls}>
+            <span>{selected.size} of {members.size} descriptions selected</span>
+            <button type="button" style={S.linkBtn} disabled={saving} onClick={() => setSelected(selected.size === members.size ? new Set() : new Set(members.keys()))}>{selected.size === members.size ? "Clear selection" : "Select all"}</button>
+          </div>
+          <div style={S.merchantDescriptions}>
+            {[...members.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([description, count]) => (
+              <label key={description} style={S.merchantDescription}>
+                <input type="checkbox" aria-label={description || "No description"} checked={selected.has(description)} disabled={saving} onChange={() => setSelected((prev) => { const next = new Set(prev); if (next.has(description)) next.delete(description); else next.add(description); return next; })} style={S.checkbox} />
+                <span style={S.merchantDescriptionText}>{description || "(No description)"}<span style={S.merchantDescriptionCount}>{count} {count === 1 ? "transaction" : "transactions"}{Object.hasOwn(overrides, description) ? " · Custom" : ""}</span></span>
+              </label>
+            ))}
+          </div>
+          {error && <p role="alert" style={S.merchantEditorError}>{error}</p>}
+          <div style={S.merchantEditorActions}>
+            <button type="button" onClick={() => submit(true)} disabled={saving || selected.size === 0} style={S.secondaryBtn}>Use automatic grouping</button>
+            <button type="submit" disabled={saving || selected.size === 0 || !target.trim()} style={S.primaryBtn}>{saving ? "Saving…" : "Save grouping"}</button>
+          </div>
+        </form>
+      </div>
+    </div>, document.body
   );
 }
 
@@ -10409,6 +10549,21 @@ const S = {
   merchantYoyHeading: { width: 44, flexShrink: 0, textAlign: "right", whiteSpace: "nowrap" },
   merchantYoy: (value) => ({ width: 44, flexShrink: 0, textAlign: "right", fontSize: 10, fontWeight: 700, fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap", color: value == null || value === 0 ? "#6b7280" : value > 0 ? "#f87171" : "#34d399" }),
   merchantMore: { alignSelf: "center", marginTop: 3, padding: "8px 12px" },
+  merchantHint: { margin: "8px 16px 0", color: "#8b94a3", fontSize: 11 },
+  merchantNameButton: { background: "none", border: "none", padding: "4px 0", textAlign: "left", font: "inherit", color: "#93c5fd", cursor: "pointer", textDecoration: "underline", textDecorationStyle: "dotted", textUnderlineOffset: 3 },
+  merchantEditor: { width: "100%", maxWidth: 560, boxSizing: "border-box", fontFamily: FONT_STACK, color: "#e5e7eb" },
+  merchantEditorHeader: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 },
+  merchantEditorTitle: { margin: 0, fontSize: 16 },
+  merchantEditorHelp: { color: "#8b94a3", fontSize: 12, lineHeight: 1.5, margin: "10px 0 16px" },
+  merchantEditorForm: { display: "flex", flexDirection: "column", gap: 10 },
+  merchantEditorLabel: { color: "#cbd5e1", fontSize: 12, fontWeight: 600 },
+  merchantSelectionControls: { display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, color: "#8b94a3", fontSize: 11 },
+  merchantDescriptions: { maxHeight: "35dvh", overflowY: "auto", border: "1px solid #1e2530", borderRadius: 10 },
+  merchantDescription: { display: "flex", gap: 10, padding: "12px 10px", alignItems: "flex-start", borderBottom: "1px solid #1e2530", cursor: "pointer" },
+  merchantDescriptionText: { flex: 1, minWidth: 0, overflowWrap: "anywhere", fontSize: 12, lineHeight: 1.4 },
+  merchantDescriptionCount: { display: "block", marginTop: 3, fontSize: 10, color: "#8b94a3" },
+  merchantEditorActions: { display: "flex", flexWrap: "wrap", justifyContent: "flex-end", gap: 8, marginTop: 6 },
+  merchantEditorError: { color: "#f87171", fontSize: 12, margin: 0 },
   syncWarning: { color: "#fbbf24", fontSize: 12, lineHeight: 1.45, marginBottom: 8 },
   app: {
     // Fills #root, which is sized to 100lvh (the full physical screen) in

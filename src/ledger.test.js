@@ -25,6 +25,7 @@ import {
   normalizeMerchant,
   merchantKey,
   buildMerchantGroups,
+  sanitizeMerchantOverrides,
   isMemoryTrainableRow,
   buildMerchantMemory,
   classifyMerchantMemory,
@@ -67,6 +68,83 @@ describe("buildMerchantGroups (analytics only)", () => {
     for (const name of names) expect(forward.get(name)).toBe(backward.get(name));
     expect(forward.get("LOANDEPOT")).toBe(forward.get("LOANDEPOX"));
     expect(forward.get("LOANDEPXX")).not.toBe(forward.get("LOANDEPOT"));
+  });
+
+  it("recognizes stacked bank/payment wrappers and location/reference suffixes", () => {
+    const names = [
+      "STARBUCKS", "PURCHASE AUTHORIZED ON 07/12 SQ *STARBUCKS #1234 SEATTLE WA",
+      "POS DEBIT PAYPAL *TST* STARBUCKS 05931 AUSTIN TX", "STARBUCKS ROUND ROCK TX",
+      "STARBUCKS S123456 AUSTIN TX",
+    ];
+    expect(new Set(buildMerchantGroups(names).values())).toEqual(new Set(["STARBUCKS"]));
+  });
+
+  it("handles common feed abbreviations, store formats and apostrophes", () => {
+    const cases = [
+      ["WHOLE FOODS", "WHOLEFDS LAM 10044 AUSTIN TX", "WHOLE FOODS MARKET #1234"],
+      ["AMAZON MARKETPLACE", "AMZN MKTP US*AB12345", "AMAZON MKTPL 12345"],
+      ["WALMART", "WAL-MART SUPERCENTER #1234 AUSTIN TX"],
+      ["COSTCO", "COSTCO WHSE #1234 AUSTIN TX"],
+      ["TRADER JOES", "TRADER JOE'S #1234 AUSTIN TX"],
+    ];
+    for (const names of cases) expect(new Set(buildMerchantGroups(names).values()).size).toBe(1);
+  });
+
+  it("recognizes substantial multiword truncations and adjacent transposition typos", () => {
+    const names = ["AMERICAN AIRLINES", "AMERICAN AIRLINES", "AMERICAN AIRLI", "AMERICAN AIRLNI ES"];
+    expect(new Set(buildMerchantGroups(names).values())).toEqual(new Set(["AMERICAN AIRLINES"]));
+    expect(new Set(buildMerchantGroups(["STARBUCKS", "STARBUKCS"]).values()).size).toBe(1);
+  });
+
+  it("does not join merchants merely sharing an opening word or an unknown city", () => {
+    const names = ["AMERICAN AIRLINES", "AMERICAN EXPRESS", "AMAZON PRIME", "AMAZON MUSIC", "FIRST BANK", "FIRST CREDIT", "BANK OF AMERICA CA", "THE STORE NEXT DOOR", "THE STORE", "DISCOUNT WAREHOUSE A", "DISCOUNT WAREHOUSE B"];
+    const groups = buildMerchantGroups(names);
+    expect(new Set(groups.values()).size).toBe(names.length);
+    expect(groups.get("BANK OF AMERICA CA")).toBe("BANK OF AMERICA");
+    expect(buildMerchantGroups(["LOCAL SHOP SOMEWHERE TX"]).get("LOCAL SHOP SOMEWHERE TX")).toBe("LOCAL SHOP SOMEWHERE");
+  });
+
+  it("keeps ambiguous truncations separate even when the shortened source is most frequent", () => {
+    const names = ["AMERICAN AIRLINES", "AMERICAN AIRLIFT", "AMERICAN AIRL", "AMERICAN AIRL", "AMERICAN AIRL"];
+    expect(new Set(buildMerchantGroups(names).values()).size).toBe(3);
+    expect(new Set(buildMerchantGroups(["AMERICAN AIRLINES", "AMERICAN AIRL", "AMERICAN AIRL"]).values())).toEqual(new Set(["AMERICAN AIRLINES"]));
+  });
+
+  it("manual choices split even identically normalized names and merge exact descriptions", () => {
+    const names = ["SHOP #1234", "SHOP #5678", "OTHER SHOP"];
+    const groups = buildMerchantGroups(names, { "SHOP #1234": "  Independent shop  ", "OTHER SHOP": "independent SHOP" });
+    expect(groups.get("SHOP #1234")).toBe("INDEPENDENT SHOP");
+    expect(groups.get("OTHER SHOP")).toBe("INDEPENDENT SHOP");
+    expect(groups.get("SHOP #5678")).toBe("SHOP");
+  });
+
+  it("manual names never affect the automatic grouping of other descriptions", () => {
+    const names = ["STARBUCKS", "STARBUCKS", "STARBUKCS", "DIFFERENT BUSINESS"];
+    const automatic = buildMerchantGroups(names);
+    const manual = buildMerchantGroups(names, { "DIFFERENT BUSINESS": "STARBUCKSX" });
+    for (const name of names.slice(0, -1)) expect(manual.get(name)).toBe(automatic.get(name));
+    expect(manual.get("DIFFERENT BUSINESS")).toBe("STARBUCKSX");
+  });
+});
+
+describe("sanitizeMerchantOverrides", () => {
+  it("preserves exact raw keys and normalizes valid user labels", () => {
+    expect(sanitizeMerchantOverrides({ " raw descriptor ": "  Merchant  ", "": "Blank description" })).toEqual({
+      " raw descriptor ": "MERCHANT", "": "BLANK DESCRIPTION",
+    });
+    expect(sanitizeMerchantOverrides({})).toEqual({});
+  });
+
+  it("rejects prototype keys, invalid shapes and oversized entries without truncating keys", () => {
+    const value = JSON.parse('{"__proto__":"bad","constructor":"bad","prototype":"bad","valid":"saved","number":1,"blank":" "}');
+    value["x".repeat(2001)] = "Too long";
+    value["long label"] = "x".repeat(101);
+    expect(sanitizeMerchantOverrides(value)).toEqual({ valid: "SAVED" });
+    for (const invalid of [null, [], "wrong", new Date(), Object.create({ inherited: true })]) {
+      expect(sanitizeMerchantOverrides(invalid)).toEqual({});
+    }
+    const edge = "x".repeat(2000);
+    expect(sanitizeMerchantOverrides({ [edge]: "y".repeat(100) })[edge]).toBe("Y".repeat(100));
   });
 });
 
