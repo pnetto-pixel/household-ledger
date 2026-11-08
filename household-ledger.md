@@ -1,4 +1,4 @@
-# Household Ledger · v1.76.0
+# Household Ledger · v1.77.0
 
 Aplicativo mobile-first de controle financeiro doméstico. Registra
 transações da casa (despesas e receitas) por categoria e conta, com
@@ -31,7 +31,20 @@ O `feature-auditor` deve conferir, como parte da checklist de auditoria, que
 o diff inclui o bump nos dois arquivos antes de aprovar — se faltar, isso é
 motivo de reprovação (devolver ao coder), não um detalhe opcional.
 
-Versão atual: **v1.76.0** —
+Versão atual: **v1.77.0** —
+novo card **Expenses by merchant** na tab Trends, abaixo de Expenses by category.
+Ranking de gastos líquidos por estabelecimento, do maior para o menor, com
+filtros próprios de ano (default: ano mais recente disponível) e categoria
+(default: todas as despesas), independentes do masthead, seguindo o card anual
+por categoria. O ano selecionado inclui todos os lançamentos disponíveis nele.
+Descrições são agrupadas pelo helper existente `merchantKey`, removendo ruído
+de processadores, números de loja/pedido e endereços. Reembolsos abatem compras
+antes do ranking; saldos credores/zerados, receitas e Transfer ficam fora.
+Mostra top 10 + Show N more / Show less, valores exatos em dólares e barras
+horizontais; respeita o toggle global de ocultar valores. Categorias incluem
+as configuradas e as presentes no histórico. Sem novo endpoint ou dependência.
+
+Versão anterior: **v1.76.0** —
 o mesmo botão Sync do SimpleFin inclui Venmo via Plaid Production, reutilizando
 somente o Item existente. Transações passam pela prévia e deduplicação atuais;
 conta/saldo entram na tabela existente. Cursor e snapshot separados do ledger
@@ -3733,6 +3746,14 @@ shell de altura cheia (`#root` em `100lvh` + shell `height:100%`): só o
    `S.togglePill` (não migraram para `S.segmented` como os da Home — ver
    Roadmap); com um único ano de dados os dois handles do `YearRangeSlider`
    ainda se sobrepõem dentro do popover.
+   **Desde a v1.77.0**: logo abaixo do ranking anual por categoria há o card
+   **Expenses by merchant** (`ExpensesByMerchantCard`). Tem seletores próprios
+   de ano e categoria, independentes dos filtros do masthead, e mostra os
+   maiores gastos líquidos por estabelecimento em barras horizontais (top 10
+   expansível). Reutiliza `merchantKey` para agrupar descrições, soma valores
+   sinalizados antes de apresentar despesas positivas e exclui receitas,
+   transferências e estabelecimentos com saldo líquido credor/zero. Categorias
+   refletem Settings e o histórico; valores respeitam `hideValues`.
    **Desde a v1.75.2 (PR #275)**: cada linha do ranking deixou de empilhar
    valor e Y/Y em duas linhas (`fmtKFull(value)` + `"Y/Y {pct}% YTD"` abaixo)
    e virou uma única linha por categoria — rótulo 72px (era 84px) / barra
