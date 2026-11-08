@@ -5,7 +5,7 @@ vi.mock('../lib/redis.js', () => ({ getRedis: vi.fn() }));
 
 import { authenticate } from '../lib/auth.js';
 import { getRedis } from '../lib/redis.js';
-import handler from './config.js';
+import handler from '../api/config.js';
 
 const storage = new Map();
 const redis = { get: vi.fn(), set: vi.fn() };
