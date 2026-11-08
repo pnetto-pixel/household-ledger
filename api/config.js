@@ -14,6 +14,7 @@
 
 import { getRedis } from '../lib/redis.js';
 import { authenticate, loginWithGoogle } from '../lib/auth.js';
+import { sanitizeMerchantOverrides } from '../src/ledger.js';
 
 function configKeyFromAuth(auth) {
   if (!auth?.storageKey) return null;
@@ -87,6 +88,9 @@ function sanitize(config) {
     out.accountTypeOverrides = clean;
   }
 
+  if (Object.hasOwn(config || {}, 'merchantOverrides')) {
+    out.merchantOverrides = sanitizeMerchantOverrides(config.merchantOverrides);
+  }
   return out;
 }
 

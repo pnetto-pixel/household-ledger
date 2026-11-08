@@ -108,7 +108,15 @@ login volta; timestamp `household_last_active` compartilhado entre abas.
 - Reaproveite helpers existentes (`uid`, `todayISO`, `monthKey`, `usd`,
   `money`, `matchPeriod`, `computeTotals`) em vez de duplicar.
 
+## Correções do ranking por comerciante (v1.79.0)
+`config.merchantOverrides` mapeia descrições originais exatas para nomes de
+comerciantes. Persistido no GET/PUT existente de `/api/config`, não no ledger.
+`sanitizeMerchantOverrides` valida o campo no cliente e servidor; `currentConfig`
+deve preservá-lo nas demais gravações. Escolhas manuais prevalecem no helper
+analítico `buildMerchantGroups`; não alteram classificação/dedup da importação.
+
 ## Versionamento (OBRIGATÓRIO em todo PR)
+
 Toda feature/fix — mesmo pequena — exige bump de versão nos **dois** lugares:
 `src/App.jsx` (span `v1.x.x` ao lado de "Household") e `household-ledger.md`
 (título `# Household Ledger · v1.x.x` + entrada "Versão atual"). Patch para

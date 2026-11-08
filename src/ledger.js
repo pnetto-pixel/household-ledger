@@ -300,38 +300,123 @@ export function merchantKey(description) {
 }
 
 // Analytics-only grouping: keep import classification/deduplication unchanged.
-// Strip banking boilerplate, domain/legal suffixes and payment references,
-// then match whitespace variants and one-character typos in long brand names.
+// A city is removable only when a source also supplies a trailing state code.
+// Unknown places remain intact; store/reference boundaries handle most feeds
+// without requiring a complete geography dictionary.
+const RANKING_CITIES = [
+  "SAN FRANCISCO", "LOS ANGELES", "SAN ANTONIO", "SAN DIEGO", "NEW YORK",
+  "ROUND ROCK", "CEDAR PARK", "LAKE FOREST", "SALT LAKE CITY", "LAS VEGAS",
+  "PFLUGERVILLE", "GEORGETOWN", "SAN MARCOS", "AUSTIN", "HOUSTON", "DALLAS",
+  "SEATTLE", "CHICAGO", "CHARLOTTE", "ATLANTA", "PHOENIX", "DENVER",
+  "PORTLAND", "MIAMI", "ORLANDO", "BOSTON", "WASHINGTON",
+].sort((a, b) => b.length - a.length);
+
 function merchantRankingName(description) {
-  const cleaned = String(description || "").toUpperCase()
+  let cleaned = String(description || "").toUpperCase().trim();
+  // Preambles and processor wrappers stack in checking-account descriptions.
+  // Strip only at the front; a merchant like PAYMENT DEPOT keeps its name.
+  for (let i = 0; i < 8; i++) {
+    const next = cleaned
+      .replace(/^(?:PURCHASE\s+AUTHORIZED\s+ON|RECURRING\s+PAYMENT\s+AUTHORIZED\s+ON)\s+\d{1,2}\/\d{1,2}(?:\/\d{2,4})?\s*/, "")
+      .replace(/^(?:(?:ACH|POS|CHECKCARD|RECURRING|BILLPAY)\s+(?:(?:DEBIT|CREDIT|PURCHASE)\s+)?|(?:DEBIT|CREDIT)\s+CARD\s+(?:PURCHASE\s+)?|ONLINE\s+PAYMENT\s+TO\s+|SP\s+)+/, "")
+      .replace(AGGREGATOR_PREFIX_RE, "").trim();
+    if (next === cleaned) break;
+    cleaned = next;
+  }
+  cleaned = cleaned
     .replace(/\.(?:COM|NET|ORG)\b/g, " ")
-    .replace(/^(?:(?:ACH|POS|CHECKCARD|RECURRING|BILLPAY)\s+(?:(?:DEBIT|CREDIT|PURCHASE)\s+)?|(?:DEBIT|CREDIT)\s+CARD\s+|ONLINE\s+PAYMENT\s+TO\s+)+/, "")
     .replace(/\b(?:ORIG\s+CO\s+NAME|CO\s+NAME)\s*:\s*/g, "")
     .replace(/\s+(?:DES|ID|INDN|CO\s+ID|ORIG\s+ID)\s*:.*$/, "");
+  cleaned = cleaned.replace(/^(.*?)\s+(?:STORE|LOCATION|BRANCH)\s*#?\s*\d{3,}\b.*$/, (match, brand) =>
+    brand.replace(/\W/g, "").length >= 4 ? brand : match);
+  // Keep merchant names containing digits (7-ELEVEN, 99 RANCH), while a
+  // later store/order reference also marks where an attached address starts.
+  cleaned = cleaned.replace(/\s+(?:#\s*\d+|(?:[A-Z]{0,3}[-#]?)?\d{3,}[A-Z\d-]*|[A-Z\d]*\d[A-Z\d]*\d[A-Z\d]*\d[A-Z\d]*)\b.*$/, "");
+  const state = cleaned.match(/\s+([A-Z]{2})$/);
+  if (state && US_STATE_CODES.has(state[1])) {
+    const withoutState = cleaned.slice(0, state.index).trim();
+    const city = RANKING_CITIES.find((name) => withoutState.endsWith(` ${name}`));
+    if (city) cleaned = withoutState.slice(0, -(city.length + 1));
+  }
   let name = merchantKey(cleaned).key;
   // Only strip suffixes after a merchant token, so e.g. PAYMENT DEPOT isn't
   // reduced to an anonymous group. Product words (PRIME, MUSIC, etc.) stay.
   name = name.replace(/\s+(?:(?:LOAN|MORTGAGE|MTG)\s+(?:PAYMENT|PMT|PYMT)|PAYMENT|PAYMENTS|PMT|PYMT|PAYMNT|AUTOPAY|AUTO\s+PAY|BILLPAY|WEB\s+ID|ORIG\s+ID|CO\s+ID|IND\s+ID|IND\s+NAME|ENTRY\s+DESCR|ACH|SERVICING)\b.*$/, "")
     .replace(/(?:\s+(?:LLC|INC|CORP|CORPORATION|COM|NET|ORG))+$/, "")
     .trim();
+  // Widely-used bank-feed abbreviations. Product distinctions stay intact:
+  // AMAZON PRIME/MUSIC are not reduced to the shared first word AMAZON.
+  name = name
+    .replace(/^AMZN\s+MKTP\b.*$/, "AMAZON MARKETPLACE")
+    .replace(/^AMAZON\s+(?:MKTPL|MKTPLACE|MARKETPLACE)\b.*$/, "AMAZON MARKETPLACE")
+    .replace(/^WHOLEFDS\b.*$/, "WHOLE FOODS")
+    .replace(/^WHOLE\s+FOODS\s+MARKET\b/, "WHOLE FOODS")
+    .replace(/^WAL\s+MART\b/, "WALMART")
+    .replace(/^WALMART\s+SUPERCENTER\b.*$/, "WALMART")
+    .replace(/^COSTCO\s+(?:WHSE|WAREHOUSE)\b.*$/, "COSTCO")
+    .replace(/^H\s+E\s+B\b/, "HEB");
   return name || String(description || "").trim().toUpperCase() || "Unknown merchant";
 }
 
-// At most one insertion/deletion/substitution. A shared four-character prefix
-// and at least eight characters on BOTH sides keep short/common names apart.
-function closeMerchantName(a, b) {
-  if (a.length < 8 || b.length < 8 || Math.abs(a.length - b.length) > 1 || a.slice(0, 4) !== b.slice(0, 4)) return false;
-  let i = 0, j = 0, differences = 0;
-  while (i < a.length && j < b.length) {
-    if (a[i] === b[j]) { i++; j++; continue; }
-    if (++differences > 1) return false;
-    if (a.length >= b.length) i++;
-    if (b.length >= a.length) j++;
-  }
-  return differences + (a.length - i) + (b.length - j) <= 1;
+// A unique, substantial multiword prefix can be a source truncation; a shared
+// first token alone never suffices (AMAZON PRIME vs AMAZON MUSIC).
+function truncatedMerchantName(a, b) {
+  const [short, long] = a.key.length <= b.key.length ? [a, b] : [b, a];
+  if (short.name.split(" ").length < 2 || short.key.length < 10 || short.key.length / long.key.length < 0.72) return false;
+  if (!long.key.startsWith(short.key)) return false;
+  const shortTokens = short.name.split(" ");
+  const longTokens = long.name.split(" ");
+  return shortTokens.length === longTokens.length && shortTokens.slice(0, -1).every((token, i) => token === longTokens[i])
+    && shortTokens.at(-1).length >= 3;
 }
 
-export function buildMerchantGroups(descriptions) {
+// Bounded Damerau-Levenshtein (including adjacent transpositions). Strong
+// shared prefix, long names and a narrow edit budget avoid short-name merges.
+function closeMerchantName(a, b) {
+  const limit = Math.min(a.length, b.length) >= 12 ? 2 : 1;
+  if (a.length < 8 || b.length < 8 || Math.abs(a.length - b.length) > limit || a.slice(0, 4) !== b.slice(0, 4)) return false;
+  // All matching names share four characters. Strip them before the DP and
+  // cap the tail: huge unrecognized descriptions aren't good fuzzy matches.
+  a = a.slice(4); b = b.slice(4);
+  if (Math.max(a.length, b.length) > 100) return false;
+  let previousPrevious = null;
+  let previous = Array.from({ length: b.length + 1 }, (_, i) => i);
+  for (let i = 1; i <= a.length; i++) {
+    const current = [i];
+    for (let j = 1; j <= b.length; j++) {
+      current[j] = Math.min(current[j - 1] + 1, previous[j] + 1, previous[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+      if (i > 1 && j > 1 && a[i - 1] === b[j - 2] && a[i - 2] === b[j - 1]) {
+        current[j] = Math.min(current[j], previousPrevious[j - 2] + 1);
+      }
+    }
+    if (Math.min(...current) > limit) return false;
+    previousPrevious = previous;
+    previous = current;
+  }
+  return previous[b.length] <= limit;
+}
+
+function conflictingMerchantTokens(a, b) {
+  const left = a.name.split(" ");
+  const right = b.name.split(" ");
+  return left.length === right.length && left.some((token, i) => token !== right[i]
+    && (Math.min(token.length, right[i].length) <= 2 || /\d/.test(token + right[i])));
+}
+
+export function sanitizeMerchantOverrides(value) {
+  const out = Object.create(null);
+  if (!value || typeof value !== "object" || Array.isArray(value)
+    || ![Object.prototype, null].includes(Object.getPrototypeOf(value))) return out;
+  for (const [description, merchant] of Object.entries(value)) {
+    if (["__proto__", "constructor", "prototype"].includes(description) || description.length > 2000 || typeof merchant !== "string") continue;
+    const label = merchant.trim().toUpperCase();
+    if (!label || label.length > 100) continue;
+    out[description] = label;
+  }
+  return out;
+}
+
+export function buildMerchantGroups(descriptions, overrides = {}) {
   const entries = new Map();
   const rawNames = new Map();
   for (const description of descriptions) {
@@ -339,7 +424,7 @@ export function buildMerchantGroups(descriptions) {
     const name = merchantRankingName(raw);
     // Remove spaces only: meaningful digits and symbols still distinguish
     // brands (e.g. SHOP A vs SHOP B, H&M vs HM).
-    const key = name.replace(/\s+/g, "");
+    const key = name.replace(/[\s']/g, "");
     rawNames.set(raw, key);
     const entry = entries.get(key) || { key, name, count: 0 };
     entry.count++;
@@ -348,12 +433,24 @@ export function buildMerchantGroups(descriptions) {
   }
   const canonical = new Map();
   const rootsByPrefix = new Map();
+  const entriesByPrefix = new Map();
+  for (const entry of entries.values()) {
+    const prefix = entry.key.slice(0, 4);
+    const peers = entriesByPrefix.get(prefix) || [];
+    peers.push(entry);
+    entriesByPrefix.set(prefix, peers);
+  }
+  const expansions = new Map([...entries.values()].map((entry) => [entry.key,
+    entriesByPrefix.get(entry.key.slice(0, 4)).filter((peer) => peer.key.length > entry.key.length && truncatedMerchantName(entry, peer))]));
   // Frequent names win over rare typos; ties and input reordering are stable.
-  const sorted = [...entries.values()].sort((a, b) => b.count - a.count || a.key.localeCompare(b.key));
+  // A uniquely-expanded truncated source label comes after its full name.
+  const sorted = [...entries.values()].sort((a, b) => Number(expansions.get(a.key).length === 1) - Number(expansions.get(b.key).length === 1)
+    || b.count - a.count || a.key.localeCompare(b.key));
   for (const entry of sorted) {
     const prefix = entry.key.slice(0, 4);
     const roots = rootsByPrefix.get(prefix) || [];
-    const matches = roots.filter((root) => closeMerchantName(root.key, entry.key));
+    const matches = roots.filter((root) => (!conflictingMerchantTokens(root, entry) && closeMerchantName(root.key, entry.key))
+      || (expansions.get(entry.key).length === 1 && expansions.get(entry.key)[0].key === root.key));
     if (matches.length === 1) canonical.set(entry.key, matches[0].name);
     else {
       canonical.set(entry.key, entry.name);
@@ -362,7 +459,11 @@ export function buildMerchantGroups(descriptions) {
     }
     // Compare only to roots, never aliases: A≈B≈C must not imply A≈C.
   }
-  return new Map([...rawNames].map(([raw, key]) => [raw, canonical.get(key)]));
+  // Exact user choices win AFTER automatic matching, including choices that
+  // split two raw descriptions which otherwise have the same normalized key.
+  // Manual labels never participate in or bias automatic fuzzy matching.
+  const manual = sanitizeMerchantOverrides(overrides);
+  return new Map([...rawNames].map(([raw, key]) => [raw, Object.hasOwn(manual, raw) ? manual[raw] : canonical.get(key)]));
 }
 
 // ---------------------------------------------------------------------------

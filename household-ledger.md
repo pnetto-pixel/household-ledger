@@ -1,4 +1,4 @@
-# Household Ledger · v1.78.0
+# Household Ledger · v1.79.0
 
 Aplicativo mobile-first de controle financeiro doméstico. Registra
 transações da casa (despesas e receitas) por categoria e conta, com
@@ -31,7 +31,25 @@ O `feature-auditor` deve conferir, como parte da checklist de auditoria, que
 o diff inclui o bump nos dois arquivos antes de aprovar — se faltar, isso é
 motivo de reprovação (devolver ao coder), não um detalhe opcional.
 
-Versão atual: **v1.78.0** —
+Versão atual: **v1.79.0** —
+agrupamento mais abrangente e correções manuais no card **Expenses by merchant**.
+O reconhecimento trata wrappers bancários/processadores encadeados, referências
+de loja/pedido, cidades conhecidas acompanhadas de estado, abreviações comuns
+dos feeds e nomes truncados com correspondência única. Diferenças pequenas e
+transposições em nomes longos também são aceitas, preservando nomes genéricos,
+tokens distintivos e casos ambíguos separados.
+Clicar no nome do comerciante abre **Edit merchant group**: permite selecionar
+descrições, renomear/reunir o grupo inteiro, mover parte para outro comerciante
+ou criar um nome novo para separá-la. **Use automatic grouping** remove as
+correções das descrições selecionadas. O editor mostra descrições originais e
+contagens sobre todos os anos/categorias; o card recalcula gastos e YTD Y/Y.
+Correções por descrição exata persistem em `config.merchantOverrides` via o
+GET/PUT existente de `/api/config`; prevalecem sobre o automático, inclusive
+em futuras transações com a mesma descrição. A UI só confirma após salvar;
+falhas preservam o formulário para nova tentativa. Não há alteração do ledger,
+da classificação ou da deduplicação da importação, nem endpoint/dependência novo.
+
+Versão anterior: **v1.78.0** —
 o card **Expenses by merchant** ganhou a coluna **YTD Y/Y** no ano atual
 (ambos os anos limitados ao mês/dia de hoje) e **Y/Y** em anos encerrados.
 Comparações usam o mesmo filtro de categoria e gastos líquidos após reembolsos;
@@ -3151,6 +3169,24 @@ linha por conta vista via SimpleFin (ver "Consolidação em tabela única
 'SimpleFin accounts'" abaixo e UI). O contrato de `/api/account-map.js` e o
 formato do mapa no Redis não mudaram.
 
+### Correções de comerciantes no ranking (v1.79.0)
+
+`config.merchantOverrides` é um objeto opcional `{ [description]: merchantName }`
+persistido junto das listas abaixo pelo GET/PUT de `/api/config`. Cada chave
+mantém a descrição original exata (até 2000 caracteres, inclusive espaços);
+valores são nomes não vazios, trimados e em maiúsculas (até 100 caracteres).
+O sanitizador compartilhado `sanitizeMerchantOverrides` rejeita entradas
+malformadas/chaves de protótipo; `{}` limpa as correções. `applyConfig` e
+`currentConfig` preservam o campo nas demais gravações de Settings.
+
+`buildMerchantGroups(descriptions, overrides)` calcula primeiro os grupos
+automáticos sobre todo o histórico de despesas e aplica as escolhas exatas
+do usuário por último. Assim, duas descrições com a mesma chave automática
+podem ser separadas, e nomes manuais não influenciam comparações fuzzy de
+outros comerciantes. Ao unir a um grupo existente, o editor também fixa suas
+descrições de destino para manter a união estável. Remover uma correção volta
+ao reconhecimento automático; as transações originais permanecem intactas.
+
 ### Listas gerenciáveis (contas + categorias)
 
 As listas `ACCOUNTS`, `EXPENSE_CATEGORIES` e `INCOME_CATEGORIES` deixaram de
@@ -3778,6 +3814,15 @@ shell de altura cheia (`#root` em `100lvh` + shell `height:100%`): só o
    bancárias, sufixos legais/domínios, espaços e diferença de até um caractere
    em nomes longos. Agrupa sobre todo o histórico, sem união transitiva de
    aliases e sem tocar na normalização usada pela importação/deduplicação.
+   **Desde a v1.79.0**: nomes do ranking são botões que abrem
+   `MerchantGroupEditor`. Selecionar descrições e escolher um nome existente
+   permite uni-las; um nome novo separa/renomeia a seleção. Correções são
+   salvas em `config.merchantOverrides` e podem ser removidas com **Use
+   automatic grouping**. A seleção mostra todo o histórico, independente dos
+   filtros do card; despesas e YTD Y/Y usam as mesmas identidades corrigidas.
+   O matcher automático agora reconhece wrappers encadeados, referências e
+   localidades com evidência, abreviações bancárias e truncamentos únicos,
+   com proteção para nomes genéricos/ambiguidades e sem cadeias transitivas.
    **Desde a v1.75.2 (PR #275)**: cada linha do ranking deixou de empilhar
    valor e Y/Y em duas linhas (`fmtKFull(value)` + `"Y/Y {pct}% YTD"` abaixo)
    e virou uma única linha por categoria — rótulo 72px (era 84px) / barra
