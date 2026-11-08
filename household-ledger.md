@@ -1,4 +1,4 @@
-# Household Ledger · v1.77.0
+# Household Ledger · v1.78.0
 
 Aplicativo mobile-first de controle financeiro doméstico. Registra
 transações da casa (despesas e receitas) por categoria e conta, com
@@ -31,7 +31,22 @@ O `feature-auditor` deve conferir, como parte da checklist de auditoria, que
 o diff inclui o bump nos dois arquivos antes de aprovar — se faltar, isso é
 motivo de reprovação (devolver ao coder), não um detalhe opcional.
 
-Versão atual: **v1.77.0** —
+Versão atual: **v1.78.0** —
+o card **Expenses by merchant** ganhou a coluna **YTD Y/Y** no ano atual
+(ambos os anos limitados ao mês/dia de hoje) e **Y/Y** em anos encerrados.
+Comparações usam o mesmo filtro de categoria e gastos líquidos após reembolsos;
+sem gasto anterior positivo, exibem `—`. Aumentos ficam vermelhos, quedas verdes,
+e percentuais respeitam a ocultação de valores e o limite visual de ±999%.
+O agrupamento analítico `buildMerchantGroups` reúne variações de espaços,
+domínios, sufixos legais e referências bancárias (ex.: LoanDepot / LOAN DEPOT /
+LoanDepot.com LLC / LOANDEPOT DES:MTG PMT). Nomes longos podem diferir em um
+caractere, com prefixo de quatro caracteres igual e pelo menos oito caracteres
+em ambos. Só há união com uma raiz compatível; aliases não formam cadeias.
+Uma identidade comum ao histórico inteiro mantém os grupos consistentes entre
+anos/categorias. Essa lógica é exclusiva do ranking: não altera transações,
+deduplicação nem classificação na importação. Sem dependência ou endpoint novo.
+
+Versão anterior: **v1.77.0** —
 novo card **Expenses by merchant** na tab Trends, abaixo de Expenses by category.
 Ranking de gastos líquidos por estabelecimento, do maior para o menor, com
 filtros próprios de ano (default: ano mais recente disponível) e categoria
@@ -3754,6 +3769,15 @@ shell de altura cheia (`#root` em `100lvh` + shell `height:100%`): só o
    sinalizados antes de apresentar despesas positivas e exclui receitas,
    transferências e estabelecimentos com saldo líquido credor/zero. Categorias
    refletem Settings e o histórico; valores respeitam `hideValues`.
+   **Desde a v1.78.0**: o ranking inclui **YTD Y/Y** no ano corrente e **Y/Y**
+   nos anos completos, com corte de mês/dia igual em ambos os anos, mesmo
+   filtro de categoria e reembolsos abatidos antes da comparação. Ausência de
+   gasto anterior exibe `—`; altas em vermelho, quedas em verde, percentuais
+   ocultos com o olho e limitados visualmente a ±999%. O helper analítico
+   `buildMerchantGroups` amplia a normalização de `merchantKey` com referências
+   bancárias, sufixos legais/domínios, espaços e diferença de até um caractere
+   em nomes longos. Agrupa sobre todo o histórico, sem união transitiva de
+   aliases e sem tocar na normalização usada pela importação/deduplicação.
    **Desde a v1.75.2 (PR #275)**: cada linha do ranking deixou de empilhar
    valor e Y/Y em duas linhas (`fmtKFull(value)` + `"Y/Y {pct}% YTD"` abaixo)
    e virou uma única linha por categoria — rótulo 72px (era 84px) / barra

@@ -299,6 +299,72 @@ export function merchantKey(description) {
   return { key: tokens.join(" "), tokens, prefix };
 }
 
+// Analytics-only grouping: keep import classification/deduplication unchanged.
+// Strip banking boilerplate, domain/legal suffixes and payment references,
+// then match whitespace variants and one-character typos in long brand names.
+function merchantRankingName(description) {
+  const cleaned = String(description || "").toUpperCase()
+    .replace(/\.(?:COM|NET|ORG)\b/g, " ")
+    .replace(/^(?:(?:ACH|POS|CHECKCARD|RECURRING|BILLPAY)\s+(?:(?:DEBIT|CREDIT|PURCHASE)\s+)?|(?:DEBIT|CREDIT)\s+CARD\s+|ONLINE\s+PAYMENT\s+TO\s+)+/, "")
+    .replace(/\b(?:ORIG\s+CO\s+NAME|CO\s+NAME)\s*:\s*/g, "")
+    .replace(/\s+(?:DES|ID|INDN|CO\s+ID|ORIG\s+ID)\s*:.*$/, "");
+  let name = merchantKey(cleaned).key;
+  // Only strip suffixes after a merchant token, so e.g. PAYMENT DEPOT isn't
+  // reduced to an anonymous group. Product words (PRIME, MUSIC, etc.) stay.
+  name = name.replace(/\s+(?:(?:LOAN|MORTGAGE|MTG)\s+(?:PAYMENT|PMT|PYMT)|PAYMENT|PAYMENTS|PMT|PYMT|PAYMNT|AUTOPAY|AUTO\s+PAY|BILLPAY|WEB\s+ID|ORIG\s+ID|CO\s+ID|IND\s+ID|IND\s+NAME|ENTRY\s+DESCR|ACH|SERVICING)\b.*$/, "")
+    .replace(/(?:\s+(?:LLC|INC|CORP|CORPORATION|COM|NET|ORG))+$/, "")
+    .trim();
+  return name || String(description || "").trim().toUpperCase() || "Unknown merchant";
+}
+
+// At most one insertion/deletion/substitution. A shared four-character prefix
+// and at least eight characters on BOTH sides keep short/common names apart.
+function closeMerchantName(a, b) {
+  if (a.length < 8 || b.length < 8 || Math.abs(a.length - b.length) > 1 || a.slice(0, 4) !== b.slice(0, 4)) return false;
+  let i = 0, j = 0, differences = 0;
+  while (i < a.length && j < b.length) {
+    if (a[i] === b[j]) { i++; j++; continue; }
+    if (++differences > 1) return false;
+    if (a.length >= b.length) i++;
+    if (b.length >= a.length) j++;
+  }
+  return differences + (a.length - i) + (b.length - j) <= 1;
+}
+
+export function buildMerchantGroups(descriptions) {
+  const entries = new Map();
+  const rawNames = new Map();
+  for (const description of descriptions) {
+    const raw = String(description || "");
+    const name = merchantRankingName(raw);
+    // Remove spaces only: meaningful digits and symbols still distinguish
+    // brands (e.g. SHOP A vs SHOP B, H&M vs HM).
+    const key = name.replace(/\s+/g, "");
+    rawNames.set(raw, key);
+    const entry = entries.get(key) || { key, name, count: 0 };
+    entry.count++;
+    if (name.length < entry.name.length || (name.length === entry.name.length && name < entry.name)) entry.name = name;
+    entries.set(key, entry);
+  }
+  const canonical = new Map();
+  const rootsByPrefix = new Map();
+  // Frequent names win over rare typos; ties and input reordering are stable.
+  const sorted = [...entries.values()].sort((a, b) => b.count - a.count || a.key.localeCompare(b.key));
+  for (const entry of sorted) {
+    const prefix = entry.key.slice(0, 4);
+    const roots = rootsByPrefix.get(prefix) || [];
+    const matches = roots.filter((root) => closeMerchantName(root.key, entry.key));
+    if (matches.length === 1) canonical.set(entry.key, matches[0].name);
+    else {
+      canonical.set(entry.key, entry.name);
+      roots.push(entry);
+      rootsByPrefix.set(prefix, roots);
+    }
+    // Compare only to roots, never aliases: A≈B≈C must not imply A≈C.
+  }
+  return new Map([...rawNames].map(([raw, key]) => [raw, canonical.get(key)]));
+}
+
 // ---------------------------------------------------------------------------
 // Merchant memory (Fase 1 of the categorization-memory work)
 // ---------------------------------------------------------------------------
