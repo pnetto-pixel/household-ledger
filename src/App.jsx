@@ -77,6 +77,7 @@ import {
   matchAccountWithAliases,
   resolveImportCategory,
   buildMerchantMemory,
+  merchantKey,
   txnFingerprint,
   markDuplicates,
   descWords,
@@ -711,7 +712,7 @@ function idleExpired() {
 // path, so the pending copy is discarded with a notice instead).
 
 // Single source for the version shown in the header and in diagnostics.
-const APP_VERSION = "v1.76.0";
+const APP_VERSION = "v1.77.0";
 
 const PENDING_SAVE_KEY = "household_pending_save";
 
@@ -5110,6 +5111,14 @@ function Charts({ transactions, hideValues, config, isWide }) {
         fmtKFull={fmtKFull}
       />
 
+      <ExpensesByMerchantCard
+        transactions={transactions}
+        years={years}
+        config={config}
+        hideValues={hideValues}
+        isWide={isWide}
+      />
+
       <DailyHeatmapCard scoped={scoped} hideValues={hideValues} isWide={isWide} />
     </div>
   );
@@ -5340,6 +5349,107 @@ function YearInReviewCard({ transactions, years, hideValues, fmtKFull }) {
         </div>
       )}
     </div>
+  );
+}
+
+// ===========================================================================
+// Expenses by merchant — independent annual/category filters, like the
+// category ranking above. Merchant names reuse the import normalization so
+// store/order numbers and payment-processor prefixes don't split the ranking.
+// ===========================================================================
+
+const MERCHANT_TOP_N = 10;
+
+export function buildMerchantExpenseBars(transactions, year, category = "All") {
+  const totals = new Map();
+  for (const t of transactions) {
+    if (isTransfer(t.category) || isIncome(t.category)) continue;
+    if (!matchPeriod(t.date, year, "All")) continue;
+    if (category !== "All" && t.category !== category) continue;
+    const amount = Number(t.amount);
+    if (!Number.isFinite(amount)) continue;
+    const name = merchantKey(t.description).key
+      || String(t.description || "").trim().toUpperCase()
+      || "Unknown merchant";
+    totals.set(name, (totals.get(name) || 0) + amount);
+  }
+  // Net signed refunds against purchases BEFORE converting spend to a
+  // positive display value. A net credit isn't spending and isn't ranked.
+  return [...totals.entries()]
+    .filter(([, amount]) => amount < 0)
+    .map(([name, amount]) => ({ name, value: -amount }))
+    .sort((a, b) => b.value - a.value || a.name.localeCompare(b.name));
+}
+
+function ExpensesByMerchantCard({ transactions, years, config, hideValues, isWide }) {
+  const [year, setYear] = useState("");
+  const [category, setCategory] = useState("All");
+  const [expanded, setExpanded] = useState(false);
+  const effectiveYear = years.includes(year) ? year : years[0] || "";
+  const categories = useMemo(() => [...new Set([
+    ...EXPENSE_CATEGORIES,
+    ...transactions.map((t) => t.category).filter(Boolean),
+  ])].filter((c) => !isTransfer(c) && !isIncome(c)).sort(), [transactions, config]);
+  const effectiveCategory = categories.includes(category) ? category : "All";
+  const bars = useMemo(
+    () => buildMerchantExpenseBars(transactions, effectiveYear, effectiveCategory),
+    [transactions, effectiveYear, effectiveCategory, config]
+  );
+  useEffect(() => { setExpanded(false); }, [effectiveYear, effectiveCategory]);
+
+  const visibleBars = expanded ? bars : bars.slice(0, MERCHANT_TOP_N);
+  const hiddenCount = bars.length - visibleBars.length;
+  const maxBar = bars[0]?.value || 0;
+
+  return (
+    <section style={{ ...S.card, ...S.merchantCard }} aria-label="Expenses by merchant">
+      <div style={S.merchantHeader}>
+        <h3 style={{ ...S.sectionTitle, ...S.merchantTitle }}>Expenses by merchant</h3>
+        <div style={S.merchantYearWrap}>
+          <select
+            value={effectiveYear}
+            onChange={(e) => setYear(e.target.value)}
+            aria-label="Merchant year"
+            style={{ ...S.chipSelect(false), ...S.merchantYearSelect }}
+          >
+            {years.map((y) => <option key={y} value={y}>{y}</option>)}
+          </select>
+          <span style={S.chipSelectArrow}>▼</span>
+        </div>
+      </div>
+      <div style={S.merchantFilters}>
+        <SingleCategoryFilter
+          value={effectiveCategory}
+          options={categories}
+          setValue={setCategory}
+          isWide={isWide}
+        />
+      </div>
+      {bars.length === 0 ? (
+        <Empty>No merchant expenses for {effectiveCategory === "All" ? "all categories" : effectiveCategory} in {effectiveYear}.</Empty>
+      ) : (
+        <div style={S.merchantRanking}>
+          <div style={S.merchantColumns}>
+            <span>Merchant</span>
+            <span>Amount</span>
+          </div>
+          {visibleBars.map(({ name, value }) => (
+            <div key={name} style={S.merchantRow}>
+              <span title={name} style={S.merchantName}>{name}</span>
+              <div style={S.merchantTrack}>
+                <div style={S.merchantBar((value / maxBar) * 100)} />
+              </div>
+              <span style={S.merchantAmount}>{hideValues ? "•••••" : usd.format(value)}</span>
+            </div>
+          ))}
+          {(hiddenCount > 0 || expanded) && (
+            <button onClick={() => setExpanded((v) => !v)} style={{ ...S.linkBtn, ...S.merchantMore }} aria-expanded={expanded}>
+              {expanded ? "Show less" : `Show ${hiddenCount} more`}
+            </button>
+          )}
+        </div>
+      )}
+    </section>
   );
 }
 
@@ -10255,6 +10365,20 @@ const TH_BASE = {
 };
 
 const S = {
+  merchantCard: { padding: 0, overflow: "hidden" },
+  merchantHeader: { display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 16px 0", flexWrap: "wrap", gap: 8 },
+  merchantTitle: { margin: 0 },
+  merchantYearWrap: { position: "relative", display: "inline-flex", alignItems: "center" },
+  merchantYearSelect: { padding: "3px 24px 3px 9px", fontSize: 11 },
+  merchantFilters: { display: "flex", flexWrap: "wrap", gap: 8, padding: "12px 16px 0" },
+  merchantRanking: { display: "flex", flexDirection: "column", gap: 9, padding: "12px 16px 14px" },
+  merchantColumns: { display: "flex", justifyContent: "space-between", fontSize: 9, fontWeight: 600, color: "#6b7280", textTransform: "uppercase", letterSpacing: 0.4 },
+  merchantRow: { display: "flex", alignItems: "center", gap: 10, fontSize: 12 },
+  merchantName: { width: "34%", maxWidth: 240, flexShrink: 0, color: "#cbd5e1", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" },
+  merchantTrack: { flex: 1, minWidth: 0, height: 14, borderRadius: 4, background: "rgba(255,255,255,0.05)", overflow: "hidden" },
+  merchantBar: (width) => ({ width: `${Math.max(2, width)}%`, height: "100%", borderRadius: 4, background: "#f87171" }),
+  merchantAmount: { flexShrink: 0, minWidth: 76, textAlign: "right", color: "#8b94a3", fontVariantNumeric: "tabular-nums" },
+  merchantMore: { alignSelf: "center", marginTop: 3, padding: "8px 12px" },
   syncWarning: { color: "#fbbf24", fontSize: 12, lineHeight: 1.45, marginBottom: 8 },
   app: {
     // Fills #root, which is sized to 100lvh (the full physical screen) in

@@ -13,6 +13,7 @@
 import { describe, it, expect } from "vitest";
 import {
   buildYearCategoryBars,
+  buildMerchantExpenseBars,
   defaultImportDupFilter,
   descFragment,
   detectManualCategoryCorrections,
@@ -74,6 +75,49 @@ describe("buildYearCategoryBars", () => {
     );
 
     expect(bars[0]).toEqual(expect.objectContaining({ name: "Travel", yoy: null }));
+  });
+});
+
+describe("buildMerchantExpenseBars", () => {
+  const rows = [
+    { date: "2025-03-01", description: "TST* CAFE #123", category: "Restaurant", amount: -120 },
+    { date: "2025-04-01", description: "CAFE #456", category: "Restaurant", amount: -80 },
+    { date: "2025-05-01", description: "CAFE #789", category: "Restaurant", amount: 50 },
+    { date: "2025-01-01", description: "MARKET", category: "Groceries", amount: -200 },
+    { date: "2025-02-01", description: "MARKET", category: "Shopping", amount: -25 },
+    { date: "2024-01-01", description: "OLD SHOP", category: "Shopping", amount: -999 },
+    { date: "2025-01-01", description: "BANK", category: "Transfer", amount: -1000 },
+    { date: "2025-01-01", description: "EMPLOYER", category: "Salary", amount: -500 },
+  ];
+
+  it("groups normalized merchants across categories, nets refunds and ranks spending", () => {
+    expect(buildMerchantExpenseBars(rows, "2025")).toEqual([
+      { name: "MARKET", value: 225 },
+      { name: "CAFE", value: 150 },
+    ]);
+  });
+
+  it("intersects the selected category and year before aggregating", () => {
+    expect(buildMerchantExpenseBars(rows, "2025", "Shopping")).toEqual([{ name: "MARKET", value: 25 }]);
+    expect(buildMerchantExpenseBars(rows, "2024", "Shopping")).toEqual([{ name: "OLD SHOP", value: 999 }]);
+    expect(buildMerchantExpenseBars(rows, "2024", "Restaurant")).toEqual([]);
+  });
+
+  it("does not turn net credits or fully refunded purchases into spending", () => {
+    expect(buildMerchantExpenseBars([
+      { date: "2025-01-01", description: "SHOP", category: "Shopping", amount: -100 },
+      { date: "2025-01-02", description: "SHOP", category: "Shopping", amount: 100 },
+      { date: "2025-01-03", description: "CREDIT", category: "Shopping", amount: 200 },
+    ], "2025")).toEqual([]);
+  });
+
+  it("handles missing descriptions and invalid amounts without losing valid spend", () => {
+    expect(buildMerchantExpenseBars([
+      { date: "2025-01-01", category: "Other", amount: "-12.50" },
+      { date: "2025-01-02", description: "BAD", category: "Other", amount: Infinity },
+      { date: "2025-01-03", description: "BAD", category: "Other", amount: "oops" },
+      { description: "NO DATE", category: "Other", amount: -50 },
+    ], "2025")).toEqual([{ name: "Unknown merchant", value: 12.5 }]);
   });
 });
 
