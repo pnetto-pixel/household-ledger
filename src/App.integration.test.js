@@ -92,14 +92,14 @@ describe("buildMerchantExpenseBars", () => {
 
   it("groups normalized merchants across categories, nets refunds and ranks spending", () => {
     expect(buildMerchantExpenseBars(rows, "2025")).toEqual([
-      { name: "MARKET", value: 225 },
-      { name: "CAFE", value: 150 },
+      { name: "MARKET", value: 225, yoy: null },
+      { name: "CAFE", value: 150, yoy: null },
     ]);
   });
 
   it("intersects the selected category and year before aggregating", () => {
-    expect(buildMerchantExpenseBars(rows, "2025", "Shopping")).toEqual([{ name: "MARKET", value: 25 }]);
-    expect(buildMerchantExpenseBars(rows, "2024", "Shopping")).toEqual([{ name: "OLD SHOP", value: 999 }]);
+    expect(buildMerchantExpenseBars(rows, "2025", "Shopping")).toEqual([{ name: "MARKET", value: 25, yoy: null }]);
+    expect(buildMerchantExpenseBars(rows, "2024", "Shopping")).toEqual([{ name: "OLD SHOP", value: 999, yoy: null }]);
     expect(buildMerchantExpenseBars(rows, "2024", "Restaurant")).toEqual([]);
   });
 
@@ -117,7 +117,46 @@ describe("buildMerchantExpenseBars", () => {
       { date: "2025-01-02", description: "BAD", category: "Other", amount: Infinity },
       { date: "2025-01-03", description: "BAD", category: "Other", amount: "oops" },
       { description: "NO DATE", category: "Other", amount: -50 },
-    ], "2025")).toEqual([{ name: "Unknown merchant", value: 12.5 }]);
+    ], "2025")).toEqual([{ name: "Unknown merchant", value: 12.5, yoy: null }]);
+  });
+
+  it("compares grouped merchants through the same day in both years for YTD", () => {
+    const rows = [
+      { date: "2026-03-01", description: "LoanDepot.com PAYMENT 123456", category: "Mortgage", amount: -1200 },
+      { date: "2026-07-10", description: "LOANDEPOT", category: "Mortgage", amount: -400 },
+      { date: "2026-07-10", description: "LOANDEPOT", category: "Mortgage", amount: 100 },
+      { date: "2025-03-01", description: "LOAN DEPOT AUTOPAY 999999", category: "Mortgage", amount: -1000 },
+      { date: "2026-07-11", description: "LOANDEPOT", category: "Mortgage", amount: -5000 },
+      { date: "2025-07-11", description: "LOANDEPOT", category: "Mortgage", amount: -5000 },
+    ];
+    expect(buildMerchantExpenseBars(rows, "2026", "All", "2026-07-10")).toEqual([
+      { name: "LOANDEPOT", value: 1500, yoy: 50 },
+    ]);
+  });
+
+  it("compares complete past years with the same category on each side", () => {
+    const rows = [
+      { date: "2025-12-31", description: "MARKET", category: "Groceries", amount: -150 },
+      { date: "2024-12-31", description: "MARKET", category: "Groceries", amount: -200 },
+      { date: "2024-01-01", description: "MARKET", category: "Shopping", amount: -1000 },
+    ];
+    expect(buildMerchantExpenseBars(rows, "2025", "Groceries", "2026-07-10")).toEqual([
+      { name: "MARKET", value: 150, yoy: -25 },
+    ]);
+  });
+
+  it("uses an unavailable comparison for zero or net-credit prior-year spend", () => {
+    const rows = [
+      { date: "2025-01-01", description: "MARKET", category: "Groceries", amount: -100 },
+      { date: "2024-01-01", description: "MARKET", category: "Groceries", amount: -100 },
+      { date: "2024-02-01", description: "MARKET", category: "Groceries", amount: 100 },
+      { date: "2025-01-01", description: "SHOP", category: "Shopping", amount: -50 },
+      { date: "2024-01-01", description: "SHOP", category: "Shopping", amount: 200 },
+    ];
+    expect(buildMerchantExpenseBars(rows, "2025", "All", "2026-07-10")).toEqual([
+      { name: "MARKET", value: 100, yoy: null },
+      { name: "SHOP", value: 50, yoy: null },
+    ]);
   });
 });
 

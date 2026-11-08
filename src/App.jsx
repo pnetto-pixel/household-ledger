@@ -77,7 +77,7 @@ import {
   matchAccountWithAliases,
   resolveImportCategory,
   buildMerchantMemory,
-  merchantKey,
+  buildMerchantGroups,
   txnFingerprint,
   markDuplicates,
   descWords,
@@ -712,7 +712,7 @@ function idleExpired() {
 // path, so the pending copy is discarded with a notice instead).
 
 // Single source for the version shown in the header and in diagnostics.
-const APP_VERSION = "v1.77.0";
+const APP_VERSION = "v1.78.0";
 
 const PENDING_SAVE_KEY = "household_pending_save";
 
@@ -5360,24 +5360,35 @@ function YearInReviewCard({ transactions, years, hideValues, fmtKFull }) {
 
 const MERCHANT_TOP_N = 10;
 
-export function buildMerchantExpenseBars(transactions, year, category = "All") {
+export function buildMerchantExpenseBars(transactions, year, category = "All", asOf = todayISO(), groups = null) {
+  const merchantGroups = groups || buildMerchantGroups(transactions
+    .filter((t) => !isTransfer(t.category) && !isIncome(t.category))
+    .map((t) => t.description));
   const totals = new Map();
+  const previous = new Map();
+  const previousYear = String(Number(year) - 1);
+  const cutoffMD = year === asOf.slice(0, 4) ? asOf.slice(5, 10) : null;
   for (const t of transactions) {
     if (isTransfer(t.category) || isIncome(t.category)) continue;
-    if (!matchPeriod(t.date, year, "All")) continue;
+    const current = matchPeriod(t.date, year, "All");
+    if (!current && !matchPeriod(t.date, previousYear, "All")) continue;
+    if (cutoffMD && (t.date || "").slice(5, 10) > cutoffMD) continue;
     if (category !== "All" && t.category !== category) continue;
     const amount = Number(t.amount);
     if (!Number.isFinite(amount)) continue;
-    const name = merchantKey(t.description).key
-      || String(t.description || "").trim().toUpperCase()
-      || "Unknown merchant";
-    totals.set(name, (totals.get(name) || 0) + amount);
+    const name = merchantGroups.get(String(t.description || ""));
+    const target = current ? totals : previous;
+    target.set(name, (target.get(name) || 0) + amount);
   }
   // Net signed refunds against purchases BEFORE converting spend to a
   // positive display value. A net credit isn't spending and isn't ranked.
   return [...totals.entries()]
     .filter(([, amount]) => amount < 0)
-    .map(([name, amount]) => ({ name, value: -amount }))
+    .map(([name, amount]) => {
+      const value = -amount;
+      const previousValue = -(previous.get(name) || 0);
+      return { name, value, yoy: previousValue > 0 ? ((value - previousValue) / previousValue) * 100 : null };
+    })
     .sort((a, b) => b.value - a.value || a.name.localeCompare(b.name));
 }
 
@@ -5391,15 +5402,23 @@ function ExpensesByMerchantCard({ transactions, years, config, hideValues, isWid
     ...transactions.map((t) => t.category).filter(Boolean),
   ])].filter((c) => !isTransfer(c) && !isIncome(c)).sort(), [transactions, config]);
   const effectiveCategory = categories.includes(category) ? category : "All";
+  // Build one identity map across all years/categories so changing a filter
+  // cannot change how a merchant is matched to its prior-year counterpart.
+  const merchantGroups = useMemo(() => buildMerchantGroups(transactions
+    .filter((t) => !isTransfer(t.category) && !isIncome(t.category))
+    .map((t) => t.description)), [transactions, config]);
+  const asOf = todayISO();
   const bars = useMemo(
-    () => buildMerchantExpenseBars(transactions, effectiveYear, effectiveCategory),
-    [transactions, effectiveYear, effectiveCategory, config]
+    () => buildMerchantExpenseBars(transactions, effectiveYear, effectiveCategory, asOf, merchantGroups),
+    [transactions, effectiveYear, effectiveCategory, asOf, merchantGroups, config]
   );
   useEffect(() => { setExpanded(false); }, [effectiveYear, effectiveCategory]);
 
   const visibleBars = expanded ? bars : bars.slice(0, MERCHANT_TOP_N);
   const hiddenCount = bars.length - visibleBars.length;
   const maxBar = bars[0]?.value || 0;
+  const isCurrentYear = effectiveYear === asOf.slice(0, 4);
+  const formatYoy = (value) => value == null ? "—" : Math.abs(value) > 999 ? (value > 0 ? ">999%" : "<-999%") : `${value > 0 ? "+" : ""}${value.toFixed(0)}%`;
 
   return (
     <section style={{ ...S.card, ...S.merchantCard }} aria-label="Expenses by merchant">
@@ -5429,17 +5448,25 @@ function ExpensesByMerchantCard({ transactions, years, config, hideValues, isWid
         <Empty>No merchant expenses for {effectiveCategory === "All" ? "all categories" : effectiveCategory} in {effectiveYear}.</Empty>
       ) : (
         <div style={S.merchantRanking}>
-          <div style={S.merchantColumns}>
-            <span>Merchant</span>
-            <span>Amount</span>
+          <div style={{ ...S.merchantRow, ...S.merchantColumns }}>
+            <span style={S.merchantName}>Merchant</span>
+            <span style={S.merchantColumnSpacer} />
+            <span style={S.merchantAmount}>Amount</span>
+            <span style={S.merchantYoyHeading}>{isCurrentYear ? "YTD Y/Y" : "Y/Y"}</span>
           </div>
-          {visibleBars.map(({ name, value }) => (
+          {visibleBars.map(({ name, value, yoy }) => (
             <div key={name} style={S.merchantRow}>
               <span title={name} style={S.merchantName}>{name}</span>
               <div style={S.merchantTrack}>
                 <div style={S.merchantBar((value / maxBar) * 100)} />
               </div>
               <span style={S.merchantAmount}>{hideValues ? "•••••" : usd.format(value)}</span>
+              <span
+                style={S.merchantYoy(hideValues ? null : yoy)}
+                title={hideValues ? undefined : `${isCurrentYear ? `Through ${asOf.slice(5)} vs` : "Year over year vs"} ${Number(effectiveYear) - 1}${yoy == null ? ": no prior spending" : `: ${yoy > 0 ? "+" : ""}${yoy.toFixed(1)}%`}`}
+              >
+                {hideValues ? "•••" : formatYoy(yoy)}
+              </span>
             </div>
           ))}
           {(hiddenCount > 0 || expanded) && (
@@ -10372,12 +10399,15 @@ const S = {
   merchantYearSelect: { padding: "3px 24px 3px 9px", fontSize: 11 },
   merchantFilters: { display: "flex", flexWrap: "wrap", gap: 8, padding: "12px 16px 0" },
   merchantRanking: { display: "flex", flexDirection: "column", gap: 9, padding: "12px 16px 14px" },
-  merchantColumns: { display: "flex", justifyContent: "space-between", fontSize: 9, fontWeight: 600, color: "#6b7280", textTransform: "uppercase", letterSpacing: 0.4 },
-  merchantRow: { display: "flex", alignItems: "center", gap: 10, fontSize: 12 },
-  merchantName: { width: "34%", maxWidth: 240, flexShrink: 0, color: "#cbd5e1", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" },
+  merchantColumns: { fontSize: 9, fontWeight: 600, color: "#6b7280", textTransform: "uppercase", letterSpacing: 0.4 },
+  merchantColumnSpacer: { flex: 1, minWidth: 0 },
+  merchantRow: { display: "flex", alignItems: "center", gap: 6, fontSize: 12 },
+  merchantName: { width: "29%", maxWidth: 240, flexShrink: 0, color: "#cbd5e1", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" },
   merchantTrack: { flex: 1, minWidth: 0, height: 14, borderRadius: 4, background: "rgba(255,255,255,0.05)", overflow: "hidden" },
   merchantBar: (width) => ({ width: `${Math.max(2, width)}%`, height: "100%", borderRadius: 4, background: "#f87171" }),
   merchantAmount: { flexShrink: 0, minWidth: 76, textAlign: "right", color: "#8b94a3", fontVariantNumeric: "tabular-nums" },
+  merchantYoyHeading: { width: 44, flexShrink: 0, textAlign: "right", whiteSpace: "nowrap" },
+  merchantYoy: (value) => ({ width: 44, flexShrink: 0, textAlign: "right", fontSize: 10, fontWeight: 700, fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap", color: value == null || value === 0 ? "#6b7280" : value > 0 ? "#f87171" : "#34d399" }),
   merchantMore: { alignSelf: "center", marginTop: 3, padding: "8px 12px" },
   syncWarning: { color: "#fbbf24", fontSize: 12, lineHeight: 1.45, marginBottom: 8 },
   app: {

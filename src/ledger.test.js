@@ -24,6 +24,7 @@ import {
   scoreDuplicateCandidate,
   normalizeMerchant,
   merchantKey,
+  buildMerchantGroups,
   isMemoryTrainableRow,
   buildMerchantMemory,
   classifyMerchantMemory,
@@ -38,6 +39,36 @@ import {
 } from "./ledger.js";
 
 const INCOME = ["Salary", "Bonus", "Bela Income", "Other Income"];
+
+describe("buildMerchantGroups (analytics only)", () => {
+  it("groups LoanDepot spacing, domains, legal suffixes and banking references", () => {
+    const descriptions = [
+      "LoanDepot", "LOAN DEPOT", "LoanDepot.com LLC", "ACH DEBIT LOANDEPOT PAYMENT 123456",
+      "LOANDEPOT SERVICING WEB ID: 987654", "ORIG CO NAME: LOANDEPOT CO ID: 123456",
+      "LOANDEPOT DES:MTG PMT ID:123456 INDN:TEST CO ID:987654 PPD", "LOANDEPOT COM MTG PYMT 123456",
+    ];
+    expect(new Set(buildMerchantGroups(descriptions).values())).toEqual(new Set(["LOANDEPOT"]));
+  });
+
+  it("groups a single-character typo with an established long name", () => {
+    const names = ["LOANDEPOT", "LOANDEPOT", "LOANDEPOT", "LOANDEPT", "LOANDEPOX", "LOANDEPOOT"];
+    expect(new Set(buildMerchantGroups(names).values())).toEqual(new Set(["LOANDEPOT"]));
+  });
+
+  it("keeps short names, product names and similar but distinct brands apart", () => {
+    const names = ["SHOP A", "SHOP B", "AMAZON PRIME", "AMAZON MUSIC", "LOANDEPOT", "HOME DEPOT", "H&M", "HM", "PAYMENT DEPOT"];
+    expect(new Set(buildMerchantGroups(names).values()).size).toBe(names.length);
+  });
+
+  it("is independent of input order and does not merge through a chain of typos", () => {
+    const names = ["LOANDEPOT", "LOANDEPOT", "LOANDEPOX", "LOANDEPOX", "LOANDEPXX"];
+    const forward = buildMerchantGroups(names);
+    const backward = buildMerchantGroups([...names].reverse());
+    for (const name of names) expect(forward.get(name)).toBe(backward.get(name));
+    expect(forward.get("LOANDEPOT")).toBe(forward.get("LOANDEPOX"));
+    expect(forward.get("LOANDEPXX")).not.toBe(forward.get("LOANDEPOT"));
+  });
+});
 
 describe("computeTotalsCore", () => {
   it("sums signed amounts and net = income + expenses", () => {
