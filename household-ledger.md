@@ -1,4 +1,4 @@
-# Household Ledger · v1.79.0
+# Household Ledger · v1.80.0
 
 Aplicativo mobile-first de controle financeiro doméstico. Registra
 transações da casa (despesas e receitas) por categoria e conta, com
@@ -31,7 +31,19 @@ O `feature-auditor` deve conferir, como parte da checklist de auditoria, que
 o diff inclui o bump nos dois arquivos antes de aprovar — se faltar, isso é
 motivo de reprovação (devolver ao coder), não um detalhe opcional.
 
-Versão atual: **v1.79.0** —
+Versão atual: **v1.80.0** —
+transações da conta **Amazon Card** usam sempre o comerciante **AMAZON** no
+ranking de Trends, independentemente da descrição do produto ou de uma
+correção manual anterior. A conta é comparada de forma exata após normalização
+de caixa/espaços/pontuação (`normAccount`); a mesma descrição em outra conta
+continua com seu agrupamento/correção próprios. Reembolsos abatem o total,
+filtros de categoria/ano e YTD Y/Y aplicam a mesma regra, e receitas/Transfer
+continuam excluídas. As descrições do Amazon Card ficam fora do corpus
+automático e do editor de correções por descrição; o editor informa a regra
+fixa e permite editar apenas os demais lançamentos de um grupo misto.
+Modelo/API/persistência das transações e suas categorias não mudam.
+
+Versão anterior: **v1.79.0** —
 agrupamento mais abrangente e correções manuais no card **Expenses by merchant**.
 O reconhecimento trata wrappers bancários/processadores encadeados, referências
 de loja/pedido, cidades conhecidas acompanhadas de estado, abreviações comuns
@@ -3179,6 +3191,12 @@ O sanitizador compartilhado `sanitizeMerchantOverrides` rejeita entradas
 malformadas/chaves de protótipo; `{}` limpa as correções. `applyConfig` e
 `currentConfig` preservam o campo nas demais gravações de Settings.
 
+Desde v1.80.0, `merchantFromAccount` / `merchantForTransaction` aplicam antes
+das correções a regra **Amazon Card → AMAZON**, por transação. Esse cartão
+fica fora do corpus de descrições e dos membros editáveis; nomes idênticos
+em outras contas mantêm o agrupamento próprio. O editor explica quantas
+transações estão fixadas pela conta e não grava overrides para elas.
+
 `buildMerchantGroups(descriptions, overrides)` calcula primeiro os grupos
 automáticos sobre todo o histórico de despesas e aplica as escolhas exatas
 do usuário por último. Assim, duas descrições com a mesma chave automática
@@ -3823,6 +3841,11 @@ shell de altura cheia (`#root` em `100lvh` + shell `height:100%`): só o
    O matcher automático agora reconhece wrappers encadeados, referências e
    localidades com evidência, abreviações bancárias e truncamentos únicos,
    com proteção para nomes genéricos/ambiguidades e sem cadeias transitivas.
+   **Desde a v1.80.0**: todos os gastos/reembolsos da conta Amazon Card são
+   resolvidos como **AMAZON** por transação, inclusive na comparação YTD Y/Y.
+   A regra prevalece sobre correções por descrição e não alcança descrições
+   iguais em outras contas. No editor, essas transações são fixas, com aviso
+   explicativo; os demais membros do grupo continuam editáveis.
    **Desde a v1.75.2 (PR #275)**: cada linha do ranking deixou de empilhar
    valor e Y/Y em duas linhas (`fmtKFull(value)` + `"Y/Y {pct}% YTD"` abaixo)
    e virou uma única linha por categoria — rótulo 72px (era 84px) / barra

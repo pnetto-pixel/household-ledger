@@ -11,6 +11,7 @@
 // extraction that drops an export App.jsx still relies on fails here instead
 // of only in production.
 import { describe, it, expect } from "vitest";
+import { buildMerchantGroups } from "./ledger.js";
 import {
   buildYearCategoryBars,
   buildMerchantExpenseBars,
@@ -79,6 +80,40 @@ describe("buildYearCategoryBars", () => {
 });
 
 describe("buildMerchantExpenseBars", () => {
+  it("groups Amazon Card purchases and refunds as AMAZON with aligned YTD, without leaking by description", () => {
+    const rows = [
+      { date: "2026-01-01", account: "Amazon Card", description: "VITAMINS", category: "Shopping", amount: -120 },
+      { date: "2026-02-01", account: " amazon CARD ", description: "HOUSEHOLD SUPPLIES", category: "Groceries", amount: -100 },
+      { date: "2026-03-01", account: "Amazon Card", description: "VITAMINS", category: "Shopping", amount: 20 },
+      { date: "2025-01-01", account: "Amazon Card", description: "OLD PRODUCT", category: "Shopping", amount: -100 },
+      { date: "2025-12-01", account: "Amazon Card", description: "FUTURE", category: "Shopping", amount: -900 },
+      { date: "2026-01-01", account: "Other Card", description: "VITAMINS", category: "Shopping", amount: -50 },
+      { date: "2026-01-01", account: "Amazon Card", description: "CARD PAYMENT", category: "Transfer", amount: -1000 },
+      { date: "2026-01-01", account: "Amazon Card", description: "INCOME", category: "Salary", amount: 500 },
+    ];
+    const groups = buildMerchantGroups(rows.map((t) => t.description), { VITAMINS: "PHARMACY" });
+    expect(buildMerchantExpenseBars(rows, "2026", "All", "2026-07-10", groups)).toEqual([
+      { name: "AMAZON", value: 200, yoy: 100 },
+      { name: "PHARMACY", value: 50, yoy: null },
+    ]);
+    expect(buildMerchantExpenseBars(rows, "2026", "Shopping", "2026-07-10", groups)).toEqual([
+      { name: "AMAZON", value: 100, yoy: 0 },
+      { name: "PHARMACY", value: 50, yoy: null },
+    ]);
+    expect(rows[0].category).toBe("Shopping");
+    expect(rows[0].description).toBe("VITAMINS");
+  });
+
+  it("applies the Amazon Card rule without a prebuilt description map", () => {
+    expect(buildMerchantExpenseBars([
+      { date: "2025-01-01", account: "Amazon Card", description: "SOME PRODUCT", category: "Other", amount: -25 },
+      { date: "2025-01-01", account: "Other Card", description: "SOME PRODUCT", category: "Other", amount: -10 },
+    ], "2025")).toEqual([
+      { name: "AMAZON", value: 25, yoy: null },
+      { name: "SOME PRODUCT", value: 10, yoy: null },
+    ]);
+  });
+
   const rows = [
     { date: "2025-03-01", description: "TST* CAFE #123", category: "Restaurant", amount: -120 },
     { date: "2025-04-01", description: "CAFE #456", category: "Restaurant", amount: -80 },
