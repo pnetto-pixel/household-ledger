@@ -1,4 +1,4 @@
-# Household Ledger · v1.80.0
+# Household Ledger · v1.81.0
 
 Aplicativo mobile-first de controle financeiro doméstico. Registra
 transações da casa (despesas e receitas) por categoria e conta, com
@@ -31,7 +31,31 @@ O `feature-auditor` deve conferir, como parte da checklist de auditoria, que
 o diff inclui o bump nos dois arquivos antes de aprovar — se faltar, isso é
 motivo de reprovação (devolver ao coder), não um detalhe opcional.
 
-Versão atual: **v1.80.0** —
+Versão atual: **v1.81.0** —
+as regras do ranking por conta agora incluem **Venmo / Venmo Card → VENMO**
+e **Lowes / Lowes Card → LOWES**, mantendo **Amazon Card → AMAZON**.
+O editor informa os lançamentos fixos de cada comerciante e permite corrigir
+apenas os demais membros de grupos mistos. Filtros, reembolsos, exclusão de
+Transfer/receitas e YTD Y/Y continuam usando a mesma identidade por transação.
+
+O agrupamento automático também passa a aproveitar `providerDescription`,
+o texto original de `description`/`payee` que o mapper SimpleFin já preservava
+quando `memo` era usado como descrição exibida. Textos vazios, inválidos ou
+claramente genéricos usam a descrição exibida como fallback. Não há campo
+`merchant_name` padronizado no [protocolo SimpleFIN](https://www.simplefin.org/protocol.html#transaction):
+`description` é obrigatório, e extensões como `payee`/`memo` dependem da fonte.
+Não se presume um comerciante verificado a partir desse texto.
+
+`buildTransactionMerchantGroups` usa um mapa por objeto de transação, para
+que memos idênticos com fontes distintas não sejam fundidos. Precedência:
+regra por conta → correção manual pela descrição exibida original → texto da
+fonte → descrição exibida. Correções manuais mantêm as chaves existentes;
+nenhuma descrição/categoria persistida, importação, dedup ou API foi alterada.
+Ao unir grupos manualmente, só se fixam automaticamente descrições exclusivas
+do destino. Memos compartilhados com outro comerciante não são movidos sem
+seleção explícita, preservando a separação por fonte.
+
+Versão anterior: **v1.80.0** —
 transações da conta **Amazon Card** usam sempre o comerciante **AMAZON** no
 ranking de Trends, independentemente da descrição do produto ou de uma
 correção manual anterior. A conta é comparada de forma exata após normalização
@@ -3196,6 +3220,11 @@ das correções a regra **Amazon Card → AMAZON**, por transação. Esse cartã
 fica fora do corpus de descrições e dos membros editáveis; nomes idênticos
 em outras contas mantêm o agrupamento próprio. O editor explica quantas
 transações estão fixadas pela conta e não grava overrides para elas.
+Desde v1.81.0, as regras incluem Venmo/Venmo Card e Lowes/Lowes Card. O mapa
+`buildTransactionMerchantGroups` prefere `providerDescription` não genérico
+para o reconhecimento automático, preservando a chave da correção manual
+como a descrição exibida original. O mapa é por transação, não por memo, de
+modo que textos exibidos idênticos de fontes distintas continuem separados.
 
 `buildMerchantGroups(descriptions, overrides)` calcula primeiro os grupos
 automáticos sobre todo o histórico de despesas e aplica as escolhas exatas
