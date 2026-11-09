@@ -11,7 +11,7 @@
 // extraction that drops an export App.jsx still relies on fails here instead
 // of only in production.
 import { describe, it, expect } from "vitest";
-import { buildMerchantGroups } from "./ledger.js";
+import { buildMerchantGroups, buildTransactionMerchantGroups } from "./ledger.js";
 import {
   buildYearCategoryBars,
   buildMerchantExpenseBars,
@@ -80,6 +80,41 @@ describe("buildYearCategoryBars", () => {
 });
 
 describe("buildMerchantExpenseBars", () => {
+  it("applies Venmo and Lowes account rules to expenses/refunds and both years without description leakage", () => {
+    const rows = [
+      { date: "2026-01-01", account: "Venmo", description: "PERSON A", category: "Restaurant", amount: -100 },
+      { date: "2026-02-01", account: "VENMO", description: "REFUND", category: "Restaurant", amount: 20 },
+      { date: "2025-01-01", account: "Venmo", description: "PERSON B", category: "Restaurant", amount: -40 },
+      { date: "2026-01-01", account: "Lowe's Card", description: "ITEM A", category: "Home", amount: -200 },
+      { date: "2026-01-02", account: "Lowes Card", description: "REFUND", category: "Home", amount: 50 },
+      { date: "2025-01-01", account: "Lowes", description: "ITEM B", category: "Home", amount: -100 },
+      { date: "2026-01-01", account: "Other Card", description: "PERSON A", category: "Restaurant", amount: -10 },
+      { date: "2026-01-01", account: "Venmo", description: "TRANSFER", category: "Transfer", amount: -1000 },
+      { date: "2026-01-01", account: "Venmo", description: "INCOME", category: "Salary", amount: 500 },
+    ];
+    const groups = buildTransactionMerchantGroups(rows, { "PERSON A": "FRIEND", "ITEM A": "FURNITURE" });
+    expect(buildMerchantExpenseBars(rows, "2026", "All", "2026-07-10", groups)).toEqual([
+      { name: "LOWES", value: 150, yoy: 50 },
+      { name: "VENMO", value: 80, yoy: 100 },
+      { name: "FRIEND", value: 10, yoy: null },
+    ]);
+    expect(buildMerchantExpenseBars(rows, "2026", "Restaurant", "2026-07-10", groups)).toEqual([
+      { name: "VENMO", value: 80, yoy: 100 },
+      { name: "FRIEND", value: 10, yoy: null },
+    ]);
+  });
+
+  it("uses original source descriptions to combine item memos and calculate merchant Y/Y", () => {
+    const rows = [
+      { date: "2026-01-01", account: "Other Card", description: "Bread", providerDescription: "WHOLE FOODS MARKET AUSTIN TX", category: "Groceries", amount: -100 },
+      { date: "2026-02-01", account: "Other Card", description: "Fruit", providerDescription: "WHOLEFDS LAM 10044 AUSTIN TX", category: "Groceries", amount: -50 },
+      { date: "2025-01-01", account: "Other Card", description: "Milk", providerDescription: "WHOLE FOODS", category: "Groceries", amount: -100 },
+    ];
+    expect(buildMerchantExpenseBars(rows, "2026", "All", "2026-07-10")).toEqual([
+      { name: "WHOLE FOODS", value: 150, yoy: 50 },
+    ]);
+  });
+
   it("groups Amazon Card purchases and refunds as AMAZON with aligned YTD, without leaking by description", () => {
     const rows = [
       { date: "2026-01-01", account: "Amazon Card", description: "VITAMINS", category: "Shopping", amount: -120 },

@@ -25,7 +25,11 @@ import {
   normalizeMerchant,
   merchantKey,
   buildMerchantGroups,
+  buildTransactionMerchantGroups,
+  merchantFromAccount,
+  merchantForTransaction,
   sanitizeMerchantOverrides,
+  mergeMerchantGroupOverrides,
   isMemoryTrainableRow,
   buildMerchantMemory,
   classifyMerchantMemory,
@@ -145,6 +149,135 @@ describe("sanitizeMerchantOverrides", () => {
     }
     const edge = "x".repeat(2000);
     expect(sanitizeMerchantOverrides({ [edge]: "y".repeat(100) })[edge]).toBe("Y".repeat(100));
+  });
+});
+
+describe("buildTransactionMerchantGroups", () => {
+  it("groups different product memos using already-preserved provider descriptions", () => {
+    const rows = [
+      { description: "Latte and sandwich", providerDescription: "  STARBUCKS #1234  ", account: "Checking" },
+      { description: "Coffee beans", providerDescription: "STARBUCKS #5678", account: "Other Card" },
+    ];
+    const groups = buildTransactionMerchantGroups(rows);
+    expect(rows.map((row) => merchantForTransaction(row, groups))).toEqual(["STARBUCKS", "STARBUCKS"]);
+    expect(rows[0].description).toBe("Latte and sandwich");
+    expect(rows[0].providerDescription).toBe("  STARBUCKS #1234  ");
+  });
+
+  it("separates identical display descriptions when their source merchants differ", () => {
+    const rows = [
+      { description: "Order detail", providerDescription: "SHOP A", account: "Checking" },
+      { description: "Order detail", providerDescription: "SHOP B", account: "Checking" },
+      { description: "Order detail", account: "Checking" },
+    ];
+    const groups = buildTransactionMerchantGroups(rows);
+    expect(rows.map((row) => merchantForTransaction(row, groups))).toEqual(["SHOP A", "SHOP B", "ORDER DETAIL"]);
+  });
+
+  it("applies manual choices to exact display keys rather than source text", () => {
+    const rows = [
+      { description: " latte ", providerDescription: "STARBUCKS" },
+      { description: "latte", providerDescription: "STARBUCKS" },
+      { description: "STARBUCKS", providerDescription: "SHOP B" },
+    ];
+    const groups = buildTransactionMerchantGroups(rows, { " latte ": " local cafe ", STARBUCKS: "independent shop" });
+    expect(rows.map((row) => merchantForTransaction(row, groups))).toEqual(["LOCAL CAFE", "STARBUCKS", "INDEPENDENT SHOP"]);
+  });
+
+  it("keeps saved display-wide choices consistent across different source contexts", () => {
+    const rows = [{ description: "Same memo", providerDescription: "SHOP A" }, { description: "Same memo", providerDescription: "SHOP B" }];
+    const groups = buildTransactionMerchantGroups(rows, { "Same memo": "chosen merchant" });
+    expect(rows.map((row) => merchantForTransaction(row, groups))).toEqual(["CHOSEN MERCHANT", "CHOSEN MERCHANT"]);
+  });
+
+  it("falls back to displayed merchants for invalid, blank or generic provider text", () => {
+    const providers = [undefined, null, "", "  ", 123, {}, "UNKNOWN", " (no description) ", "PURCHASE", "debit card purchase", "PAYMENT"];
+    const rows = providers.map((providerDescription, index) => ({ description: index % 2 ? "SHOP A" : "SHOP B", providerDescription }));
+    const groups = buildTransactionMerchantGroups(rows);
+    expect(rows.map((row) => merchantForTransaction(row, groups))).toEqual(rows.map((row) => row.description));
+  });
+
+  it("gives exact account rules precedence without leaking to matching descriptions on other accounts", () => {
+    const rows = [
+      { account: "Amazon Card", description: "Shared memo", providerDescription: "SHOP A" },
+      { account: "VENMO", description: "Shared memo", providerDescription: "SHOP A" },
+      { account: " Venmo Card ", description: "Shared memo", providerDescription: "SHOP A" },
+      { account: "Lowe's", description: "Shared memo", providerDescription: "SHOP A" },
+      { account: "Lowes Card", description: "Shared memo", providerDescription: "SHOP A" },
+      { account: "Other Card", description: "Shared memo", providerDescription: "SHOP A" },
+    ];
+    const groups = buildTransactionMerchantGroups(rows, { "Shared memo": "manual shop" });
+    expect(rows.map((row) => merchantForTransaction(row, groups))).toEqual(["AMAZON", "VENMO", "VENMO", "LOWES", "LOWES", "MANUAL SHOP"]);
+    for (const account of ["Amazon", "Venmo Credit Card", "My Lowes Card", "Venmo Savings"]) {
+      expect(merchantFromAccount({ account })).toBeNull();
+    }
+  });
+
+  it("does not let fixed-account source texts bias other merchants' automatic identities", () => {
+    const ordinary = [
+      { account: "Other Card", description: "coffee one", providerDescription: "STARBUCKS" },
+      { account: "Other Card", description: "coffee two", providerDescription: "STARBUCKS" },
+      { account: "Other Card", description: "coffee three", providerDescription: "STARBUKCS" },
+    ];
+    const fixed = Array.from({ length: 10 }, () => ({ account: "Venmo", description: "note", providerDescription: "STARBUKCS" }));
+    const groups = buildTransactionMerchantGroups([...ordinary, ...fixed]);
+    expect(ordinary.map((row) => merchantForTransaction(row, groups))).toEqual(["STARBUCKS", "STARBUCKS", "STARBUCKS"]);
+    expect(fixed.map((row) => merchantForTransaction(row, groups))).toEqual(Array(10).fill("VENMO"));
+  });
+
+  it("keeps the legacy description-keyed map resolver compatible", () => {
+    const legacy = new Map([["raw memo", "MY SHOP"]]);
+    expect(merchantForTransaction({ description: "raw memo", account: "Checking" }, legacy)).toBe("MY SHOP");
+    expect(merchantForTransaction({ description: "raw memo", account: "Venmo" }, legacy)).toBe("VENMO");
+  });
+});
+
+describe("mergeMerchantGroupOverrides", () => {
+  it("pins unique destination descriptions and matches target names case-insensitively", () => {
+    const groups = new Map([
+      ["Shop A", new Map([["A original memo", 3], ["A second memo", 2]])],
+      ["SHOP C", new Map([["C memo", 1]])],
+    ]);
+    expect(mergeMerchantGroupOverrides({}, new Set(["C memo"]), " shop a ", groups)).toEqual({
+      "A original memo": "SHOP A", "A second memo": "SHOP A", "C memo": "SHOP A",
+    });
+  });
+
+  it("does not auto-pin a destination description shared with another source merchant", () => {
+    const rows = [
+      { description: "Order detail", providerDescription: "SHOP A" },
+      { description: "Order detail", providerDescription: "SHOP B" },
+      { description: "C memo", providerDescription: "SHOP C" },
+    ];
+    const groups = new Map([
+      ["SHOP A", new Map([["Order detail", 1]])],
+      ["SHOP B", new Map([["Order detail", 1]])],
+      ["SHOP C", new Map([["C memo", 1]])],
+    ]);
+    const next = mergeMerchantGroupOverrides({}, ["C memo"], "SHOP A", groups);
+    expect(next).toEqual({ "C memo": "SHOP A" });
+    const resolved = buildTransactionMerchantGroups(rows, next);
+    expect(rows.map((row) => merchantForTransaction(row, resolved))).toEqual(["SHOP A", "SHOP B", "SHOP A"]);
+  });
+
+  it("allows a deliberately selected ambiguous description to apply display-wide", () => {
+    const groups = new Map([
+      ["SHOP A", new Map([["Order detail", 1]])],
+      ["SHOP B", new Map([["Order detail", 2]])],
+    ]);
+    expect(mergeMerchantGroupOverrides({}, ["Order detail"], "CUSTOM", groups)).toEqual({ "Order detail": "CUSTOM" });
+  });
+
+  it("preserves existing overrides, exact raw keys and input objects", () => {
+    const overrides = { "Old memo": "PRESERVED", " Order detail ": "EXISTING" };
+    const groups = new Map([
+      ["SHOP A", new Map([["Order detail", 1]])],
+      ["SHOP B", new Map([["Order detail", 1]])],
+    ]);
+    const next = mergeMerchantGroupOverrides(overrides, new Set([" New memo "]), "SHOP A", groups);
+    expect(next).toEqual({ "Old memo": "PRESERVED", " Order detail ": "EXISTING", " New memo ": "SHOP A" });
+    expect(overrides).toEqual({ "Old memo": "PRESERVED", " Order detail ": "EXISTING" });
+    expect(groups.get("SHOP B")).toEqual(new Map([["Order detail", 1]]));
   });
 });
 

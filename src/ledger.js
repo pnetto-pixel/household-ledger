@@ -416,14 +416,73 @@ export function sanitizeMerchantOverrides(value) {
   return out;
 }
 
+export function mergeMerchantGroupOverrides(overrides, selectedDescriptions, merchant, groups) {
+  const next = Object.assign(Object.create(null), sanitizeMerchantOverrides(overrides));
+  const target = typeof merchant === "string" ? merchant.trim().toUpperCase() : "";
+  if (!target || target.length > 100) return next;
+
+  const memberships = new Map();
+  for (const members of groups.values()) {
+    for (const description of members.keys()) {
+      memberships.set(description, (memberships.get(description) || 0) + 1);
+    }
+  }
+  const destination = [...groups].find(([name]) => name.trim().toUpperCase() === target)?.[1];
+  // Pin existing destination identities only when doing so cannot also move
+  // an unrelated source-resolved merchant with the same displayed memo.
+  for (const description of destination?.keys() || []) {
+    if (memberships.get(description) === 1) next[description] = target;
+  }
+  // An explicitly selected raw description remains display-wide, matching
+  // the editor's documented scope and existing saved-override contract.
+  for (const description of selectedDescriptions) next[description] = target;
+  return sanitizeMerchantOverrides(next);
+}
+
 // Explicit account rule for the merchant ranking. Resolve per transaction:
 // identical descriptions on other accounts must keep their own merchant.
+const ACCOUNT_MERCHANTS = new Map([
+  ["amazoncard", "AMAZON"], ["venmo", "VENMO"], ["venmocard", "VENMO"],
+  ["lowes", "LOWES"], ["lowescard", "LOWES"],
+]);
+
 export function merchantFromAccount(transaction) {
-  return normAccount(transaction?.account) === "amazoncard" ? "AMAZON" : null;
+  return ACCOUNT_MERCHANTS.get(normAccount(transaction?.account)) || null;
 }
 
 export function merchantForTransaction(transaction, groups) {
-  return merchantFromAccount(transaction) || groups.get(String(transaction.description || ""));
+  // Object-keyed maps distinguish transactions with the same display text
+  // but different provider descriptions. Keep raw-keyed maps compatible.
+  return merchantFromAccount(transaction) || groups?.get(transaction)
+    || groups?.get(String(transaction?.description || ""));
+}
+
+const GENERIC_PROVIDER_DESCRIPTIONS = new Set([
+  "no description", "unknown", "unknown merchant", "n/a", "purchase", "card purchase",
+  "debit card purchase", "credit card purchase", "payment", "online payment", "pos",
+]);
+
+function merchantGroupingText(transaction) {
+  const provider = typeof transaction.providerDescription === "string" ? transaction.providerDescription.trim() : "";
+  // Source text is useful when memo contains item/order details. Blank or
+  // known boilerplate source text must not collapse otherwise distinct shops.
+  const genericKey = provider.toLowerCase().replace(/[()]/g, "").replace(/\s+/g, " ").trim();
+  return provider && !GENERIC_PROVIDER_DESCRIPTIONS.has(genericKey)
+    ? provider : String(transaction.description || "");
+}
+
+export function buildTransactionMerchantGroups(transactions, overrides = {}) {
+  const rows = (transactions || []).filter((row) => row && typeof row === "object");
+  const automatic = buildMerchantGroups(rows.filter((row) => !merchantFromAccount(row)).map(merchantGroupingText));
+  const manual = sanitizeMerchantOverrides(overrides);
+  return new Map(rows.map((row) => {
+    const display = String(row.description || "");
+    // Manual choices remain keyed to the ORIGINAL displayed description;
+    // source-description coincidences cannot apply another row's override.
+    const merchant = merchantFromAccount(row)
+      || (Object.hasOwn(manual, display) ? manual[display] : automatic.get(merchantGroupingText(row)));
+    return [row, merchant];
+  }));
 }
 
 export function buildMerchantGroups(descriptions, overrides = {}) {

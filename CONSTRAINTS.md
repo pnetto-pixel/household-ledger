@@ -118,6 +118,15 @@ Desde v1.80.0, a regra por conta **Amazon Card → AMAZON** tem precedência sob
 correções por descrição. Resolver por transação via `merchantForTransaction`,
 para não afetar descrições iguais em outras contas. Lançamentos dessa conta
 ficam fora do corpus automático e dos membros editáveis do ranking.
+Desde v1.81.0, também **Venmo / Venmo Card → VENMO** e
+**Lowes / Lowes Card → LOWES**. `buildTransactionMerchantGroups` usa o texto
+`providerDescription` já persistido como sinal automático quando não genérico,
+com fallback para a descrição exibida. Corrigir manualmente continua usando
+a descrição exibida exata; o mapa por transação evita colisões entre memos
+iguais de fontes distintas. Não mudar a descrição visível nem o dedup.
+Ao unir grupos, `mergeMerchantGroupOverrides` só fixa descrições exclusivas
+do destino; descrições compartilhadas exigem seleção explícita para uma
+correção global. Evita arrastar grupos de outra fonte com o mesmo memo.
 
 ## Versionamento (OBRIGATÓRIO em todo PR)
 
