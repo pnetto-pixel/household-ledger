@@ -78,6 +78,8 @@ import {
   resolveImportCategory,
   buildMerchantMemory,
   buildMerchantGroups,
+  merchantFromAccount,
+  merchantForTransaction,
   sanitizeMerchantOverrides,
   txnFingerprint,
   markDuplicates,
@@ -716,7 +718,7 @@ function idleExpired() {
 // path, so the pending copy is discarded with a notice instead).
 
 // Single source for the version shown in the header and in diagnostics.
-const APP_VERSION = "v1.79.0";
+const APP_VERSION = "v1.80.0";
 
 const PENDING_SAVE_KEY = "household_pending_save";
 
@@ -5382,7 +5384,7 @@ const MERCHANT_TOP_N = 10;
 
 export function buildMerchantExpenseBars(transactions, year, category = "All", asOf = todayISO(), groups = null) {
   const merchantGroups = groups || buildMerchantGroups(transactions
-    .filter((t) => !isTransfer(t.category) && !isIncome(t.category))
+    .filter((t) => !isTransfer(t.category) && !isIncome(t.category) && !merchantFromAccount(t))
     .map((t) => t.description));
   const totals = new Map();
   const previous = new Map();
@@ -5396,7 +5398,7 @@ export function buildMerchantExpenseBars(transactions, year, category = "All", a
     if (category !== "All" && t.category !== category) continue;
     const amount = Number(t.amount);
     if (!Number.isFinite(amount)) continue;
-    const name = merchantGroups.get(String(t.description || ""));
+    const name = merchantForTransaction(t, merchantGroups);
     const target = current ? totals : previous;
     target.set(name, (target.get(name) || 0) + amount);
   }
@@ -5427,20 +5429,25 @@ function ExpensesByMerchantCard({ transactions, years, config, hideValues, isWid
   // Build one identity map across all years/categories so changing a filter
   // cannot change how a merchant is matched to its prior-year counterpart.
   const merchantGroups = useMemo(() => buildMerchantGroups(transactions
-    .filter((t) => !isTransfer(t.category) && !isIncome(t.category))
+    .filter((t) => !isTransfer(t.category) && !isIncome(t.category) && !merchantFromAccount(t))
     .map((t) => t.description), config?.merchantOverrides), [transactions, config]);
-  const merchantMembers = useMemo(() => {
+  const merchantDetails = useMemo(() => {
     const groups = new Map();
+    let amazonCardCount = 0;
     for (const t of transactions) {
       if (isTransfer(t.category) || isIncome(t.category)) continue;
       const description = String(t.description || "");
-      const name = merchantGroups.get(description);
+      const name = merchantForTransaction(t, merchantGroups);
       if (!groups.has(name)) groups.set(name, new Map());
+      // Account-assigned rows cannot create description-wide corrections,
+      // which would also affect matching descriptions on another card.
+      if (merchantFromAccount(t)) { amazonCardCount++; continue; }
       const members = groups.get(name);
       members.set(description, (members.get(description) || 0) + 1);
     }
-    return groups;
+    return { groups, amazonCardCount };
   }, [transactions, merchantGroups, config]);
+  const merchantMembers = merchantDetails.groups;
   const asOf = todayISO();
   const bars = useMemo(
     () => buildMerchantExpenseBars(transactions, effectiveYear, effectiveCategory, asOf, merchantGroups),
@@ -5517,6 +5524,7 @@ function ExpensesByMerchantCard({ transactions, years, config, hideValues, isWid
           members={merchantMembers.get(editingMerchant) || new Map()}
           groups={merchantMembers}
           overrides={config?.merchantOverrides || {}}
+          accountRuleCount={editingMerchant === "AMAZON" ? merchantDetails.amazonCardCount : 0}
           onSave={onSaveMerchantOverrides}
           onClose={closeMerchantEditor}
         />
@@ -5525,7 +5533,7 @@ function ExpensesByMerchantCard({ transactions, years, config, hideValues, isWid
   );
 }
 
-function MerchantGroupEditor({ name, members, groups, overrides, onSave, onClose }) {
+function MerchantGroupEditor({ name, members, groups, overrides, accountRuleCount = 0, onSave, onClose }) {
   const [selected, setSelected] = useState(() => new Set(members.keys()));
   const [target, setTarget] = useState(name);
   const [saving, setSaving] = useState(false);
@@ -5537,7 +5545,7 @@ function MerchantGroupEditor({ name, members, groups, overrides, onSave, onClose
   const optionsId = React.useId();
   useEffect(() => {
     const prior = document.activeElement;
-    nameRef.current?.focus();
+    (nameRef.current || dialogRef.current?.querySelector("button") || dialogRef.current)?.focus();
     const keydown = (event) => {
       if (event.key === "Escape" && !savingRef.current) onClose();
       if (event.key !== "Tab") return;
@@ -5592,6 +5600,8 @@ function MerchantGroupEditor({ name, members, groups, overrides, onSave, onClose
           <h3 style={S.merchantEditorTitle}>Edit merchant group</h3>
           <button type="button" aria-label="Close merchant editor" disabled={saving} onClick={onClose} style={S.linkBtn}><X size={18} /></button>
         </div>
+        {accountRuleCount > 0 && <p style={S.merchantEditorHelp}>{accountRuleCount} Amazon Card {accountRuleCount === 1 ? "transaction is" : "transactions are"} always grouped as AMAZON. {members.size > 0 ? "The descriptions below apply to other accounts." : "This group is assigned by the account rule."}</p>}
+        {members.size > 0 && <>
         <p style={S.merchantEditorHelp}>Select descriptions to move together. Choose an existing merchant or enter a new name to separate them. Applies across all years and categories.</p>
         <form onSubmit={(e) => { e.preventDefault(); submit(); }} style={S.merchantEditorForm}>
           <label style={S.merchantEditorLabel} htmlFor={`${optionsId}-name`}>Merchant name</label>
@@ -5615,6 +5625,7 @@ function MerchantGroupEditor({ name, members, groups, overrides, onSave, onClose
             <button type="submit" disabled={saving || selected.size === 0 || !target.trim()} style={S.primaryBtn}>{saving ? "Saving…" : "Save grouping"}</button>
           </div>
         </form>
+        </>}
       </div>
     </div>, document.body
   );

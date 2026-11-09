@@ -416,6 +416,16 @@ export function sanitizeMerchantOverrides(value) {
   return out;
 }
 
+// Explicit account rule for the merchant ranking. Resolve per transaction:
+// identical descriptions on other accounts must keep their own merchant.
+export function merchantFromAccount(transaction) {
+  return normAccount(transaction?.account) === "amazoncard" ? "AMAZON" : null;
+}
+
+export function merchantForTransaction(transaction, groups) {
+  return merchantFromAccount(transaction) || groups.get(String(transaction.description || ""));
+}
+
 export function buildMerchantGroups(descriptions, overrides = {}) {
   const entries = new Map();
   const rawNames = new Map();

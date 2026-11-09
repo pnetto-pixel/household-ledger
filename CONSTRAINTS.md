@@ -114,6 +114,10 @@ comerciantes. Persistido no GET/PUT existente de `/api/config`, não no ledger.
 `sanitizeMerchantOverrides` valida o campo no cliente e servidor; `currentConfig`
 deve preservá-lo nas demais gravações. Escolhas manuais prevalecem no helper
 analítico `buildMerchantGroups`; não alteram classificação/dedup da importação.
+Desde v1.80.0, a regra por conta **Amazon Card → AMAZON** tem precedência sobre
+correções por descrição. Resolver por transação via `merchantForTransaction`,
+para não afetar descrições iguais em outras contas. Lançamentos dessa conta
+ficam fora do corpus automático e dos membros editáveis do ranking.
 
 ## Versionamento (OBRIGATÓRIO em todo PR)
 
